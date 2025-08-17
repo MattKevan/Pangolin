@@ -12,18 +12,13 @@ struct VideoGridItem: View {
     let video: Video
     let isSelected: Bool
     let showCheckbox: Bool
+    let sourcePlaylist: Playlist?
+    let selectedVideos: Set<Video>
     
     var body: some View {
         VStack {
             ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.gray.opacity(0.2))
-                    .aspectRatio(16/9, contentMode: .fit)
-                    .overlay(
-                        Image(systemName: "play.rectangle.fill")
-                            .font(.largeTitle)
-                            .foregroundColor(.gray.opacity(0.5))
-                    )
+                VideoThumbnailView(video: video, size: CGSize(width: 180, height: 101))
                 
                 if showCheckbox {
                     Button(action: {}) {
@@ -52,22 +47,12 @@ struct VideoGridItem: View {
                 .fill(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
         )
         #if os(macOS)
-        .draggable(VideoTransfer(id: video.id, title: video.title)) {
-            VStack {
-                Image(systemName: "video")
-                    .font(.title)
-                Text(video.title)
-                    .font(.caption)
-                    .lineLimit(1)
-            }
-            .padding()
-            .background(Color.gray.opacity(0.8))
-            .cornerRadius(8)
-        }
+        .modifier(DragModifier(video: video, selectedVideos: selectedVideos, sourcePlaylist: sourcePlaylist))
         #else
         .onDrag {
             NSItemProvider(object: "\(video.id)" as NSString)
         }
         #endif
     }
+    
 }

@@ -8,6 +8,11 @@
 import Foundation
 import CoreData
 import AVFoundation
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 class FileSystemManager {
     static let shared = FileSystemManager()
@@ -199,6 +204,100 @@ class FileSystemManager {
             resolution: resolution,
             frameRate: frameRate
         )
+    }
+    
+    // MARK: - Thumbnail Generation
+    
+    private func generateThumbnail(for videoURL: URL, in library: Library) async throws -> String? {
+        guard let libraryURL = library.url else {
+            throw FileSystemError.invalidLibraryPath
+        }
+        
+        let asset = AVURLAsset(url: videoURL)
+        let imageGenerator = AVAssetImageGenerator(asset: asset)
+        imageGenerator.appliesPreferredTrackTransform = true
+        imageGenerator.maximumSize = CGSize(width: 320, height: 180) // 16:9 aspect ratio
+        
+        // Generate thumbnail at 10% of video duration, or 5 seconds, whichever is smaller
+        let duration = try await asset.load(.duration)
+        let durationSeconds = CMTimeGetSeconds(duration)
+        let thumbnailTime = CMTime(seconds: min(durationSeconds * 0.1, 5.0), preferredTimescale: 600)
+        
+        do {
+            let cgImage = try await imageGenerator.image(at: thumbnailTime).image
+            
+            // Create thumbnail directory structure
+            let videoRelativePath = videoURL.path.replacingOccurrences(of: libraryURL.path + "/Videos/", with: "")
+            let thumbnailDir = libraryURL.appendingPathComponent("Thumbnails")
+                .appendingPathComponent(URL(fileURLWithPath: videoRelativePath).deletingLastPathComponent().path)
+            
+            try fileManager.createDirectory(at: thumbnailDir, withIntermediateDirectories: true)
+            
+            // Save thumbnail as JPEG
+            let thumbnailFileName = URL(fileURLWithPath: videoRelativePath).deletingPathExtension().lastPathComponent + ".jpg"
+            let thumbnailURL = thumbnailDir.appendingPathComponent(thumbnailFileName)
+            
+            #if os(macOS)
+            let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+            if let tiffData = nsImage.tiffRepresentation,
+               let bitmapRep = NSBitmapImageRep(data: tiffData),
+               let jpegData = bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) {
+                try jpegData.write(to: thumbnailURL)
+            }
+            #else
+            let uiImage = UIImage(cgImage: cgImage)
+            if let jpegData = uiImage.jpegData(compressionQuality: 0.8) {
+                try jpegData.write(to: thumbnailURL)
+            }
+            #endif
+            
+            // Return relative path for thumbnail
+            return thumbnailURL.path.replacingOccurrences(of: libraryURL.path + "/Thumbnails/", with: "")
+            
+        } catch {
+            print("Failed to generate thumbnail for \(videoURL.lastPathComponent): \(error)")
+            return nil
+        }
+    }
+    
+    // MARK: - Thumbnail Generation for Existing Videos
+    
+    func generateMissingThumbnails(for library: Library, context: NSManagedObjectContext) async {
+        guard let libraryURL = library.url else { return }
+        
+        let request = Video.fetchRequest()
+        request.predicate = NSPredicate(format: "library == %@ AND thumbnailPath == nil", library)
+        
+        do {
+            let videosWithoutThumbnails = try context.fetch(request)
+            print("Found \(videosWithoutThumbnails.count) videos without thumbnails")
+            
+            for video in videosWithoutThumbnails {
+                guard let videoURL = video.fileURL else { continue }
+                
+                do {
+                    let thumbnailPath = try await generateThumbnail(for: videoURL, in: library)
+                    await MainActor.run {
+                        video.thumbnailPath = thumbnailPath
+                    }
+                } catch {
+                    print("Failed to generate thumbnail for \(video.fileName): \(error)")
+                }
+            }
+            
+            // Save context on main thread
+            await MainActor.run {
+                do {
+                    try context.save()
+                    print("Successfully saved thumbnails for \(videosWithoutThumbnails.count) videos")
+                } catch {
+                    print("Failed to save thumbnail paths: \(error)")
+                }
+            }
+            
+        } catch {
+            print("Failed to fetch videos without thumbnails: \(error)")
+        }
     }
 }
 

@@ -203,6 +203,11 @@ class LibraryManager: ObservableObject {
         
         loadingProgress = 1.0
         
+        // Generate thumbnails for videos that don't have them (async in background)
+        Task {
+            await FileSystemManager.shared.generateMissingThumbnails(for: library, context: context)
+        }
+        
         return library
     }
     

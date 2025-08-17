@@ -53,12 +53,26 @@ public class Video: NSManagedObject, Identifiable {
     var hasSubtitles: Bool {
         return (subtitles?.count ?? 0) > 0
     }
+    
+    var thumbnailURL: URL? {
+        guard let library = library,
+              let libraryPath = library.url,
+              let thumbnailPath = thumbnailPath else { return nil }
+        return libraryPath.appendingPathComponent("Thumbnails").appendingPathComponent(thumbnailPath)
+    }
 }
 
 // Helper struct for transferring video data
 public struct VideoTransfer: Codable, Transferable {
     let id: UUID
     let title: String
+    let sourcePlaylistId: UUID?
+    
+    init(video: Video, sourcePlaylist: Playlist? = nil) {
+        self.id = video.id
+        self.title = video.title
+        self.sourcePlaylistId = sourcePlaylist?.id
+    }
     
     public static var transferRepresentation: some TransferRepresentation {
         DataRepresentation(contentType: .data) { video in
@@ -93,11 +107,58 @@ public class Playlist: NSManagedObject, Identifiable {
     
     var childPlaylistsArray: [Playlist]? {
         guard let children = childPlaylists, !children.isEmpty else { return nil }
-        return Array(children).sorted { $0.name < $1.name }
+        return Array(children).sorted { $0.sortOrder < $1.sortOrder }
+    }
+    
+    enum ContentType {
+        case empty      // Can accept videos or playlists
+        case playlist   // Contains videos, can only accept more videos
+        case folder     // Contains playlists, can only accept more playlists
+    }
+    
+    var contentType: ContentType {
+        let hasVideos = (videos?.count ?? 0) > 0
+        let hasPlaylists = (childPlaylists?.count ?? 0) > 0
+        
+        if hasVideos && hasPlaylists {
+            // Legacy mixed content - treat as folder for safety
+            return .folder
+        } else if hasVideos {
+            return .playlist
+        } else if hasPlaylists {
+            return .folder
+        } else {
+            return .empty
+        }
     }
     
     var isFolder: Bool {
-        return (childPlaylists?.count ?? 0) > 0
+        return contentType == .folder
+    }
+    
+    var canAcceptVideos: Bool {
+        return contentType != .folder
+    }
+    
+    var canAcceptPlaylists: Bool {
+        return contentType != .playlist
+    }
+    
+    var dynamicIconName: String {
+        // System playlists use their custom icons
+        if isSystemPlaylist, let icon = iconName {
+            return icon
+        }
+        
+        // User playlists use content-based icons
+        switch contentType {
+        case .empty:
+            return "folder.badge.plus"  // Empty, can accept anything
+        case .playlist:
+            return "music.note.list"    // Contains videos
+        case .folder:
+            return "folder"             // Contains playlists
+        }
     }
     
     var videoCount: Int {

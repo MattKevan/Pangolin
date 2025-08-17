@@ -21,10 +21,10 @@ class VideoPlayerViewModel: ObservableObject {
     @Published var playbackRate: Float = 1.0
     @Published var availableSubtitles: [Subtitle] = []
     @Published var selectedSubtitle: Subtitle?
+    @Published var currentVideo: Video?
     
     private var timeObserver: Any?
     private var cancellables = Set<AnyCancellable>()
-    private var currentVideo: Video?
     
     func loadVideo(_ video: Video) {
         currentVideo = video

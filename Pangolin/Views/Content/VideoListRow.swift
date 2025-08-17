@@ -12,6 +12,8 @@ struct VideoListRow: View {
     let video: Video
     let isSelected: Bool
     let showCheckbox: Bool
+    let sourcePlaylist: Playlist?
+    let selectedVideos: Set<Video>
     
     var body: some View {
         HStack {
@@ -24,13 +26,7 @@ struct VideoListRow: View {
                 .allowsHitTesting(false)
             }
             
-            RoundedRectangle(cornerRadius: 4)
-                .fill(Color.gray.opacity(0.2))
-                .frame(width: 120, height: 67.5)
-                .overlay(
-                    Image(systemName: "play.rectangle.fill")
-                        .foregroundColor(.gray.opacity(0.5))
-                )
+            VideoThumbnailView(video: video, size: CGSize(width: 120, height: 67.5))
             
             VStack(alignment: .leading) {
                 Text(video.title)
@@ -53,18 +49,7 @@ struct VideoListRow: View {
                 .fill(isSelected ? Color.accentColor.opacity(0.1) : Color.clear)
         )
         #if os(macOS)
-        .draggable(VideoTransfer(id: video.id, title: video.title)) {
-            HStack {
-                Image(systemName: "video")
-                    .font(.title2)
-                Text(video.title)
-                    .font(.caption)
-                    .lineLimit(1)
-            }
-            .padding()
-            .background(Color.gray.opacity(0.8))
-            .cornerRadius(8)
-        }
+        .modifier(DragModifier(video: video, selectedVideos: selectedVideos, sourcePlaylist: sourcePlaylist))
         #else
         .onDrag {
             NSItemProvider(object: "\(video.id)" as NSString)
@@ -77,4 +62,5 @@ struct VideoListRow: View {
         formatter.countStyle = .file
         return formatter.string(fromByteCount: bytes)
     }
+    
 }

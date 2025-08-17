@@ -112,7 +112,26 @@ struct CreatePlaylistFromSelectionView: View {
         playlist.dateModified = Date()
         playlist.library = library
         playlist.parentPlaylist = selectedParent
-        playlist.sortOrder = 0
+        // Get the next sort order for user playlists
+        let sortOrderRequest = Playlist.fetchRequest()
+        if let parent = selectedParent {
+            sortOrderRequest.predicate = NSPredicate(format: "library == %@ AND type == %@ AND parentPlaylist == %@", library, PlaylistType.user.rawValue, parent)
+        } else {
+            sortOrderRequest.predicate = NSPredicate(format: "library == %@ AND type == %@ AND parentPlaylist == NULL", library, PlaylistType.user.rawValue)
+        }
+        sortOrderRequest.sortDescriptors = [NSSortDescriptor(keyPath: \Playlist.sortOrder, ascending: false)]
+        sortOrderRequest.fetchLimit = 1
+        
+        let nextSortOrder: Int32
+        do {
+            let existingPlaylists = try context.fetch(sortOrderRequest)
+            nextSortOrder = (existingPlaylists.first?.sortOrder ?? -1) + 1
+        } catch {
+            print("Failed to fetch existing playlists for sort order: \(error)")
+            nextSortOrder = 0
+        }
+        
+        playlist.sortOrder = nextSortOrder
         
         // Add selected videos to the playlist
         let mutableVideos = playlist.mutableSetValue(forKey: "videos")

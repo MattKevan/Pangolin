@@ -26,8 +26,9 @@ struct ContentListView: View {
     @EnvironmentObject var libraryManager: LibraryManager
     @State private var allVideos: [Video] = []
     @State private var isSelectionMode = false
-    @State private var selectedVideos: Set<Video> = []
+    @State private var selectedVideos: Set<Video.ID> = []
     @State private var showingCreatePlaylist = false
+    @State private var isGeneratingThumbnails = false
     
     enum ViewMode: String, CaseIterable {
         case grid = "Grid"
@@ -69,141 +70,16 @@ struct ContentListView: View {
         }
     }
     
+    var videosWithoutThumbnails: [Video] {
+        return videos.filter { $0.thumbnailPath == nil }
+    }
+    
     var body: some View {
         VStack {
-            if videos.isEmpty {
-                ContentUnavailableView(
-                    "No Videos",
-                    systemImage: "video.slash",
-                    description: Text(playlist == nil ? "Import videos to get started" : "This playlist is empty")
-                )
-            } else {
-                switch viewMode {
-                case .grid:
-                    ScrollView {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 180))], spacing: 20) {
-                            ForEach(videos, id: \.id) { video in
-                                VideoGridItem(
-                                    video: video, 
-                                    isSelected: isSelectionMode ? selectedVideos.contains(video) : selectedVideo?.id == video.id,
-                                    showCheckbox: isSelectionMode
-                                )
-                                .onTapGesture {
-                                    if isSelectionMode {
-                                        toggleVideoSelection(video)
-                                    } else {
-                                        selectedVideo = video
-                                    }
-                                }
-                            }
-                        }
-                        .padding()
-                    }
-                case .list:
-                    if isSelectionMode {
-                        List(videos, id: \.id) { video in
-                            VideoListRow(
-                                video: video, 
-                                isSelected: selectedVideos.contains(video),
-                                showCheckbox: true
-                            )
-                            .onTapGesture {
-                                toggleVideoSelection(video)
-                            }
-                        }
-                    } else {
-                        List(videos, id: \.id, selection: $selectedVideo) { video in
-                            VideoListRow(video: video, isSelected: false, showCheckbox: false)
-                        }
-                    }
-                }
-            }
+            contentView
         }
         .toolbar {
-            #if os(macOS)
-            ToolbarItemGroup {
-                if isSelectionMode {
-                    Button("Create Playlist") {
-                        showingCreatePlaylist = true
-                    }
-                    .disabled(selectedVideos.isEmpty)
-                    
-                    Button("Cancel") {
-                        isSelectionMode = false
-                        selectedVideos.removeAll()
-                    }
-                } else {
-                    Button("Import Videos") {
-                        showingImportPicker = true
-                    }
-                    .disabled(libraryManager.currentLibrary == nil)
-                    
-                    Button("Select") {
-                        isSelectionMode = true
-                    }
-                    .disabled(videos.isEmpty)
-                    
-                    Picker("View Mode", selection: $viewMode) {
-                        ForEach(ViewMode.allCases, id: \.self) { mode in
-                            Label(mode.rawValue, systemImage: mode == .grid ? "square.grid.2x2" : "list.bullet")
-                                .tag(mode)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    
-                    Menu {
-                        Picker("Sort By", selection: $sortOrder) {
-                            ForEach(SortOrder.allCases, id: \.self) { order in
-                                Text(order.rawValue).tag(order)
-                            }
-                        }
-                    } label: {
-                        Label("Sort", systemImage: "arrow.up.arrow.down")
-                    }
-                }
-            }
-            #else
-            ToolbarItemGroup(placement: .navigationBarTrailing) {
-                if isSelectionMode {
-                    Button("Create Playlist") {
-                        showingCreatePlaylist = true
-                    }
-                    .disabled(selectedVideos.isEmpty)
-                    
-                    Button("Cancel") {
-                        isSelectionMode = false
-                        selectedVideos.removeAll()
-                    }
-                } else {
-                    Menu {
-                        Button("Import Videos") {
-                            showingImportPicker = true
-                        }
-                        .disabled(libraryManager.currentLibrary == nil)
-                        
-                        Button("Select") {
-                            isSelectionMode = true
-                        }
-                        .disabled(videos.isEmpty)
-                        
-                        Picker("View Mode", selection: $viewMode) {
-                            ForEach(ViewMode.allCases, id: \.self) { mode in
-                                Label(mode.rawValue, systemImage: mode == .grid ? "square.grid.2x2" : "list.bullet")
-                                    .tag(mode)
-                            }
-                        }
-                        
-                        Picker("Sort By", selection: $sortOrder) {
-                            ForEach(SortOrder.allCases, id: \.self) { order in
-                                Text(order.rawValue).tag(order)
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                }
-            }
-            #endif
+            toolbarContent
         }
         .navigationTitle(playlist?.name ?? "All Videos")
         .fileImporter(
@@ -245,7 +121,7 @@ struct ContentListView: View {
         }
         .sheet(isPresented: $showingCreatePlaylist) {
             CreatePlaylistFromSelectionView(
-                selectedVideos: Array(selectedVideos),
+                selectedVideos: Array(getSelectedVideos()),
                 library: libraryManager.currentLibrary!,
                 onPlaylistCreated: {
                     isSelectionMode = false
@@ -256,11 +132,275 @@ struct ContentListView: View {
         }
     }
     
-    private func toggleVideoSelection(_ video: Video) {
-        if selectedVideos.contains(video) {
-            selectedVideos.remove(video)
+    @ViewBuilder
+    private var contentView: some View {
+        if videos.isEmpty {
+            ContentUnavailableView(
+                "No Videos",
+                systemImage: "video.slash",
+                description: Text(playlist == nil ? "Import videos to get started" : "This playlist is empty")
+            )
         } else {
-            selectedVideos.insert(video)
+            switch viewMode {
+            case .grid:
+                gridView
+            case .list:
+                listView
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var gridView: some View {
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180))], spacing: 20) {
+                ForEach(videos, id: \.id) { video in
+                    VideoGridItem(
+                        video: video, 
+                        isSelected: selectedVideos.contains(video.id) || selectedVideo?.id == video.id,
+                        showCheckbox: isSelectionMode || selectedVideos.count > 1,
+                        sourcePlaylist: playlist,
+                        selectedVideos: getSelectedVideos()
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture { 
+                        handleVideoSelection(video: video)
+                    }
+                }
+            }
+            .padding()
+        }
+    }
+    
+    @ViewBuilder
+    private var listView: some View {
+        if playlist?.type == PlaylistType.user.rawValue && !isSelectionMode && selectedVideos.isEmpty {
+            // Enable reordering for user playlists when no multi-selection
+            List {
+                ForEach(videos, id: \.id) { video in
+                    VideoListRow(
+                        video: video, 
+                        isSelected: selectedVideo?.id == video.id,
+                        showCheckbox: false,
+                        sourcePlaylist: playlist,
+                        selectedVideos: getSelectedVideos()
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture { 
+                        handleVideoSelection(video: video)
+                    }
+                }
+                .onMove(perform: moveVideos)
+            }
+        } else {
+            // Use native List selection for multi-selection support
+            List(videos, id: \.id, selection: $selectedVideos) { video in
+                VideoListRow(
+                    video: video, 
+                    isSelected: selectedVideos.contains(video.id) || selectedVideo?.id == video.id,
+                    showCheckbox: selectedVideos.count > 1,
+                    sourcePlaylist: playlist,
+                    selectedVideos: getSelectedVideos()
+                )
+            }
+            .onChange(of: selectedVideos) { _, _ in
+                updateSingleSelectionFromMulti()
+            }
+        }
+    }
+    
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        #if os(macOS)
+        ToolbarItemGroup {
+            if isSelectionMode {
+                selectionModeButtons
+            } else {
+                normalModeButtons
+            }
+        }
+        #else
+        ToolbarItemGroup(placement: .navigationBarTrailing) {
+            if isSelectionMode {
+                selectionModeButtons
+            } else {
+                Menu {
+                    iOSMenuContent
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+            }
+        }
+        #endif
+    }
+    
+    @ViewBuilder
+    private var selectionModeButtons: some View {
+        Button("Create Playlist") {
+            showingCreatePlaylist = true
+        }
+        .disabled(selectedVideos.isEmpty)
+        
+        Button("Cancel") {
+            isSelectionMode = false
+            selectedVideos.removeAll()
+        }
+    }
+    
+    @ViewBuilder
+    private var normalModeButtons: some View {
+        Button("Import Videos") {
+            showingImportPicker = true
+        }
+        .disabled(libraryManager.currentLibrary == nil)
+        
+        if !videosWithoutThumbnails.isEmpty {
+            Button(isGeneratingThumbnails ? "Generating..." : "Generate Thumbnails") {
+                generateThumbnailsForVideos()
+            }
+            .disabled(isGeneratingThumbnails)
+        }
+        
+        Button("Select") {
+            isSelectionMode = true
+        }
+        .disabled(videos.isEmpty)
+        
+        #if os(iOS)
+        if playlist?.type == PlaylistType.user.rawValue {
+            EditButton()
+        }
+        #endif
+        
+        Picker("View Mode", selection: $viewMode) {
+            ForEach(ViewMode.allCases, id: \.self) { mode in
+                Label(mode.rawValue, systemImage: mode == .grid ? "square.grid.2x2" : "list.bullet")
+                    .tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+        
+        Menu {
+            Picker("Sort By", selection: $sortOrder) {
+                ForEach(SortOrder.allCases, id: \.self) { order in
+                    Text(order.rawValue).tag(order)
+                }
+            }
+        } label: {
+            Label("Sort", systemImage: "arrow.up.arrow.down")
+        }
+    }
+    
+    @ViewBuilder
+    private var iOSMenuContent: some View {
+        Button("Import Videos") {
+            showingImportPicker = true
+        }
+        .disabled(libraryManager.currentLibrary == nil)
+        
+        Button("Select") {
+            isSelectionMode = true
+        }
+        .disabled(videos.isEmpty)
+        
+        #if os(iOS)
+        if playlist?.type == PlaylistType.user.rawValue {
+            EditButton()
+        }
+        #endif
+        
+        Picker("View Mode", selection: $viewMode) {
+            ForEach(ViewMode.allCases, id: \.self) { mode in
+                Label(mode.rawValue, systemImage: mode == .grid ? "square.grid.2x2" : "list.bullet")
+                    .tag(mode)
+            }
+        }
+        
+        Picker("Sort By", selection: $sortOrder) {
+            ForEach(SortOrder.allCases, id: \.self) { order in
+                Text(order.rawValue).tag(order)
+            }
+        }
+    }
+    
+    private func handleVideoSelection(video: Video) {
+        // Simple selection for grid view and non-multi-selection list view
+        selectedVideo = video
+        selectedVideos.removeAll()
+    }
+    
+    private func getSelectedVideos() -> Set<Video> {
+        let videoSet = Set(videos.filter { selectedVideos.contains($0.id) })
+        return videoSet
+    }
+    
+    private func updateSingleSelectionFromMulti() {
+        // Update selectedVideo when multi-selection changes
+        if selectedVideos.count == 1, let videoId = selectedVideos.first {
+            selectedVideo = videos.first { $0.id == videoId }
+        } else if selectedVideos.isEmpty {
+            // Keep current selectedVideo if no multi-selection
+        } else {
+            // Multiple selected, keep selectedVideo as is for context
+        }
+    }
+    
+    private func toggleVideoSelection(_ video: Video) {
+        if selectedVideos.contains(video.id) {
+            selectedVideos.remove(video.id)
+        } else {
+            selectedVideos.insert(video.id)
+        }
+    }
+    
+    private func moveVideos(from source: IndexSet, to destination: Int) {
+        guard let playlist = playlist,
+              playlist.type == PlaylistType.user.rawValue,
+              let context = libraryManager.viewContext else { return }
+        
+        var reorderedVideos = videos
+        reorderedVideos.move(fromOffsets: source, toOffset: destination)
+        
+        // Update the playlist's video order by removing and re-adding videos in new order
+        let mutableVideos = playlist.mutableSetValue(forKey: "videos")
+        
+        // Clear current videos
+        for video in videos {
+            mutableVideos.remove(video)
+        }
+        
+        // Add videos back in new order
+        for video in reorderedVideos {
+            mutableVideos.add(video)
+        }
+        
+        playlist.dateModified = Date()
+        
+        do {
+            try context.save()
+            // Refresh the video list to reflect the new order
+            if playlist == self.playlist {
+                fetchVideos()
+            }
+            NotificationCenter.default.post(name: .playlistsUpdated, object: nil)
+        } catch {
+            print("Failed to reorder videos: \(error)")
+        }
+    }
+    
+    private func generateThumbnailsForVideos() {
+        guard let library = libraryManager.currentLibrary,
+              let context = libraryManager.viewContext else { return }
+        
+        isGeneratingThumbnails = true
+        
+        Task {
+            await FileSystemManager.shared.generateMissingThumbnails(for: library, context: context)
+            
+            await MainActor.run {
+                isGeneratingThumbnails = false
+                fetchVideos() // Refresh to show new thumbnails
+            }
         }
     }
     
