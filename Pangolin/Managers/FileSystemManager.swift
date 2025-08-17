@@ -61,6 +61,9 @@ class FileSystemManager {
         // Get video metadata
         let metadata = try await getVideoMetadata(from: destinationURL)
         
+        // Generate thumbnail
+        let thumbnailPath = try await generateThumbnail(for: destinationURL, in: library)
+        
         // Create video entity in Core Data context using entity description
         guard let videoEntityDescription = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Video"] else {
             throw FileSystemError.importFailed("Could not find Video entity description")
@@ -79,6 +82,7 @@ class FileSystemManager {
         video.frameRate = metadata.frameRate
         video.playbackPosition = 0
         video.playCount = 0
+        video.thumbnailPath = thumbnailPath
         video.library = library
         
         return video

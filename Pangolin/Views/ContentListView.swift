@@ -10,6 +10,10 @@
 import SwiftUI
 import CoreData
 
+extension Notification.Name {
+    static let playlistsUpdated = Notification.Name("playlistsUpdated")
+}
+
 struct ContentListView: View {
     let playlist: Playlist?
     @Binding var selectedVideo: Video?
@@ -21,6 +25,9 @@ struct ContentListView: View {
     @StateObject private var videoImporter = VideoImporter()
     @EnvironmentObject var libraryManager: LibraryManager
     @State private var allVideos: [Video] = []
+    @State private var isSelectionMode = false
+    @State private var selectedVideos: Set<Video> = []
+    @State private var showingCreatePlaylist = false
     
     enum ViewMode: String, CaseIterable {
         case grid = "Grid"
@@ -76,46 +83,127 @@ struct ContentListView: View {
                     ScrollView {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 180))], spacing: 20) {
                             ForEach(videos, id: \.id) { video in
-                                VideoGridItem(video: video, isSelected: selectedVideo?.id == video.id)
-                                    .onTapGesture {
+                                VideoGridItem(
+                                    video: video, 
+                                    isSelected: isSelectionMode ? selectedVideos.contains(video) : selectedVideo?.id == video.id,
+                                    showCheckbox: isSelectionMode
+                                )
+                                .onTapGesture {
+                                    if isSelectionMode {
+                                        toggleVideoSelection(video)
+                                    } else {
                                         selectedVideo = video
                                     }
+                                }
                             }
                         }
                         .padding()
                     }
                 case .list:
-                    List(videos, id: \.id, selection: $selectedVideo) { video in
-                        VideoListRow(video: video)
+                    if isSelectionMode {
+                        List(videos, id: \.id) { video in
+                            VideoListRow(
+                                video: video, 
+                                isSelected: selectedVideos.contains(video),
+                                showCheckbox: true
+                            )
+                            .onTapGesture {
+                                toggleVideoSelection(video)
+                            }
+                        }
+                    } else {
+                        List(videos, id: \.id, selection: $selectedVideo) { video in
+                            VideoListRow(video: video, isSelected: false, showCheckbox: false)
+                        }
                     }
                 }
             }
         }
         .toolbar {
+            #if os(macOS)
             ToolbarItemGroup {
-                Button("Import Videos") {
-                    showingImportPicker = true
-                }
-                .disabled(libraryManager.currentLibrary == nil)
-                
-                Picker("View Mode", selection: $viewMode) {
-                    ForEach(ViewMode.allCases, id: \.self) { mode in
-                        Label(mode.rawValue, systemImage: mode == .grid ? "square.grid.2x2" : "list.bullet")
-                            .tag(mode)
+                if isSelectionMode {
+                    Button("Create Playlist") {
+                        showingCreatePlaylist = true
                     }
-                }
-                .pickerStyle(.segmented)
-                
-                Menu {
-                    Picker("Sort By", selection: $sortOrder) {
-                        ForEach(SortOrder.allCases, id: \.self) { order in
-                            Text(order.rawValue).tag(order)
+                    .disabled(selectedVideos.isEmpty)
+                    
+                    Button("Cancel") {
+                        isSelectionMode = false
+                        selectedVideos.removeAll()
+                    }
+                } else {
+                    Button("Import Videos") {
+                        showingImportPicker = true
+                    }
+                    .disabled(libraryManager.currentLibrary == nil)
+                    
+                    Button("Select") {
+                        isSelectionMode = true
+                    }
+                    .disabled(videos.isEmpty)
+                    
+                    Picker("View Mode", selection: $viewMode) {
+                        ForEach(ViewMode.allCases, id: \.self) { mode in
+                            Label(mode.rawValue, systemImage: mode == .grid ? "square.grid.2x2" : "list.bullet")
+                                .tag(mode)
                         }
                     }
-                } label: {
-                    Label("Sort", systemImage: "arrow.up.arrow.down")
+                    .pickerStyle(.segmented)
+                    
+                    Menu {
+                        Picker("Sort By", selection: $sortOrder) {
+                            ForEach(SortOrder.allCases, id: \.self) { order in
+                                Text(order.rawValue).tag(order)
+                            }
+                        }
+                    } label: {
+                        Label("Sort", systemImage: "arrow.up.arrow.down")
+                    }
                 }
             }
+            #else
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
+                if isSelectionMode {
+                    Button("Create Playlist") {
+                        showingCreatePlaylist = true
+                    }
+                    .disabled(selectedVideos.isEmpty)
+                    
+                    Button("Cancel") {
+                        isSelectionMode = false
+                        selectedVideos.removeAll()
+                    }
+                } else {
+                    Menu {
+                        Button("Import Videos") {
+                            showingImportPicker = true
+                        }
+                        .disabled(libraryManager.currentLibrary == nil)
+                        
+                        Button("Select") {
+                            isSelectionMode = true
+                        }
+                        .disabled(videos.isEmpty)
+                        
+                        Picker("View Mode", selection: $viewMode) {
+                            ForEach(ViewMode.allCases, id: \.self) { mode in
+                                Label(mode.rawValue, systemImage: mode == .grid ? "square.grid.2x2" : "list.bullet")
+                                    .tag(mode)
+                            }
+                        }
+                        
+                        Picker("Sort By", selection: $sortOrder) {
+                            ForEach(SortOrder.allCases, id: \.self) { order in
+                                Text(order.rawValue).tag(order)
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                }
+            }
+            #endif
         }
         .navigationTitle(playlist?.name ?? "All Videos")
         .fileImporter(
@@ -144,6 +232,9 @@ struct ContentListView: View {
                 // Keep the progress sheet open until user dismisses it
                 // so they can see the results
                 fetchVideos() // Refresh videos after import
+                
+                // Notify that playlists may have been created
+                NotificationCenter.default.post(name: .playlistsUpdated, object: nil)
             }
         }
         .onAppear {
@@ -151,6 +242,25 @@ struct ContentListView: View {
         }
         .onChange(of: libraryManager.currentLibrary) { library in
             fetchVideos()
+        }
+        .sheet(isPresented: $showingCreatePlaylist) {
+            CreatePlaylistFromSelectionView(
+                selectedVideos: Array(selectedVideos),
+                library: libraryManager.currentLibrary!,
+                onPlaylistCreated: {
+                    isSelectionMode = false
+                    selectedVideos.removeAll()
+                    NotificationCenter.default.post(name: .playlistsUpdated, object: nil)
+                }
+            )
+        }
+    }
+    
+    private func toggleVideoSelection(_ video: Video) {
+        if selectedVideos.contains(video) {
+            selectedVideos.remove(video)
+        } else {
+            selectedVideos.insert(video)
         }
     }
     

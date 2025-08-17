@@ -10,6 +10,8 @@
 import Foundation
 import CoreData
 import AVFoundation
+import UniformTypeIdentifiers
+import CoreTransferable
 
 // MARK: - Video Model
 public class Video: NSManagedObject, Identifiable {
@@ -53,6 +55,20 @@ public class Video: NSManagedObject, Identifiable {
     }
 }
 
+// Helper struct for transferring video data
+public struct VideoTransfer: Codable, Transferable {
+    let id: UUID
+    let title: String
+    
+    public static var transferRepresentation: some TransferRepresentation {
+        DataRepresentation(contentType: .data) { video in
+            try JSONEncoder().encode(video)
+        } importing: { data in
+            try JSONDecoder().decode(VideoTransfer.self, from: data)
+        }
+    }
+}
+
 // MARK: - Playlist Model
 public class Playlist: NSManagedObject, Identifiable {
     @NSManaged public var id: UUID
@@ -73,6 +89,11 @@ public class Playlist: NSManagedObject, Identifiable {
     // Computed properties
     var isSystemPlaylist: Bool {
         return type == "system"
+    }
+    
+    var childPlaylistsArray: [Playlist]? {
+        guard let children = childPlaylists, !children.isEmpty else { return nil }
+        return Array(children).sorted { $0.name < $1.name }
     }
     
     var isFolder: Bool {

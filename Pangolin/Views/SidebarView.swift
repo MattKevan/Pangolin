@@ -26,13 +26,17 @@ struct SidebarView: View {
             }
             
             Section("Playlists") {
-                ForEach(userPlaylists) { playlist in
+                OutlineGroup(rootUserPlaylists, children: \.childPlaylistsArray) { playlist in
                     PlaylistRow(playlist: playlist)
                         .tag(playlist)
                 }
             }
         }
+        #if os(macOS)
         .listStyle(SidebarListStyle())
+        #else
+        .listStyle(InsetGroupedListStyle())
+        #endif
         .toolbar {
             ToolbarItem(placement: .automatic) {
                 Button(action: { isShowingCreatePlaylist = true }) {
@@ -49,6 +53,9 @@ struct SidebarView: View {
         .onChange(of: libraryManager.currentLibrary) { library in
             fetchPlaylists()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .playlistsUpdated)) { _ in
+            fetchPlaylists()
+        }
     }
     
     var systemPlaylists: [Playlist] {
@@ -57,6 +64,10 @@ struct SidebarView: View {
     
     var userPlaylists: [Playlist] {
         return playlists.filter { $0.type == "user" }.sorted { $0.name < $1.name }
+    }
+    
+    var rootUserPlaylists: [Playlist] {
+        return playlists.filter { $0.type == "user" && $0.parentPlaylist == nil }.sorted { $0.name < $1.name }
     }
     
     private func fetchPlaylists() {
