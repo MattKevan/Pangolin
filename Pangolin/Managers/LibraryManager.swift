@@ -120,8 +120,8 @@ class LibraryManager: ObservableObject {
         
         print("All properties set successfully")
         
-        // Create default playlists
-        createDefaultPlaylists(for: library, in: context)
+        // Create default smart folders
+        createDefaultSmartFolders(for: library, in: context)
         loadingProgress = 0.8
         
         // Save context
@@ -188,6 +188,9 @@ class LibraryManager: ObservableObject {
             try await migrateLibrary(library, from: library.version, to: currentVersion)
         }
         loadingProgress = 0.8
+        
+        // Ensure smart folders exist
+        await ensureSmartFoldersExist(for: library, in: context)
         
         // Update library
         library.lastOpenedDate = Date()
@@ -317,26 +320,6 @@ class LibraryManager: ObservableObject {
         try plistData.write(to: infoPlistURL)
     }
     
-    private func createDefaultPlaylists(for library: Library, in context: NSManagedObjectContext) {
-        let systemPlaylists = PlaylistType.systemPlaylists
-        
-        guard let playlistEntityDescription = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Playlist"] else {
-            print("Could not find Playlist entity description")
-            return
-        }
-        
-        for (index, playlistInfo) in systemPlaylists.enumerated() {
-            let playlist = Playlist(entity: playlistEntityDescription, insertInto: context)
-            playlist.id = UUID()
-            playlist.name = playlistInfo.name
-            playlist.type = PlaylistType.system.rawValue
-            playlist.iconName = playlistInfo.icon
-            playlist.sortOrder = Int32(index)
-            playlist.dateCreated = Date()
-            playlist.dateModified = Date()
-            playlist.library = library
-        }
-    }
     
     private func loadRecentLibraries() {
         if let data = userDefaults.data(forKey: recentLibrariesKey),
@@ -384,6 +367,65 @@ class LibraryManager: ObservableObject {
     private func migrateLibrary(_ library: Library, from oldVersion: String, to newVersion: String) async throws {
         // Implement migration logic here
         library.version = newVersion
+    }
+    
+    private func createDefaultSmartFolders(for library: Library, in context: NSManagedObjectContext) {
+        guard let folderEntityDescription = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Folder"] else {
+            print("Could not find Folder entity description")
+            return
+        }
+        
+        let smartFolders = [
+            ("All Videos", "video.fill"),
+            ("Recent", "clock.fill"),
+            ("Favorites", "heart.fill")
+        ]
+        
+        for folderInfo in smartFolders {
+            let folder = Folder(entity: folderEntityDescription, insertInto: context)
+            folder.id = UUID()
+            folder.name = folderInfo.0
+            folder.isTopLevel = true
+            folder.isSmartFolder = true
+            folder.dateCreated = Date()
+            folder.dateModified = Date()
+            folder.library = library
+        }
+    }
+    
+    private func ensureSmartFoldersExist(for library: Library, in context: NSManagedObjectContext) async {
+        // Check if smart folders already exist
+        let request = Folder.fetchRequest()
+        request.predicate = NSPredicate(format: "library == %@ AND isSmartFolder == YES", library)
+        
+        do {
+            let existingSmartFolders = try context.fetch(request)
+            let existingNames = Set(existingSmartFolders.map { $0.name })
+            
+            let requiredSmartFolders = ["All Videos", "Recent", "Favorites"]
+            
+            // Create any missing smart folders
+            for folderName in requiredSmartFolders {
+                if !existingNames.contains(folderName) {
+                    guard let folderEntityDescription = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Folder"] else {
+                        continue
+                    }
+                    
+                    let folder = Folder(entity: folderEntityDescription, insertInto: context)
+                    folder.id = UUID()
+                    folder.name = folderName
+                    folder.isTopLevel = true
+                    folder.isSmartFolder = true
+                    folder.dateCreated = Date()
+                    folder.dateModified = Date()
+                    folder.library = library
+                }
+            }
+            
+            try context.save()
+        } catch {
+            print("Failed to ensure smart folders exist: \(error)")
+        }
     }
 }
 

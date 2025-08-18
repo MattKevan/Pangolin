@@ -10,8 +10,6 @@
 import Foundation
 import CoreData
 import AVFoundation
-import UniformTypeIdentifiers
-import CoreTransferable
 
 // MARK: - Video Model
 public class Video: NSManagedObject, Identifiable {
@@ -29,9 +27,10 @@ public class Video: NSManagedObject, Identifiable {
     @NSManaged public var videoFormat: String?
     @NSManaged public var resolution: String?
     @NSManaged public var frameRate: Double
+    @NSManaged public var isFavorite: Bool
     
     // Relationships
-    @NSManaged public var playlists: Set<Playlist>?
+    @NSManaged public var folder: Folder?
     @NSManaged public var subtitles: Set<Subtitle>?
     @NSManaged public var library: Library?
     
@@ -62,159 +61,41 @@ public class Video: NSManagedObject, Identifiable {
     }
 }
 
-// Helper struct for transferring video data
-public struct VideoTransfer: Codable, Transferable {
-    let id: UUID
-    let title: String
-    let sourcePlaylistId: UUID?
-    
-    init(video: Video, sourcePlaylist: Playlist? = nil) {
-        self.id = video.id
-        self.title = video.title
-        self.sourcePlaylistId = sourcePlaylist?.id
-    }
-    
-    public static var transferRepresentation: some TransferRepresentation {
-        DataRepresentation(contentType: .data) { video in
-            try JSONEncoder().encode(video)
-        } importing: { data in
-            try JSONDecoder().decode(VideoTransfer.self, from: data)
-        }
-    }
-}
 
-// MARK: - Playlist Model
-public class Playlist: NSManagedObject, Identifiable {
+// MARK: - Folder Model
+public class Folder: NSManagedObject, Identifiable {
     @NSManaged public var id: UUID
     @NSManaged public var name: String
-    @NSManaged public var type: String // "system" or "user"
-    @NSManaged public var sortOrder: Int32
+    @NSManaged public var isTopLevel: Bool
+    @NSManaged public var isSmartFolder: Bool
     @NSManaged public var dateCreated: Date
     @NSManaged public var dateModified: Date
-    @NSManaged public var iconName: String?
-    @NSManaged public var color: String?
     
     // Relationships
-    @NSManaged public var parentPlaylist: Playlist?
-    @NSManaged public var childPlaylists: Set<Playlist>?
+    @NSManaged public var parentFolder: Folder?
+    @NSManaged public var childFolders: Set<Folder>?
     @NSManaged public var videos: Set<Video>?
     @NSManaged public var library: Library?
     
     // Computed properties
-    var isSystemPlaylist: Bool {
-        return type == "system"
+    var childFoldersArray: [Folder] {
+        guard let children = childFolders else { return [] }
+        return Array(children).sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
     }
     
-    var childPlaylistsArray: [Playlist]? {
-        guard let children = childPlaylists, !children.isEmpty else { return nil }
-        return Array(children).sorted { $0.sortOrder < $1.sortOrder }
+    var videosArray: [Video] {
+        guard let videos = videos else { return [] }
+        return Array(videos).sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
     }
     
-    enum ContentType {
-        case empty      // Can accept videos or playlists
-        case playlist   // Contains videos, can only accept more videos
-        case folder     // Contains playlists, can only accept more playlists
+    var itemCount: Int {
+        return (childFolders?.count ?? 0) + (videos?.count ?? 0)
     }
     
-    var contentType: ContentType {
-        let hasVideos = (videos?.count ?? 0) > 0
-        let hasPlaylists = (childPlaylists?.count ?? 0) > 0
-        
-        if hasVideos && hasPlaylists {
-            // Legacy mixed content - treat as folder for safety
-            return .folder
-        } else if hasVideos {
-            return .playlist
-        } else if hasPlaylists {
-            return .folder
-        } else {
-            return .empty
-        }
-    }
-    
-    var isFolder: Bool {
-        return contentType == .folder
-    }
-    
-    var canAcceptVideos: Bool {
-        return contentType != .folder
-    }
-    
-    var canAcceptPlaylists: Bool {
-        return contentType != .playlist
-    }
-    
-    var dynamicIconName: String {
-        // System playlists use their custom icons
-        if isSystemPlaylist, let icon = iconName {
-            return icon
-        }
-        
-        // User playlists use content-based icons
-        switch contentType {
-        case .empty:
-            return "folder.badge.plus"  // Empty, can accept anything
-        case .playlist:
-            return "music.note.list"    // Contains videos
-        case .folder:
-            return "folder"             // Contains playlists
-        }
-    }
-    
-    var videoCount: Int {
-        if isSystemPlaylist {
-            return getSmartPlaylistVideos().count
-        }
-        
-        if isFolder {
-            // Recursively count videos in child playlists
-            return childPlaylists?.reduce(0) { $0 + $1.videoCount } ?? 0
-        }
-        return videos?.count ?? 0
-    }
-    
-    var allVideos: [Video] {
-        // Handle smart playlists (system playlists)
-        if isSystemPlaylist {
-            return getSmartPlaylistVideos()
-        }
-        
-        // Handle regular playlists
-        var allVids: [Video] = []
-        
-        if let videos = videos {
-            allVids.append(contentsOf: videos)
-        }
-        
-        if let children = childPlaylists {
-            for child in children {
-                allVids.append(contentsOf: child.allVideos)
-            }
-        }
-        
-        return allVids
-    }
-    
-    private func getSmartPlaylistVideos() -> [Video] {
-        guard let library = library else { return [] }
-        
-        switch name {
-        case "All Videos":
-            return Array(library.videos ?? [])
-        case "Recent":
-            let thirtyDaysAgo = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
-            return Array(library.videos ?? [])
-                .filter { $0.dateAdded >= thirtyDaysAgo }
-                .sorted { $0.dateAdded > $1.dateAdded }
-        case "Favorites":
-            // TODO: Implement favorites when rating system is added
-            return []
-        case "Watch Later":
-            // TODO: Implement watch later when flag is added to Video model
-            return []
-        default:
-            return []
-        }
+    var totalVideoCount: Int {
+        let directVideos = videos?.count ?? 0
+        let childVideos = childFolders?.reduce(0) { $0 + $1.totalVideoCount } ?? 0
+        return directVideos + childVideos
     }
 }
 
@@ -269,7 +150,7 @@ public class Library: NSManagedObject, Identifiable {
     
     // Relationships
     @NSManaged public var videos: Set<Video>?
-    @NSManaged public var playlists: Set<Playlist>?
+    @NSManaged public var folders: Set<Folder>?
     
     // Computed properties
     var url: URL? {
@@ -291,21 +172,45 @@ public class Library: NSManagedObject, Identifiable {
     }
 }
 
-// MARK: - Enums
-enum PlaylistType: String, CaseIterable {
-    case system = "system"
-    case user = "user"
+// MARK: - Content Types
+enum ContentType: Hashable {
+    case folder(Folder)
+    case video(Video)
     
-    
-    
-    static var systemPlaylists: [(name: String, icon: String)] {
-        return [
-            ("All Videos", "film.stack"),
-            ("Recent", "clock"),
-            ("Favorites", "star"),
-            ("Watch Later", "bookmark")
-        ]
+    var id: UUID {
+        switch self {
+        case .folder(let folder): return folder.id
+        case .video(let video): return video.id
+        }
     }
+    
+    var name: String {
+        switch self {
+        case .folder(let folder): return folder.name
+        case .video(let video): return video.title
+        }
+    }
+    
+    var dateCreated: Date {
+        switch self {
+        case .folder(let folder): return folder.dateCreated
+        case .video(let video): return video.dateAdded
+        }
+    }
+    
+    var isFolder: Bool {
+        if case .folder = self { return true }
+        return false
+    }
+}
+
+// MARK: - Sorting
+enum SortOption: String, CaseIterable {
+    case nameAscending = "Name A-Z"
+    case nameDescending = "Name Z-A"
+    case dateCreatedNewest = "Newest First"
+    case dateCreatedOldest = "Oldest First"
+    case foldersFirst = "Folders First"
 }
 
 enum SubtitleFormat: String, CaseIterable {
@@ -365,9 +270,9 @@ extension Video {
     }
 }
 
-extension Playlist {
-    @nonobjc public class func fetchRequest() -> NSFetchRequest<Playlist> {
-        return NSFetchRequest<Playlist>(entityName: "Playlist")
+extension Folder {
+    @nonobjc public class func fetchRequest() -> NSFetchRequest<Folder> {
+        return NSFetchRequest<Folder>(entityName: "Folder")
     }
 }
 

@@ -263,7 +263,7 @@ class FileSystemManager {
     // MARK: - Thumbnail Generation for Existing Videos
     
     func generateMissingThumbnails(for library: Library, context: NSManagedObjectContext) async {
-        guard let libraryURL = library.url else { return }
+        guard library.url != nil else { return }
         
         let request = Video.fetchRequest()
         request.predicate = NSPredicate(format: "library == %@ AND thumbnailPath == nil", library)

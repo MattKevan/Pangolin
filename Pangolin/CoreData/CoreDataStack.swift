@@ -1,11 +1,3 @@
-//
-//  CoreDataStack.swift
-//  Pangolin
-//
-//  Created by Matt Kevan on 16/08/2025.
-//
-
-
 // CoreData/CoreDataStack.swift
 import Foundation
 import CoreData
@@ -69,7 +61,8 @@ class CoreDataStack {
             ("thumbnailPath", .stringAttributeType, nil),
             ("videoFormat", .stringAttributeType, nil),
             ("resolution", .stringAttributeType, nil),
-            ("frameRate", .doubleAttributeType, 0.0)
+            ("frameRate", .doubleAttributeType, 0.0),
+            ("isFavorite", .booleanAttributeType, false) // <-- ADDED THIS LINE
         ]
         
         videoEntity.properties = videoAttributes.map { name, type, defaultValue in
@@ -81,27 +74,25 @@ class CoreDataStack {
             return attribute
         }
         
-        // Playlist Entity
-        let playlistEntity = NSEntityDescription()
-        playlistEntity.name = "Playlist"
-        playlistEntity.managedObjectClassName = NSStringFromClass(Playlist.self)
+        // Folder Entity
+        let folderEntity = NSEntityDescription()
+        folderEntity.name = "Folder"
+        folderEntity.managedObjectClassName = NSStringFromClass(Folder.self)
         
-        let playlistAttributes: [(String, NSAttributeType, Any?)] = [
+        let folderAttributes: [(String, NSAttributeType, Any?)] = [
             ("id", .UUIDAttributeType, nil),
             ("name", .stringAttributeType, ""),
-            ("type", .stringAttributeType, "user"),
-            ("sortOrder", .integer32AttributeType, 0),
+            ("isTopLevel", .booleanAttributeType, true),
+            ("isSmartFolder", .booleanAttributeType, false),
             ("dateCreated", .dateAttributeType, Date()),
-            ("dateModified", .dateAttributeType, Date()),
-            ("iconName", .stringAttributeType, nil),
-            ("color", .stringAttributeType, nil)
+            ("dateModified", .dateAttributeType, Date())
         ]
         
-        playlistEntity.properties = playlistAttributes.map { name, type, defaultValue in
+        folderEntity.properties = folderAttributes.map { name, type, defaultValue in
             let attribute = NSAttributeDescription()
             attribute.name = name
             attribute.attributeType = type
-            attribute.isOptional = (name == "iconName" || name == "color")
+            attribute.isOptional = false
             attribute.defaultValue = defaultValue
             return attribute
         }
@@ -197,74 +188,74 @@ class CoreDataStack {
         videoToSubtitles.inverseRelationship = subtitleToVideo
         subtitleToVideo.inverseRelationship = videoToSubtitles
         
-        // Playlist -> Library (many-to-one)
-        let playlistToLibrary = NSRelationshipDescription()
-        playlistToLibrary.name = "library"
-        playlistToLibrary.destinationEntity = libraryEntity
-        playlistToLibrary.minCount = 0
-        playlistToLibrary.maxCount = 1
-        playlistToLibrary.isOptional = true
+        // Folder -> Library (many-to-one)
+        let folderToLibrary = NSRelationshipDescription()
+        folderToLibrary.name = "library"
+        folderToLibrary.destinationEntity = libraryEntity
+        folderToLibrary.minCount = 0
+        folderToLibrary.maxCount = 1
+        folderToLibrary.isOptional = true
         
-        // Library -> Playlists (one-to-many)
-        let libraryToPlaylists = NSRelationshipDescription()
-        libraryToPlaylists.name = "playlists"
-        libraryToPlaylists.destinationEntity = playlistEntity
-        libraryToPlaylists.minCount = 0
-        libraryToPlaylists.maxCount = 0
-        libraryToPlaylists.isOptional = true
-        libraryToPlaylists.inverseRelationship = playlistToLibrary
-        playlistToLibrary.inverseRelationship = libraryToPlaylists
+        // Library -> Folders (one-to-many)
+        let libraryToFolders = NSRelationshipDescription()
+        libraryToFolders.name = "folders"
+        libraryToFolders.destinationEntity = folderEntity
+        libraryToFolders.minCount = 0
+        libraryToFolders.maxCount = 0
+        libraryToFolders.isOptional = true
+        libraryToFolders.inverseRelationship = folderToLibrary
+        folderToLibrary.inverseRelationship = libraryToFolders
         
-        // Playlist -> Parent Playlist (many-to-one)
-        let playlistToParent = NSRelationshipDescription()
-        playlistToParent.name = "parentPlaylist"
-        playlistToParent.destinationEntity = playlistEntity
-        playlistToParent.minCount = 0
-        playlistToParent.maxCount = 1
-        playlistToParent.isOptional = true
+        // Folder -> Parent Folder (many-to-one)
+        let folderToParent = NSRelationshipDescription()
+        folderToParent.name = "parentFolder"
+        folderToParent.destinationEntity = folderEntity
+        folderToParent.minCount = 0
+        folderToParent.maxCount = 1
+        folderToParent.isOptional = true
         
-        // Playlist -> Child Playlists (one-to-many)
-        let playlistToChildren = NSRelationshipDescription()
-        playlistToChildren.name = "childPlaylists"
-        playlistToChildren.destinationEntity = playlistEntity
-        playlistToChildren.minCount = 0
-        playlistToChildren.maxCount = 0
-        playlistToChildren.isOptional = true
-        playlistToChildren.inverseRelationship = playlistToParent
-        playlistToParent.inverseRelationship = playlistToChildren
+        // Folder -> Child Folders (one-to-many)
+        let folderToChildren = NSRelationshipDescription()
+        folderToChildren.name = "childFolders"
+        folderToChildren.destinationEntity = folderEntity
+        folderToChildren.minCount = 0
+        folderToChildren.maxCount = 0
+        folderToChildren.isOptional = true
+        folderToChildren.inverseRelationship = folderToParent
+        folderToParent.inverseRelationship = folderToChildren
         
-        // Playlist -> Videos (many-to-many)
-        let playlistToVideos = NSRelationshipDescription()
-        playlistToVideos.name = "videos"
-        playlistToVideos.destinationEntity = videoEntity
-        playlistToVideos.minCount = 0
-        playlistToVideos.maxCount = 0
-        playlistToVideos.isOptional = true
+        // Folder -> Videos (one-to-many) - simplified from many-to-many
+        let folderToVideos = NSRelationshipDescription()
+        folderToVideos.name = "videos"
+        folderToVideos.destinationEntity = videoEntity
+        folderToVideos.minCount = 0
+        folderToVideos.maxCount = 0
+        folderToVideos.isOptional = true
         
-        // Video -> Playlists (many-to-many)
-        let videoToPlaylists = NSRelationshipDescription()
-        videoToPlaylists.name = "playlists"
-        videoToPlaylists.destinationEntity = playlistEntity
-        videoToPlaylists.minCount = 0
-        videoToPlaylists.maxCount = 0
-        videoToPlaylists.isOptional = true
-        videoToPlaylists.inverseRelationship = playlistToVideos
-        playlistToVideos.inverseRelationship = videoToPlaylists
+        // Video -> Folder (many-to-one) - simplified from many-to-many
+        let videoToFolder = NSRelationshipDescription()
+        videoToFolder.name = "folder"
+        videoToFolder.destinationEntity = folderEntity
+        videoToFolder.minCount = 0
+        videoToFolder.maxCount = 1
+        videoToFolder.isOptional = true
+        videoToFolder.inverseRelationship = folderToVideos
+        folderToVideos.inverseRelationship = videoToFolder
         
         // Add relationships to entities
         videoEntity.properties.append(videoToLibrary)
         videoEntity.properties.append(videoToSubtitles)
-        videoEntity.properties.append(videoToPlaylists)
+        videoEntity.properties.append(videoToFolder)
         libraryEntity.properties.append(libraryToVideos)
-        libraryEntity.properties.append(libraryToPlaylists)
+        libraryEntity.properties.append(libraryToFolders)
         subtitleEntity.properties.append(subtitleToVideo)
-        playlistEntity.properties.append(playlistToLibrary)
-        playlistEntity.properties.append(playlistToParent)
-        playlistEntity.properties.append(playlistToChildren)
-        playlistEntity.properties.append(playlistToVideos)
+        folderEntity.properties.append(folderToLibrary)
+        folderEntity.properties.append(folderToParent)
+        folderEntity.properties.append(folderToChildren)
+        folderEntity.properties.append(folderToVideos)
         
         // Add entities to model
-        model.entities = [videoEntity, playlistEntity, subtitleEntity, libraryEntity]
+        model.entities = [videoEntity, folderEntity, subtitleEntity, libraryEntity]
         
         return model
     }()
@@ -298,4 +289,3 @@ class CoreDataStack {
         }
     }
 }
-

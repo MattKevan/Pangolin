@@ -6,8 +6,7 @@
 //
 
 // Extensions/View+Extensions.swift
-import SwiftUI  // ← Add this import
-import Foundation
+import SwiftUI
 
 extension View {
     func pangolinAlert<T: LocalizedError>(error: Binding<T?>) -> some View {

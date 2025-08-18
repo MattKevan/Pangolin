@@ -1,5 +1,5 @@
 //
-//  PlaylistTransfer.swift
+//  FolderTransfer.swift
 //  Pangolin
 //
 //  Created by Matt Kevan on 17/08/2025.
@@ -9,17 +9,15 @@ import Foundation
 import UniformTypeIdentifiers
 import CoreTransferable
 
-struct PlaylistTransfer: Codable, Transferable {
+struct FolderTransfer: Codable, Transferable {
     let id: UUID
     let name: String
-    let sortOrder: Int32
     let parentId: UUID?
     
-    init(playlist: Playlist) {
-        self.id = playlist.id
-        self.name = playlist.name
-        self.sortOrder = playlist.sortOrder
-        self.parentId = playlist.parentPlaylist?.id
+    init(folder: Folder) {
+        self.id = folder.id
+        self.name = folder.name
+        self.parentId = folder.parentFolder?.id
     }
     
     static var transferRepresentation: some TransferRepresentation {

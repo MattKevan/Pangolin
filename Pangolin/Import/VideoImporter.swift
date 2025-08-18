@@ -39,9 +39,9 @@ class VideoImporter: ObservableObject {
             progress = 0
         }
         
-        // Analyze import structure to create playlists
+        // Analyze import structure to create folders
         let folderStructure = analyzeFolderStructure(from: urls)
-        let createdPlaylists = await createPlaylistsFromStructure(folderStructure, library: library, context: context)
+        let createdFolders = await createFoldersFromStructure(folderStructure, library: library, context: context)
         
         // Gather all video files
         let videoFiles = gatherVideoFiles(from: urls)
@@ -66,8 +66,8 @@ class VideoImporter: ObservableObject {
                     copyFile: library.copyFilesOnImport
                 )
                 
-                // Add video to appropriate playlist based on its original folder path
-                assignVideoToPlaylist(video: video, originalPath: fileURL, createdPlaylists: createdPlaylists)
+                // Add video to appropriate folder based on its original folder path
+                assignVideoToFolder(video: video, originalPath: fileURL, createdFolders: createdFolders)
                 
                 // Find and import matching subtitles
                 if library.autoMatchSubtitles {
@@ -230,7 +230,7 @@ class VideoImporter: ObservableObject {
                     let folderNode = buildFolderTree(from: url)
                     rootNodes.append(folderNode)
                 } else if isVideoFile(url) {
-                    // Individual file import - no playlist needed
+                    // Individual file import
                     continue
                 }
             }
@@ -272,65 +272,63 @@ class VideoImporter: ObservableObject {
         return node
     }
     
-    private func createPlaylistsFromStructure(_ folderNodes: [FolderNode], library: Library, context: NSManagedObjectContext) async -> [String: Playlist] {
-        var createdPlaylists: [String: Playlist] = [:]
+    private func createFoldersFromStructure(_ folderNodes: [FolderNode], library: Library, context: NSManagedObjectContext) async -> [String: Folder] {
+        var createdFolders: [String: Folder] = [:]
         
         for folderNode in folderNodes {
-            if let playlist = await createPlaylistFromNode(folderNode, parent: nil, library: library, context: context) {
-                createdPlaylists[folderNode.url.path] = playlist
-                await addChildPlaylists(for: folderNode, parentPlaylist: playlist, library: library, context: context, createdPlaylists: &createdPlaylists)
+            if let folder = await createFolderFromNode(folderNode, parent: nil, library: library, context: context) {
+                createdFolders[folderNode.url.path] = folder
+                await addChildFolders(for: folderNode, parentFolder: folder, library: library, context: context, createdFolders: &createdFolders)
             }
         }
         
-        return createdPlaylists
+        return createdFolders
     }
     
-    private func createPlaylistFromNode(_ node: FolderNode, parent: Playlist?, library: Library, context: NSManagedObjectContext) async -> Playlist? {
-        // Only create playlist if there are videos in this folder or subfolders
+    private func createFolderFromNode(_ node: FolderNode, parent: Folder?, library: Library, context: NSManagedObjectContext) async -> Folder? {
+        // Only create folder if there are videos in this folder or subfolders
         guard !node.videoFiles.isEmpty || !node.children.isEmpty else { 
             return nil 
         }
         
-        guard let playlistEntityDescription = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Playlist"] else {
-            print("Could not find Playlist entity description")
+        guard let folderEntityDescription = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Folder"] else {
+            print("Could not find Folder entity description")
             return nil
         }
         
-        let playlist = Playlist(entity: playlistEntityDescription, insertInto: context)
-        playlist.id = UUID()
-        playlist.name = node.name
-        playlist.type = PlaylistType.user.rawValue
-        playlist.dateCreated = Date()
-        playlist.dateModified = Date()
-        playlist.library = library
-        playlist.parentPlaylist = parent
-        playlist.sortOrder = 0
+        let folder = Folder(entity: folderEntityDescription, insertInto: context)
+        folder.id = UUID()
+        folder.name = node.name
+        folder.dateCreated = Date()
+        folder.dateModified = Date()
+        folder.library = library
+        folder.parentFolder = parent
+        folder.isTopLevel = (parent == nil)
         
-        return playlist
+        return folder
     }
     
-    private func addChildPlaylists(for node: FolderNode, parentPlaylist: Playlist, library: Library, context: NSManagedObjectContext, createdPlaylists: inout [String: Playlist]) async {
+    private func addChildFolders(for node: FolderNode, parentFolder: Folder, library: Library, context: NSManagedObjectContext, createdFolders: inout [String: Folder]) async {
         for childNode in node.children {
-            if let childPlaylist = await createPlaylistFromNode(childNode, parent: parentPlaylist, library: library, context: context) {
-                createdPlaylists[childNode.url.path] = childPlaylist
-                await addChildPlaylists(for: childNode, parentPlaylist: childPlaylist, library: library, context: context, createdPlaylists: &createdPlaylists)
+            if let childFolder = await createFolderFromNode(childNode, parent: parentFolder, library: library, context: context) {
+                createdFolders[childNode.url.path] = childFolder
+                await addChildFolders(for: childNode, parentFolder: childFolder, library: library, context: context, createdFolders: &createdFolders)
             }
         }
     }
     
-    private func assignVideoToPlaylist(video: Video, originalPath: URL, createdPlaylists: [String: Playlist]) {
-        // Find the playlist that corresponds to the video's original folder
+    private func assignVideoToFolder(video: Video, originalPath: URL, createdFolders: [String: Folder]) {
+        // Find the folder that corresponds to the video's original folder
         let videoDirectory = originalPath.deletingLastPathComponent()
         
-        // Look for a playlist that matches this directory or any parent directory
-        for (playlistPath, playlist) in createdPlaylists {
-            let playlistURL = URL(fileURLWithPath: playlistPath)
+        // Look for a folder that matches this directory or any parent directory
+        for (folderPath, folder) in createdFolders {
+            let folderURL = URL(fileURLWithPath: folderPath)
             
-            // Check if the video's directory is the same as or a subdirectory of the playlist's directory
-            if videoDirectory.path.hasPrefix(playlistURL.path) {
-                // Add video to this playlist using mutable set
-                let mutableVideos = playlist.mutableSetValue(forKey: "videos")
-                mutableVideos.add(video)
+            // Check if the video's directory is the same as or a subdirectory of the folder's directory
+            if videoDirectory.path.hasPrefix(folderURL.path) {
+                // Assign video to this folder
+                video.folder = folder
                 break
             }
         }

@@ -8,7 +8,9 @@
 import SwiftUI
 
 struct VideoInfoView: View {
-    let video: Video
+    // Use @ObservedObject for a managed object to ensure the view updates on change
+    @ObservedObject var video: Video
+    @EnvironmentObject var libraryManager: LibraryManager
     
     var body: some View {
         ScrollView {
@@ -30,6 +32,14 @@ struct VideoInfoView: View {
                     .foregroundColor(.secondary)
                 }
                 
+                // Favorite Button
+                Button(action: toggleFavorite) {
+                    Label(video.isFavorite ? "Remove from Favorites" : "Add to Favorites",
+                          systemImage: video.isFavorite ? "heart.fill" : "heart")
+                }
+                .buttonStyle(.bordered)
+                .tint(video.isFavorite ? .red : .secondary)
+
                 Divider()
                 
                 // File info
@@ -76,6 +86,20 @@ struct VideoInfoView: View {
                 Spacer()
             }
             .padding()
+        }
+    }
+
+    private func toggleFavorite() {
+        video.isFavorite.toggle()
+        if let context = libraryManager.viewContext, context.hasChanges {
+            do {
+                try context.save()
+            } catch {
+                // In a real app, handle this error
+                print("Failed to save favorite status: \(error)")
+                // Revert the change on failure
+                video.isFavorite.toggle()
+            }
         }
     }
 }

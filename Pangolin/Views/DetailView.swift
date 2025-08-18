@@ -6,7 +6,6 @@
 //
 
 
-// Views/DetailView.swift
 import SwiftUI
 import AVKit
 
@@ -14,6 +13,7 @@ struct DetailView: View {
     let video: Video?
     @StateObject private var playerViewModel = VideoPlayerViewModel()
     
+    // CORRECTED: Use platform-specific color APIs.
     private var controlsBackgroundColor: Color {
         #if os(macOS)
         return Color(NSColor.controlBackgroundColor)
@@ -33,8 +33,9 @@ struct DetailView: View {
     var body: some View {
         GeometryReader { geometry in
             if let video = video {
+                let _ = print("📱 DetailView: Showing video: \(video.title)")  
                 VStack(spacing: 0) {
-                    // Video Player with Poster Frame (2/3 of height)
+                    // Video Player with Poster Frame
                     VideoPlayerWithPosterView(video: video, viewModel: playerViewModel)
                         .frame(height: geometry.size.height * 0.67)
                     
@@ -43,12 +44,13 @@ struct DetailView: View {
                         .frame(height: 60)
                         .background(controlsBackgroundColor)
                     
-                    // Bottom area (1/3 of height minus controls)
+                    // Bottom area
                     VideoInfoView(video: video)
                         .frame(maxHeight: .infinity)
                         .background(windowBackgroundColor)
                 }
             } else {
+                let _ = print("📱 DetailView: No video selected")
                 ContentUnavailableView(
                     "Select a Video",
                     systemImage: "play.rectangle",

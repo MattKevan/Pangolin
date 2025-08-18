@@ -70,6 +70,8 @@ struct PangolinApp: App {
                 }
             }
         }
+        // CORRECTED: The .commands modifier is only available on macOS.
+        #if os(macOS)
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("New Library...") {
@@ -96,5 +98,6 @@ struct PangolinApp: App {
                 }
             }
         }
+        #endif
     }
 }

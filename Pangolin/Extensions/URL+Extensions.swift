@@ -7,7 +7,6 @@
 
 // Extensions/URL+Extensions.swift
 
-import SwiftUI  
 import Foundation
 
 extension URL {

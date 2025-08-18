@@ -5,46 +5,40 @@
 //  Created by Matt Kevan on 16/08/2025.
 //
 
-
-// Views/SidebarView.swift
 import SwiftUI
 import CoreData
 
 struct SidebarView: View {
-    @EnvironmentObject var libraryManager: LibraryManager
-    @Binding var selectedPlaylist: Playlist?
-    @State private var isShowingCreatePlaylist = false
-    @State private var playlists: [Playlist] = []
-    @State private var editingPlaylist: Playlist?
+    @EnvironmentObject private var store: FolderNavigationStore
+    @State private var isShowingCreateFolder = false
+    @State private var editingFolder: Folder?
     
     var body: some View {
-        List(selection: $selectedPlaylist) {
-            Section("Library") {
-                ForEach(systemPlaylists) { playlist in
-                    PlaylistRow(playlist: playlist, editingPlaylist: $editingPlaylist)
-                        .tag(playlist)
+        List(selection: $store.selectedTopLevelFolder) {
+            // System folders (smart folders)
+            Section("Pangolin") {
+                ForEach(store.systemFolders()) { folder in
+                    FolderRowView(folder: folder, showContextMenu: false, editingFolder: $editingFolder, onDelete: {})
+                        .tag(folder)
                 }
             }
             
-            Section("Playlists") {
-                ForEach(rootUserPlaylists) { playlist in
-                    PlaylistRowWithChildren(
-                        playlist: playlist,
-                        editingPlaylist: $editingPlaylist,
-                        isRoot: true
-                    )
-                    .tag(playlist)
+            // User folders
+            Section("Library") {
+                ForEach(store.userFolders()) { folder in
+                    FolderRowView(folder: folder, showContextMenu: true, editingFolder: $editingFolder) {
+                        deleteFolder(folder)
+                    }
+                    .tag(folder)
                 }
-                .onMove(perform: moveRootPlaylists)
             }
-            #if os(macOS)
-            .dropDestination(for: PlaylistTransfer.self) { playlistTransfers, location in
-                guard !playlistTransfers.isEmpty else { return false }
-                promotePlaylistToRoot(playlistTransfers)
-                return true
-            }
-            #endif
         }
+        .onChange(of: store.selectedTopLevelFolder) { _, newFolder in
+            if let newFolder {
+                store.currentFolderID = newFolder.id
+            }
+        }
+        // CORRECTED: Use platform-specific list styles.
         #if os(macOS)
         .listStyle(SidebarListStyle())
         #else
@@ -52,134 +46,90 @@ struct SidebarView: View {
         #endif
         .toolbar {
             ToolbarItem(placement: .automatic) {
-                Button(action: { isShowingCreatePlaylist = true }) {
-                    Label("Add Playlist", systemImage: "plus")
+                Button(action: { isShowingCreateFolder = true }) {
+                    Label("Add Folder", systemImage: "plus")
                 }
             }
         }
-        .sheet(isPresented: $isShowingCreatePlaylist) {
-            CreatePlaylistView()
-        }
-        .onAppear {
-            fetchPlaylists()
-        }
-        .onChange(of: libraryManager.currentLibrary) { _, library in
-            fetchPlaylists()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .playlistsUpdated)) { _ in
-            fetchPlaylists()
+        .sheet(isPresented: $isShowingCreateFolder) {
+            CreateFolderView(parentFolderID: nil)
         }
         .onKeyPress { keyPress in
             if keyPress.key == .return,
-               let selected = selectedPlaylist,
-               selected.type == PlaylistType.user.rawValue {
-                editingPlaylist = selected
+               let selected = store.selectedTopLevelFolder {
+                editingFolder = selected
                 return .handled
             }
             return .ignored
         }
     }
     
-    var systemPlaylists: [Playlist] {
-        return playlists.filter { $0.type == "system" }.sorted { $0.sortOrder < $1.sortOrder }
+    private func deleteFolder(_ folder: Folder) {
+        // TODO: Implement folder deletion with confirmation
     }
+}
+
+// MARK: - Folder Row View
+private struct FolderRowView: View {
+    @EnvironmentObject private var store: FolderNavigationStore
+    let folder: Folder
+    let showContextMenu: Bool
+    @Binding var editingFolder: Folder?
+    let onDelete: () -> Void
     
-    var userPlaylists: [Playlist] {
-        return playlists.filter { $0.type == "user" }.sorted { $0.name < $1.name }
-    }
-    
-    var rootUserPlaylists: [Playlist] {
-        return playlists.filter { $0.type == "user" && $0.parentPlaylist == nil }.sorted { $0.sortOrder < $1.sortOrder }
-    }
-    
-    private func moveRootPlaylists(from source: IndexSet, to destination: Int) {
-        guard let context = libraryManager.viewContext else { return }
-        
-        // Get the actual playlists that are being moved
-        let currentPlaylists = rootUserPlaylists
-        
-        // Validate indices to prevent crash
-        guard !currentPlaylists.isEmpty,
-              !source.isEmpty,
-              source.allSatisfy({ $0 < currentPlaylists.count }),
-              destination >= 0,
-              destination <= currentPlaylists.count else {
-            print("Invalid move indices: source=\(source), destination=\(destination), count=\(currentPlaylists.count)")
-            return
+    @State private var isDropTargeted = false
+
+    var body: some View {
+        Label {
+            Text(folder.name)
+        } icon: {
+            Image(systemName: folder.isSmartFolder ? getSmartFolderIcon(folder.name) : "folder")
+                .foregroundColor(folder.isSmartFolder ? .blue : .orange)
         }
-        
-        // Create a new arrangement with the move applied
-        var newArrangement = currentPlaylists
-        newArrangement.move(fromOffsets: source, toOffset: destination)
-        
-        // Update sort orders for ALL root playlists based on the new arrangement
-        for (index, playlist) in newArrangement.enumerated() {
-            playlist.sortOrder = Int32(index)
-            playlist.dateModified = Date()
-        }
-        
-        do {
-            try context.save()
-            // Force UI update by setting playlists to the new arrangement
-            DispatchQueue.main.async {
-                self.fetchPlaylists()
+        .contextMenu {
+            if showContextMenu {
+                Button("Rename") {
+                    editingFolder = folder
+                }
+                Button("Delete", role: .destructive) {
+                    onDelete()
+                }
             }
-        } catch {
-            print("Failed to reorder root playlists: \(error)")
+        }
+        .onDrop(of: [.data], isTargeted: $isDropTargeted) { providers in
+            guard !folder.isSmartFolder else { return false }
+            
+            if let provider = providers.first {
+                let _ = provider.loadDataRepresentation(for: .data) { data, _ in
+                    if let data = data,
+                       let transfer = try? JSONDecoder().decode(ContentTransfer.self, from: data) {
+                        Task { @MainActor in
+                            await store.moveItems(Set(transfer.itemIDs), to: folder.id)
+                        }
+                    }
+                }
+                return true
+            }
+            return false
+        }
+        .overlay {
+            // Provide visual feedback when a drop is targeted
+            if isDropTargeted && !folder.isSmartFolder {
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.accentColor, lineWidth: 2)
+                    #if os(macOS)
+                    .padding(-4) // Adjust padding to look good in the sidebar
+                    #endif
+            }
         }
     }
     
-    private func promotePlaylistToRoot(_ playlistTransfers: [PlaylistTransfer]) {
-        guard let context = libraryManager.viewContext,
-              let library = libraryManager.currentLibrary,
-              let playlistTransfer = playlistTransfers.first else { return }
-        
-        // Find the playlist being promoted
-        let request = Playlist.fetchRequest()
-        request.predicate = NSPredicate(format: "library == %@ AND id == %@", library, playlistTransfer.id as CVarArg)
-        
-        do {
-            let playlists = try context.fetch(request)
-            guard let draggedPlaylist = playlists.first else { return }
-            
-            // Only promote child playlists (ignore if already root)
-            guard draggedPlaylist.parentPlaylist != nil else { return }
-            
-            // Remove from parent
-            draggedPlaylist.parentPlaylist = nil
-            draggedPlaylist.dateModified = Date()
-            
-            // Update sort order - add to end of root playlists
-            let currentRootPlaylists = rootUserPlaylists
-            draggedPlaylist.sortOrder = Int32(currentRootPlaylists.count)
-            
-            try context.save()
-            NotificationCenter.default.post(name: .playlistsUpdated, object: nil)
-        } catch {
-            print("Failed to promote playlist to root: \(error)")
-        }
-    }
-    
-    private func fetchPlaylists() {
-        guard let context = libraryManager.viewContext,
-              let library = libraryManager.currentLibrary else {
-            playlists = []
-            return
-        }
-        
-        let request = Playlist.fetchRequest()
-        request.predicate = NSPredicate(format: "library == %@", library)
-        request.sortDescriptors = [
-            NSSortDescriptor(keyPath: \Playlist.type, ascending: true),
-            NSSortDescriptor(keyPath: \Playlist.sortOrder, ascending: true),
-            NSSortDescriptor(keyPath: \Playlist.name, ascending: true)
-        ]
-        
-        do {
-            playlists = try context.fetch(request)
-        } catch {
-            print("Failed to fetch playlists: \(error)")
-            playlists = []
+    private func getSmartFolderIcon(_ name: String) -> String {
+        switch name {
+        case "All Videos": return "video.fill"
+        case "Recent": return "clock.fill"
+        case "Favorites": return "heart.fill"
+        default: return "folder"
         }
     }
 }
