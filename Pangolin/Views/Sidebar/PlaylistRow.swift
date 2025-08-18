@@ -52,6 +52,7 @@ struct PlaylistRow: View {
         } icon: {
             Image(systemName: playlist.dynamicIconName)
         }
+        .contentShape(Rectangle())
         .background(
             RoundedRectangle(cornerRadius: 6)
                 .fill(isTargeted ? Color.accentColor.opacity(0.2) : Color.clear)
@@ -64,22 +65,6 @@ struct PlaylistRow: View {
                 .foregroundColor(.white)
                 .cornerRadius(6)
         }
-        .dropDestination(for: VideoTransfer.self) { videoTransfers, location in
-            guard !videoTransfers.isEmpty,
-                  playlist.canAcceptVideos else { return false }
-            moveVideosToPlaylist(videoTransfers)
-            return true
-        } isTargeted: { isTargeted in
-            self.isTargeted = isTargeted
-        }
-        .dropDestination(for: VideoBatchTransfer.self) { batchTransfers, location in
-            guard !batchTransfers.isEmpty,
-                  playlist.canAcceptVideos else { return false }
-            moveBatchVideosToPlaylist(batchTransfers)
-            return true
-        } isTargeted: { isTargeted in
-            self.isTargeted = isTargeted
-        }
         .dropDestination(for: PlaylistTransfer.self) { playlistTransfers, location in
             guard !playlistTransfers.isEmpty,
                   playlist.canAcceptPlaylists else { return false }
@@ -87,12 +72,6 @@ struct PlaylistRow: View {
             return true
         } isTargeted: { isTargeted in
             self.isTargeted = isTargeted
-        }
-        #else
-        .onDrop(of: [.text], isTargeted: $isTargeted) { providers in
-            guard playlist.canAcceptVideos else { return false }
-            handleiOSDrop(providers: providers)
-            return true
         }
         #endif
         .contextMenu {
@@ -169,129 +148,6 @@ struct PlaylistRow: View {
         }
         return false
     }
-    
-    private func moveVideosToPlaylist(_ videoTransfers: [VideoTransfer]) {
-        guard let context = libraryManager.viewContext,
-              let library = libraryManager.currentLibrary,
-              playlist.type == PlaylistType.user.rawValue else { return }
-        
-        // Find videos by their IDs
-        let videoIDs = videoTransfers.map { $0.id }
-        let request = Video.fetchRequest()
-        request.predicate = NSPredicate(format: "library == %@ AND id IN %@", library, videoIDs)
-        
-        do {
-            let videos = try context.fetch(request)
-            let targetPlaylistVideos = playlist.mutableSetValue(forKey: "videos")
-            
-            for (video, transfer) in zip(videos, videoTransfers) {
-                // Remove from source playlist if it exists
-                if let sourcePlaylistId = transfer.sourcePlaylistId {
-                    let sourceRequest = Playlist.fetchRequest()
-                    sourceRequest.predicate = NSPredicate(format: "library == %@ AND id == %@", library, sourcePlaylistId as CVarArg)
-                    
-                    if let sourcePlaylists = try? context.fetch(sourceRequest),
-                       let sourcePlaylist = sourcePlaylists.first {
-                        let sourcePlaylistVideos = sourcePlaylist.mutableSetValue(forKey: "videos")
-                        sourcePlaylistVideos.remove(video)
-                        sourcePlaylist.dateModified = Date()
-                    }
-                }
-                
-                // Add to target playlist if not already there
-                if !targetPlaylistVideos.contains(video) {
-                    targetPlaylistVideos.add(video)
-                }
-            }
-            
-            playlist.dateModified = Date()
-            try context.save()
-            NotificationCenter.default.post(name: .playlistsUpdated, object: nil)
-        } catch {
-            print("Failed to move videos to playlist: \(error)")
-        }
-    }
-    
-    private func moveBatchVideosToPlaylist(_ batchTransfers: [VideoBatchTransfer]) {
-        guard let context = libraryManager.viewContext,
-              let library = libraryManager.currentLibrary,
-              playlist.type == PlaylistType.user.rawValue,
-              let batchTransfer = batchTransfers.first else { return }
-        
-        // Find videos by their IDs
-        let request = Video.fetchRequest()
-        request.predicate = NSPredicate(format: "library == %@ AND id IN %@", library, batchTransfer.videoIds)
-        
-        do {
-            let videos = try context.fetch(request)
-            let targetPlaylistVideos = playlist.mutableSetValue(forKey: "videos")
-            
-            for video in videos {
-                // Remove from source playlist if it exists
-                if let sourcePlaylistId = batchTransfer.sourcePlaylistId {
-                    let sourceRequest = Playlist.fetchRequest()
-                    sourceRequest.predicate = NSPredicate(format: "library == %@ AND id == %@", library, sourcePlaylistId as CVarArg)
-                    
-                    if let sourcePlaylists = try? context.fetch(sourceRequest),
-                       let sourcePlaylist = sourcePlaylists.first {
-                        let sourcePlaylistVideos = sourcePlaylist.mutableSetValue(forKey: "videos")
-                        sourcePlaylistVideos.remove(video)
-                        sourcePlaylist.dateModified = Date()
-                    }
-                }
-                
-                // Add to target playlist if not already there
-                if !targetPlaylistVideos.contains(video) {
-                    targetPlaylistVideos.add(video)
-                }
-            }
-            
-            playlist.dateModified = Date()
-            try context.save()
-            NotificationCenter.default.post(name: .playlistsUpdated, object: nil)
-        } catch {
-            print("Failed to move batch videos to playlist: \(error)")
-        }
-    }
-    
-    #if os(iOS)
-    private func handleiOSDrop(providers: [NSItemProvider]) -> Bool {
-        guard let context = libraryManager.viewContext,
-              let library = libraryManager.currentLibrary,
-              playlist.type == PlaylistType.user.rawValue else { return false }
-        
-        for provider in providers {
-            if provider.canLoadObject(ofClass: NSString.self) {
-                provider.loadObject(ofClass: NSString.self) { (object, error) in
-                    if let videoIdString = object as? String,
-                       let videoId = UUID(uuidString: videoIdString) {
-                        
-                        DispatchQueue.main.async {
-                            let request = Video.fetchRequest()
-                            request.predicate = NSPredicate(format: "library == %@ AND id == %@", library, videoId as CVarArg)
-                            
-                            do {
-                                let videos = try context.fetch(request)
-                                if let video = videos.first {
-                                    let mutableVideos = self.playlist.mutableSetValue(forKey: "videos")
-                                    if !mutableVideos.contains(video) {
-                                        mutableVideos.add(video)
-                                        self.playlist.dateModified = Date()
-                                        try context.save()
-                                        NotificationCenter.default.post(name: .playlistsUpdated, object: nil)
-                                    }
-                                }
-                            } catch {
-                                print("Failed to add video to playlist on iOS: \(error)")
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        return true
-    }
-    #endif
     
     // MARK: - Editing Functions
     

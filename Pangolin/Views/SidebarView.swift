@@ -63,7 +63,7 @@ struct SidebarView: View {
         .onAppear {
             fetchPlaylists()
         }
-        .onChange(of: libraryManager.currentLibrary) { library in
+        .onChange(of: libraryManager.currentLibrary) { _, library in
             fetchPlaylists()
         }
         .onReceive(NotificationCenter.default.publisher(for: .playlistsUpdated)) { _ in
@@ -120,8 +120,10 @@ struct SidebarView: View {
         
         do {
             try context.save()
-            // Refresh the playlists list to reflect the changes
-            fetchPlaylists()
+            // Force UI update by setting playlists to the new arrangement
+            DispatchQueue.main.async {
+                self.fetchPlaylists()
+            }
         } catch {
             print("Failed to reorder root playlists: \(error)")
         }
@@ -152,7 +154,6 @@ struct SidebarView: View {
             draggedPlaylist.sortOrder = Int32(currentRootPlaylists.count)
             
             try context.save()
-            fetchPlaylists()
             NotificationCenter.default.post(name: .playlistsUpdated, object: nil)
         } catch {
             print("Failed to promote playlist to root: \(error)")
