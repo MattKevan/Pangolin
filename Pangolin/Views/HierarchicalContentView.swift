@@ -106,7 +106,8 @@ struct HierarchicalContentView: View {
                 item: item,
                 renamingItemID: $renamingItemID,
                 focusedField: $focusedField,
-                editedName: $editedName
+                editedName: $editedName,
+                selectedItems: $selectedItems
             )
             .contentShape(Rectangle()) // Ensure full row is clickable
         }

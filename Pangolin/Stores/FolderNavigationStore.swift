@@ -228,6 +228,8 @@ class FolderNavigationStore: ObservableObject {
             }
         }
         await libraryManager.save()
+        // Notify UI to refresh after successful folder creation
+        NotificationCenter.default.post(name: .contentUpdated, object: nil)
     }
     
     @MainActor
@@ -267,6 +269,8 @@ class FolderNavigationStore: ObservableObject {
             
             if context.hasChanges {
                 await libraryManager.save()
+                // Notify UI to refresh after successful move
+                NotificationCenter.default.post(name: .contentUpdated, object: nil)
             }
             
         } catch {

@@ -14,15 +14,28 @@ struct HierarchicalContentRowView: View {
     @Binding var renamingItemID: UUID?
     @FocusState.Binding var focusedField: UUID?
     @Binding var editedName: String
+    @Binding var selectedItems: Set<UUID>
     
     @EnvironmentObject private var store: FolderNavigationStore
     
     var body: some View {
         HStack(spacing: 12) {
-            // Icon
-            Image(systemName: iconName)
-                .foregroundColor(iconColor)
-                .frame(width: 16, height: 16)
+            // Icon or Thumbnail
+            Group {
+                if case .video(let video) = item.contentType {
+                    VideoThumbnailView(video: video, size: CGSize(width: 32, height: 18))
+                        .frame(width: 32, height: 18)
+                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 3)
+                                .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
+                        )
+                } else {
+                    Image(systemName: iconName)
+                        .foregroundColor(iconColor)
+                        .frame(width: 16, height: 16)
+                }
+            }
             
             // Name (editable if renaming)
             if renamingItemID == item.id {
@@ -83,9 +96,13 @@ struct HierarchicalContentRowView: View {
     }
     
     private var dragPayload: ContentTransfer {
-        // For now, just support single item dragging
-        // Could be enhanced to support multi-selection
-        return ContentTransfer(itemIDs: [item.id])
+        // If the dragged item is part of a larger selection, drag all selected items.
+        // Otherwise, just drag the single item.
+        if selectedItems.contains(item.id) {
+            return ContentTransfer(itemIDs: Array(selectedItems))
+        } else {
+            return ContentTransfer(itemIDs: [item.id])
+        }
     }
     
     @ViewBuilder
