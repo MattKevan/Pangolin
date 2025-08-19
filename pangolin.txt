@@ -1,6 +1,6 @@
 FILE CONCATENATION REPORT
 Root Directory: Pangolin/
-Excluded Directories: ios, node_modules, public
+Excluded Directories: node_modules, public, ios
 File Extensions: *.swift, *.plist, *.entitlements, *.jsx, *.css, *.html, *.json, *.hbs, *.mdx
 ================================================================================
 
@@ -106,72 +106,6 @@ struct PangolinApp: App {
             }
         }
         #endif
-    }
-}
-
-
-================================================================================
-
-File: ContentView.swift
-//
-//  ContentView.swift
-//  Pangolin
-//
-//  Created by Matt Kevan on 16/08/2025.
-//
-
-import SwiftUI
-
-struct ContentView: View {
-    @StateObject private var libraryManager = LibraryManager.shared
-    @State private var showLibrarySelector = false
-    @State private var showCreateLibrary = false
-    
-    var body: some View {
-        Group {
-            if libraryManager.isLibraryOpen {
-                MainView()
-                    .environmentObject(libraryManager)
-            } else {
-                LibraryWelcomeView(
-                    showLibrarySelector: $showLibrarySelector,
-                    showCreateLibrary: $showCreateLibrary
-                )
-                .environmentObject(libraryManager)
-            }
-        }
-        .fileImporter(
-            isPresented: $showLibrarySelector,
-            allowedContentTypes: [.folder],
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .success(let urls):
-                if let url = urls.first {
-                    Task {
-                        try? await libraryManager.openLibrary(at: url)
-                    }
-                }
-            case .failure(let error):
-                print("Error selecting library: \(error)")
-            }
-        }
-        .fileImporter(
-            isPresented: $showCreateLibrary,
-            allowedContentTypes: [.folder],
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .success(let urls):
-                if let url = urls.first {
-                    Task {
-                        try? await libraryManager.createLibrary(at: url, name: "My Library")
-                    }
-                }
-            case .failure(let error):
-                print("Error creating library: \(error)")
-            }
-        }
     }
 }
 
@@ -739,7 +673,7 @@ class LibraryManager: ObservableObject {
             ("Favorites", "heart.fill")
         ]
         
-        for (index, folderInfo) in smartFolders.enumerated() {
+        for folderInfo in smartFolders {
             let folder = Folder(entity: folderEntityDescription, insertInto: context)
             folder.id = UUID()
             folder.name = folderInfo.0
@@ -1108,7 +1042,7 @@ class FileSystemManager {
     // MARK: - Thumbnail Generation for Existing Videos
     
     func generateMissingThumbnails(for library: Library, context: NSManagedObjectContext) async {
-        guard let libraryURL = library.url else { return }
+        guard library.url != nil else { return }
         
         let request = Video.fetchRequest()
         request.predicate = NSPredicate(format: "library == %@ AND thumbnailPath == nil", library)
@@ -1474,6 +1408,68 @@ class FolderNavigationStore: ObservableObject {
         // This is already handled in navigateToFolder and navigateBack methods
     }
     
+    // MARK: - Rename Functionality
+    @MainActor
+    func renameItem(_ itemID: UUID, to newName: String) async {
+        guard let context = libraryManager.viewContext,
+              let library = libraryManager.currentLibrary else { return }
+        
+        let trimmedName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+        
+        // Try to find as folder first
+        let folderRequest = Folder.fetchRequest()
+        folderRequest.predicate = NSPredicate(format: "library == %@ AND id == %@", library, itemID as CVarArg)
+        
+        do {
+            if let folder = try context.fetch(folderRequest).first {
+                folder.name = trimmedName
+                folder.dateModified = Date()
+                try context.save()
+                
+                // Force refresh the context to ensure UI sees changes
+                context.refreshAllObjects()
+                
+                // Notify views to refresh
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: .contentUpdated, object: nil)
+                }
+                
+                return
+            }
+        } catch {
+            await MainActor.run {
+                errorMessage = "Failed to rename folder: \(error.localizedDescription)"
+            }
+            return
+        }
+        
+        // Try to find as video
+        let videoRequest = Video.fetchRequest()
+        videoRequest.predicate = NSPredicate(format: "library == %@ AND id == %@", library, itemID as CVarArg)
+        
+        do {
+            if let video = try context.fetch(videoRequest).first {
+                video.title = trimmedName
+                try context.save()
+                
+                // Force refresh the context to ensure UI sees changes
+                context.refreshAllObjects()
+                
+                // Notify views to refresh
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: .contentUpdated, object: nil)
+                }
+                
+                return
+            }
+        } catch {
+            await MainActor.run {
+                errorMessage = "Failed to rename video: \(error.localizedDescription)"
+            }
+        }
+    }
+    
     // MARK: - Folder Management
     @MainActor
     func createFolder(name: String, in parentFolderID: UUID? = nil) async {
@@ -1514,7 +1510,7 @@ class FolderNavigationStore: ObservableObject {
         do {
             try context.save()
             // Notify views that content has changed
-            NotificationCenter.default.post(name: .playlistsUpdated, object: nil)
+            NotificationCenter.default.post(name: .contentUpdated, object: nil)
         } catch {
             errorMessage = "Failed to create folder: \(error.localizedDescription)"
         }
@@ -1579,7 +1575,7 @@ class FolderNavigationStore: ObservableObject {
         do {
             try context.save()
             // Notify views that content has changed
-            NotificationCenter.default.post(name: .playlistsUpdated, object: nil)
+            NotificationCenter.default.post(name: .contentUpdated, object: nil)
         } catch {
             errorMessage = "Failed to save changes: \(error.localizedDescription)"
         }
@@ -1648,40 +1644,33 @@ class FolderNavigationStore: ObservableObject {
             videoRequest.fetchLimit = 50
             
         case "Favorites":
-            // For now, just show recently played videos. Could add a favorite flag later
-            videoRequest.predicate = NSPredicate(format: "library == %@ AND lastPlayed != NULL", library)
-            videoRequest.sortDescriptors = [NSSortDescriptor(keyPath: \Video.lastPlayed, ascending: false)]
-            videoRequest.fetchLimit = 50
-            
-        default:
-            // Unknown smart folder type, show nothing
-            return []
-        }
+            videoRequest.predicate = NSPredicate(format: "library == %@ AND isFavorite == YES", library)
+                       videoRequest.sortDescriptors = [NSSortDescriptor(keyPath: \Video.title, ascending: true)]
+                       
+                   default:
+                       // Unknown smart folder type, show nothing
+                       return []
+                   }
+                   
+                   do {
+                       let videos = try context.fetch(videoRequest)
+                       for video in videos {
+                           contentItems.append(.video(video))
+                       }
+                   } catch {
+                       errorMessage = "Failed to load smart folder content: \(error.localizedDescription)"
+                   }
+                   
+                   return contentItems
+               }
         
-        do {
-            let videos = try context.fetch(videoRequest)
-            for video in videos {
-                contentItems.append(.video(video))
-            }
-        } catch {
-            errorMessage = "Failed to load smart folder content: \(error.localizedDescription)"
-        }
-        
-        return contentItems
-    }
+
 }
+
 
 ================================================================================
 
 File: CoreData/CoreDataStack.swift
-//
-//  CoreDataStack.swift
-//  Pangolin
-//
-//  Created by Matt Kevan on 16/08/2025.
-//
-
-
 // CoreData/CoreDataStack.swift
 import Foundation
 import CoreData
@@ -1745,7 +1734,8 @@ class CoreDataStack {
             ("thumbnailPath", .stringAttributeType, nil),
             ("videoFormat", .stringAttributeType, nil),
             ("resolution", .stringAttributeType, nil),
-            ("frameRate", .doubleAttributeType, 0.0)
+            ("frameRate", .doubleAttributeType, 0.0),
+            ("isFavorite", .booleanAttributeType, false) // <-- ADDED THIS LINE
         ]
         
         videoEntity.properties = videoAttributes.map { name, type, defaultValue in
@@ -1974,7 +1964,6 @@ class CoreDataStack {
 }
 
 
-
 ================================================================================
 
 File: Models/FolderTransfer.swift
@@ -2015,14 +2004,6 @@ File: Models/ContentTransfer.swift
 //  Created by Matt Kevan on 18/08/2025.
 //
 
-
-//
-//  ContentTransfer.swift
-//  Pangolin
-//
-//  Created by Matt Kevan on 18/08/2025.
-//
-
 import Foundation
 import CoreTransferable
 
@@ -2049,8 +2030,6 @@ File: Models/VideoModel.swift
 import Foundation
 import CoreData
 import AVFoundation
-import UniformTypeIdentifiers
-import CoreTransferable
 
 // MARK: - Video Model
 public class Video: NSManagedObject, Identifiable {
@@ -2068,6 +2047,7 @@ public class Video: NSManagedObject, Identifiable {
     @NSManaged public var videoFormat: String?
     @NSManaged public var resolution: String?
     @NSManaged public var frameRate: Double
+    @NSManaged public var isFavorite: Bool
     
     // Relationships
     @NSManaged public var folder: Folder?
@@ -2101,26 +2081,6 @@ public class Video: NSManagedObject, Identifiable {
     }
 }
 
-// Helper struct for transferring video data
-public struct VideoTransfer: Codable, Transferable {
-    let id: UUID
-    let title: String
-    let sourceFolderId: UUID?
-    
-    init(video: Video, sourceFolder: Folder? = nil) {
-        self.id = video.id
-        self.title = video.title
-        self.sourceFolderId = sourceFolder?.id
-    }
-    
-    public static var transferRepresentation: some TransferRepresentation {
-        DataRepresentation(contentType: .data) { video in
-            try JSONEncoder().encode(video)
-        } importing: { data in
-            try JSONDecoder().decode(VideoTransfer.self, from: data)
-        }
-    }
-}
 
 // MARK: - Folder Model
 public class Folder: NSManagedObject, Identifiable {
@@ -2351,36 +2311,6 @@ extension Library {
 
 ================================================================================
 
-File: Models/VideoBatchTransfer.swift
-//
-//  VideoBatchTransfer.swift
-//  Pangolin
-//
-//  Created by Matt Kevan on 17/08/2025.
-//
-
-import Foundation
-import UniformTypeIdentifiers
-import CoreTransferable
-
-struct VideoBatchTransfer: Codable, Transferable {
-    let videoIds: [UUID]
-    let titles: [String]
-    let sourceFolderId: UUID?
-    
-    init(videos: [Video], sourceFolder: Folder? = nil) {
-        self.videoIds = videos.map { $0.id }
-        self.titles = videos.map { $0.title }
-        self.sourceFolderId = sourceFolder?.id
-    }
-    
-    static var transferRepresentation: some TransferRepresentation {
-        CodableRepresentation(contentType: .data)
-    }
-}
-
-================================================================================
-
 File: Extensions/View+Extensions.swift
 //
 //  View+Extensions.swift
@@ -2390,8 +2320,7 @@ File: Extensions/View+Extensions.swift
 //
 
 // Extensions/View+Extensions.swift
-import SwiftUI  // ← Add this import
-import Foundation
+import SwiftUI
 
 extension View {
     func pangolinAlert<T: LocalizedError>(error: Binding<T?>) -> some View {
@@ -2420,7 +2349,6 @@ File: Extensions/URL+Extensions.swift
 
 // Extensions/URL+Extensions.swift
 
-import SwiftUI  
 import Foundation
 
 extension URL {
@@ -2760,7 +2688,7 @@ class VideoImporter: ObservableObject {
                     let folderNode = buildFolderTree(from: url)
                     rootNodes.append(folderNode)
                 } else if isVideoFile(url) {
-                    // Individual file import - no playlist needed
+                    // Individual file import
                     continue
                 }
             }
@@ -3130,18 +3058,11 @@ struct DetailView: View {
 ================================================================================
 
 File: Views/VideoPlayerView.swift
-//
-//  VideoPlayerView.swift
-//  Pangolin
-//
-//  Created by Matt Kevan on 16/08/2025.
-//
-
-
-// Views/Components/VideoPlayerView.swift
+// Views/VideoPlayerView.swift
 import SwiftUI
 import AVKit
 
+#if os(macOS)
 struct VideoPlayerView: NSViewRepresentable {
     @ObservedObject var viewModel: VideoPlayerViewModel
     
@@ -3157,23 +3078,28 @@ struct VideoPlayerView: NSViewRepresentable {
         nsView.player = viewModel.player
     }
 }
-
-#if os(iOS)
+#elseif os(iOS)
 struct VideoPlayerView: UIViewRepresentable {
     @ObservedObject var viewModel: VideoPlayerViewModel
     
     func makeUIView(context: Context) -> UIView {
+        // We need to wrap the AVPlayerViewController to use its view
         let controller = AVPlayerViewController()
         controller.player = viewModel.player
         controller.showsPlaybackControls = false // Custom controls
+        
+        // This makes sure the view from the controller is returned
         return controller.view
     }
     
     func updateUIView(_ uiView: UIView, context: Context) {
-        // Update if needed
+        // This is tricky because we don't have direct access to the controller.
+        // For simple player updates, swapping the player on the viewModel should be sufficient.
+        // More complex updates might require a Coordinator.
     }
 }
 #endif
+
 
 ================================================================================
 
@@ -3236,7 +3162,8 @@ struct SidebarView: View {
         }
         .onKeyPress { keyPress in
             if keyPress.key == .return,
-               let selected = store.selectedTopLevelFolder {
+               let selected = store.selectedTopLevelFolder,
+               !selected.isSmartFolder {
                 editingFolder = selected
                 return .handled
             }
@@ -3246,7 +3173,6 @@ struct SidebarView: View {
     
     private func deleteFolder(_ folder: Folder) {
         // TODO: Implement folder deletion with confirmation
-        print("Deleting folder: \(folder.name)")
     }
 }
 
@@ -3259,16 +3185,27 @@ private struct FolderRowView: View {
     let onDelete: () -> Void
     
     @State private var isDropTargeted = false
+    @State private var editingName = ""
+    @State private var clickCount = 0
+    @State private var lastClickTime = Date()
+    
+    private var isEditing: Bool {
+        editingFolder?.id == folder.id
+    }
+    
+    private var isSelected: Bool {
+        store.selectedTopLevelFolder?.id == folder.id
+    }
 
     var body: some View {
         Label {
-            Text(folder.name)
+            nameView
         } icon: {
             Image(systemName: folder.isSmartFolder ? getSmartFolderIcon(folder.name) : "folder")
                 .foregroundColor(folder.isSmartFolder ? .blue : .orange)
         }
         .contextMenu {
-            if showContextMenu {
+            if showContextMenu && !folder.isSmartFolder {
                 Button("Rename") {
                     editingFolder = folder
                 }
@@ -3303,7 +3240,91 @@ private struct FolderRowView: View {
                     #endif
             }
         }
+        #if os(macOS)
+        .onTapGesture {
+            handleNameClick()
+        }
+        #endif
     }
+    
+    // MARK: - Name View with Editing Support
+    @ViewBuilder
+    private var nameView: some View {
+        #if os(macOS)
+        if isEditing {
+            TextField("Folder Name", text: $editingName)
+                .textFieldStyle(.plain)
+                .onSubmit {
+                    commitEdit()
+                }
+                .onExitCommand {
+                    cancelEdit()
+                }
+                .onAppear {
+                    editingName = folder.name
+                }
+        } else {
+            Text(folder.name)
+        }
+        #else
+        Text(folder.name)
+        #endif
+    }
+    
+    // MARK: - macOS Rename Handling
+    #if os(macOS)
+    private func handleNameClick() {
+        // Don't allow rename for smart folders
+        guard !folder.isSmartFolder else { return }
+        
+        let now = Date()
+        let timeSinceLastClick = now.timeIntervalSince(lastClickTime)
+        
+        if timeSinceLastClick < 0.5 {
+            // Double click - ignore for rename
+            clickCount = 0
+            return
+        }
+        
+        if timeSinceLastClick > 2.0 {
+            clickCount = 0
+        }
+        
+        clickCount += 1
+        lastClickTime = now
+        
+        // If already selected and single click after delay, start editing
+        if isSelected && clickCount == 1 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                if clickCount == 1 && isSelected {
+                    startEdit()
+                }
+            }
+        }
+    }
+    
+    private func startEdit() {
+        guard !folder.isSmartFolder else { return }
+        editingFolder = folder
+        editingName = folder.name
+    }
+    
+    private func cancelEdit() {
+        editingFolder = nil
+        editingName = ""
+    }
+    
+    private func commitEdit() {
+        let trimmedName = editingName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedName.isEmpty && trimmedName != folder.name {
+            Task { @MainActor in
+                await store.renameItem(folder.id, to: trimmedName)
+            }
+        }
+        editingFolder = nil
+        editingName = ""
+    }
+    #endif
     
     private func getSmartFolderIcon(_ name: String) -> String {
         switch name {
@@ -3413,9 +3434,14 @@ import SwiftUI
 
 struct MainView: View {
     @EnvironmentObject var libraryManager: LibraryManager
-    @StateObject private var folderStore = FolderNavigationStore(libraryManager: LibraryManager.shared)
+    @StateObject private var folderStore: FolderNavigationStore
     @State private var searchText = ""
     @State private var columnVisibility = NavigationSplitViewVisibility.all
+    
+    init() {
+        // Initialize the store with a placeholder, will be updated in onAppear
+        self._folderStore = StateObject(wrappedValue: FolderNavigationStore(libraryManager: LibraryManager.shared))
+    }
     
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -3435,10 +3461,6 @@ struct MainView: View {
                 .navigationSplitViewColumnWidth(min: 500, ideal: 700)
         }
         .navigationTitle(libraryManager.currentLibrary?.name ?? "Pangolin")
-        .onAppear {
-            // Update the store's libraryManager reference if needed
-            // This ensures the store uses the current libraryManager instance
-        }
     }
 }
 
@@ -3454,15 +3476,9 @@ File: Views/ContentListView.swift
 //
 
 import SwiftUI
-import CoreData
-#if os(macOS)
-import AppKit
-#elseif os(iOS)
-import UIKit
-#endif
 
 extension Notification.Name {
-    static let playlistsUpdated = Notification.Name("playlistsUpdated")
+    static let contentUpdated = Notification.Name("contentUpdated")
 }
 
 struct ContentListView: View {
@@ -3560,140 +3576,6 @@ struct CreateFolderView: View {
         await store.createFolder(name: trimmedName, in: parentFolderID)
         dismiss()
     }
-}
-
-
-================================================================================
-
-File: Views/Content/VideoGridItem.swift
-//
-//  VideoGridItem.swift
-//  Pangolin
-//
-//  Created by Matt Kevan on 16/08/2025.
-//
-
-
-import SwiftUI
-
-struct VideoGridItem: View {
-    let video: Video
-    let isSelected: Bool
-    let showCheckbox: Bool
-    let sourceFolder: Folder?
-    let selectedVideos: Set<Video>
-    
-    var body: some View {
-        VStack {
-            ZStack(alignment: .topLeading) {
-                VideoThumbnailView(video: video, size: CGSize(width: 180, height: 101))
-                
-                if showCheckbox {
-                    Button(action: {}) {
-                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                            .font(.title2)
-                            .foregroundColor(isSelected ? .accentColor : .secondary)
-                            .background(Color.white.opacity(0.8))
-                            .clipShape(Circle())
-                    }
-                    .padding(8)
-                    .allowsHitTesting(false)
-                }
-            }
-            
-            Text(video.title)
-                .lineLimit(2)
-                .font(.caption)
-            
-            Text(video.formattedDuration)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-        }
-        .padding(4)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
-        )
-        #if os(macOS)
-        .modifier(DragModifier(video: video, selectedVideos: selectedVideos, sourceFolder: sourceFolder))
-        #else
-        .onDrag {
-            NSItemProvider(object: "\(video.id)" as NSString)
-        }
-        #endif
-    }
-    
-}
-
-
-================================================================================
-
-File: Views/Content/VideoListRow.swift
-//
-//  VideoListRow.swift
-//  Pangolin
-//
-//  Created by Matt Kevan on 16/08/2025.
-//
-
-
-import SwiftUI
-
-struct VideoListRow: View {
-    let video: Video
-    let isSelected: Bool
-    let showCheckbox: Bool
-    let sourceFolder: Folder?
-    let selectedVideos: Set<Video>
-    
-    var body: some View {
-        HStack {
-            if showCheckbox {
-                Button(action: {}) {
-                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                        .font(.title2)
-                        .foregroundColor(isSelected ? .accentColor : .secondary)
-                }
-                .allowsHitTesting(false)
-            }
-            
-            VideoThumbnailView(video: video, size: CGSize(width: 120, height: 67.5))
-            
-            VStack(alignment: .leading) {
-                Text(video.title)
-                    .lineLimit(1)
-                
-                HStack {
-                    Text(video.formattedDuration)
-                    Text("•")
-                    Text(formatFileSize(video.fileSize))
-                }
-                .font(.caption)
-                .foregroundColor(.secondary)
-            }
-            
-            Spacer()
-        }
-        .padding(.vertical, 4)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(isSelected ? Color.accentColor.opacity(0.1) : Color.clear)
-        )
-        #if os(macOS)
-        .modifier(DragModifier(video: video, selectedVideos: selectedVideos, sourceFolder: sourceFolder))
-        #else
-        .onDrag {
-            NSItemProvider(object: "\(video.id)" as NSString)
-        }
-        #endif
-    }
-    
-    func formatFileSize(_ bytes: Int64) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: bytes)
-    }
-    
 }
 
 
@@ -3797,6 +3679,105 @@ struct VideoControlsBar: View {
 
 ================================================================================
 
+File: Views/Components/FolderNavigationBar.swift
+//
+//  FolderNavigationBar.swift
+//  Pangolin
+//
+//  Created by Matt Kevan on 18/08/2025.
+//
+
+import SwiftUI
+
+struct FolderNavigationBar: View {
+    @EnvironmentObject private var store: FolderNavigationStore
+    let folderID: UUID?
+    let onCreateFolder: () -> Void
+    
+    private var canGoBack: Bool {
+        !store.navigationPath.isEmpty
+    }
+    
+    private var folderName: String {
+        store.folderName(for: folderID)
+    }
+    
+    var body: some View {
+        HStack {
+            // Back button
+            Button {
+                store.navigateBack()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 12, weight: .medium))
+                    Text("Back")
+                        .font(.system(size: 14))
+                }
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(canGoBack ? .primary : .secondary)
+            .disabled(!canGoBack)
+            .opacity(canGoBack ? 1.0 : 0.0)
+            
+            Spacer()
+            
+            // Folder name
+            Text(folderName)
+                .font(.headline)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            
+            Spacer()
+            
+            // Create folder button
+            Button {
+                onCreateFolder()
+            } label: {
+                Image(systemName: "folder.badge.plus")
+                    .font(.system(size: 16))
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.primary)
+            .help("Create New Folder")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(backgroundMaterial)
+        .overlay(
+            Rectangle()
+                .fill(separatorColor)
+                .frame(height: 0.5),
+            alignment: .bottom
+        )
+    }
+    
+    private var backgroundMaterial: some View {
+        #if os(macOS)
+        Color(NSColor.controlBackgroundColor)
+        #else
+        Color(.secondarySystemGroupedBackground)
+        #endif
+    }
+    
+    private var separatorColor: Color {
+        #if os(macOS)
+        Color(NSColor.separatorColor)
+        #else
+        Color(.separator)
+        #endif
+    }
+}
+
+#Preview {
+    FolderNavigationBar(folderID: nil) {
+        // Preview action
+    }
+    .environmentObject(FolderNavigationStore(libraryManager: LibraryManager.shared))
+}
+
+================================================================================
+
 File: Views/Components/FolderContentView.swift
 //
 //  FolderContentView.swift
@@ -3822,21 +3803,80 @@ struct FolderContentView: View {
     @State private var selectedItems: Set<UUID> = []
     @State private var isSelectionMode = false
     @State private var showingCreateFolder = false
+    @State private var showingCreateSubfolder = false
+    @State private var selectedFolderForSubfolder: Folder?
     @State private var showingImportPicker = false
     @State private var showingImportProgress = false
     @StateObject private var videoImporter = VideoImporter()
     @State private var isGeneratingThumbnails = false
     @State private var contentRefreshTrigger = false
     
+    // Initialize with proper predicates based on folderID
+    init(folderID: UUID?) {
+        self.folderID = folderID
+        
+        // Set up folder fetch request
+        if let folderID = folderID {
+            _folders = FetchRequest<Folder>(
+                entity: Folder.entity(),
+                sortDescriptors: [NSSortDescriptor(keyPath: \Folder.name, ascending: true)],
+                predicate: NSPredicate(format: "parentFolder.id == %@", folderID as CVarArg)
+            )
+            _videos = FetchRequest<Video>(
+                entity: Video.entity(),
+                sortDescriptors: [NSSortDescriptor(keyPath: \Video.title, ascending: true)],
+                predicate: NSPredicate(format: "folder.id == %@", folderID as CVarArg)
+            )
+        } else {
+            // Root level - get folders with no parent
+            _folders = FetchRequest<Folder>(
+                entity: Folder.entity(),
+                sortDescriptors: [NSSortDescriptor(keyPath: \Folder.name, ascending: true)],
+                predicate: NSPredicate(format: "parentFolder == nil AND isSmartFolder == NO")
+            )
+            _videos = FetchRequest<Video>(
+                entity: Video.entity(),
+                sortDescriptors: [NSSortDescriptor(keyPath: \Video.title, ascending: true)],
+                predicate: NSPredicate(format: "folder == nil")
+            )
+        }
+    }
+    
     enum ViewMode: String, CaseIterable {
         case grid = "Grid"
         case list = "List"
     }
     
+    // Use Core Data's native SwiftUI integration for folders
+    @FetchRequest private var folders: FetchedResults<Folder>
+    @FetchRequest private var videos: FetchedResults<Video>
+    
     private var content: [ContentType] {
-        // Force refresh when contentRefreshTrigger changes
-        _ = contentRefreshTrigger
-        return store.content(for: folderID)
+        var result: [ContentType] = []
+        
+        // Add folders
+        for folder in folders {
+            result.append(.folder(folder))
+        }
+        
+        // Add videos
+        for video in videos {
+            result.append(.video(video))
+        }
+        
+        return result.sorted { first, second in
+            // Sort folders first, then by name
+            switch (first, second) {
+            case (.folder, .video):
+                return true
+            case (.video, .folder):
+                return false
+            case (.folder(let a), .folder(let b)):
+                return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+            case (.video(let a), .video(let b)):
+                return a.title.localizedCaseInsensitiveCompare(b.title) == .orderedAscending
+            }
+        }
     }
     
     private var videosWithoutThumbnails: [Video] {
@@ -3849,24 +3889,33 @@ struct FolderContentView: View {
     }
     
     var body: some View {
-        Group {
-            if content.isEmpty {
-                ContentUnavailableView(
-                    "No Content",
-                    systemImage: "folder.badge.questionmark",
-                    description: Text(folderID == nil ? "Import videos to get started" : "This folder is empty")
-                )
-            } else {
-                #if os(macOS)
-                macOSContentView
-                #else
-                iOSContentView
-                #endif
+        VStack(spacing: 0) {
+            // Navigation bar at the top
+            FolderNavigationBar(folderID: folderID) {
+                showingCreateFolder = true
+            }
+            
+            // Content below
+            Group {
+                if content.isEmpty {
+                    ContentUnavailableView(
+                        "No Content",
+                        systemImage: "folder.badge.questionmark",
+                        description: Text(folderID == nil ? "Import videos to get started" : "This folder is empty")
+                    )
+                } else {
+                    #if os(macOS)
+                    macOSContentView
+                    #else
+                    iOSContentView
+                    #endif
+                }
             }
         }
-        .navigationTitle(store.folderName(for: folderID))
         #if os(iOS)
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
+        #elseif os(macOS)
+        .navigationBarBackButtonHidden(true)
         #endif
         .toolbar {
             toolbarContent
@@ -3900,15 +3949,29 @@ struct FolderContentView: View {
         .sheet(isPresented: $showingCreateFolder) {
             CreateFolderView(parentFolderID: folderID)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .playlistsUpdated)) { _ in
-            // Trigger content refresh when data changes
-            contentRefreshTrigger.toggle()
+        .sheet(isPresented: $showingCreateSubfolder) {
+            CreateFolderView(parentFolderID: selectedFolderForSubfolder?.id)
         }
         .onChange(of: videoImporter.isImporting) { _, isImporting in
             if !isImporting && showingImportProgress {
-                NotificationCenter.default.post(name: .playlistsUpdated, object: nil)
+                NotificationCenter.default.post(name: .contentUpdated, object: nil)
             }
         }
+        #if os(macOS)
+        .onKeyPress(.return) {
+            if let selectedID = selectedItems.first,
+               selectedItems.count == 1 {
+                // Trigger rename for the selected item
+                NotificationCenter.default.post(
+                    name: .init("startRename"),
+                    object: nil,
+                    userInfo: ["itemID": selectedID]
+                )
+                return .handled
+            }
+            return .ignored
+        }
+        #endif
     }
     
     // MARK: - Platform-Specific Content Views
@@ -3988,6 +4051,9 @@ struct FolderContentView: View {
             }
         }
         .listStyle(.inset)
+        .onChange(of: selectedItems) { _, newSelection in
+            handleListSelection(newSelection)
+        }
     }
     
     @ViewBuilder
@@ -4004,85 +4070,66 @@ struct FolderContentView: View {
         #if os(iOS)
         .environment(\.editMode, .constant(isSelectionMode ? .active : .inactive))
         #endif
+        .onChange(of: selectedItems) { _, newSelection in
+            handleListSelection(newSelection)
+        }
     }
     
     // MARK: - Navigation Link Helper
     
     @ViewBuilder
     private func contentNavigationLink(for item: ContentType) -> some View {
+        let isItemSelected: Bool = {
+            if isSelectionMode {
+                return selectedItems.contains(item.id)
+            } else {
+                // In normal mode, show video as selected if it's the currently playing video
+                if case .video(let video) = item {
+                    return store.selectedVideo?.id == video.id
+                } else {
+                    return false
+                }
+            }
+        }()
+        
         let rowView = ContentRowView(
             content: item,
-            isSelected: selectedItems.contains(item.id),
+            isSelected: isItemSelected,
             showCheckbox: isSelectionMode,
             viewMode: viewMode == .grid ? .grid : .list,
             selectedItems: $selectedItems
         )
         
         switch item {
-        case .folder(let folder):
-            if isSelectionMode {
-                Button {
-                    handleSelectionToggle(for: item.id)
-                } label: {
-                    rowView
-                }
-                .buttonStyle(.plain)
-                .contentShape(Rectangle())
-                #if os(macOS)
-                .onTapGesture {
-                    handleSelectionToggle(for: item.id)
-                }
-                #endif
-            } else {
-                NavigationLink(value: folder.id) {
-                    rowView
-                }
-                .buttonStyle(.plain)
-                .contentShape(Rectangle())
-            }
+        case .folder:
+            // Let the List handle all selection - same as videos
+            rowView
             
-        case .video(let video):
-            Button {
-                if isSelectionMode {
-                    handleSelectionToggle(for: item.id)
-                } else {
-                    handleVideoSelection(video)
-                }
-            } label: {
-                rowView
-            }
-            .buttonStyle(.plain)
-            .contentShape(Rectangle())
-            #if os(macOS)
-            .onTapGesture {
-                if isSelectionMode {
-                    handleSelectionToggle(for: item.id)
-                } else {
-                    handleVideoSelection(video)
-                }
-            }
-            #endif
+        case .video:
+            // Let the List handle all selection - no custom Button needed
+            rowView
         }
     }
     
     // MARK: - Selection Handling
     
-    private func handleSelectionToggle(for itemID: UUID) {
-        if selectedItems.contains(itemID) {
-            selectedItems.remove(itemID)
-        } else {
-            selectedItems.insert(itemID)
-        }
-    }
-    
-    private func handleVideoSelection(_ video: Video) {
+    private func handleListSelection(_ newSelection: Set<UUID>) {
+        // Only handle single selections in normal mode (not selection mode)
         if !isSelectionMode {
-            Task { @MainActor in
-                store.selectVideo(video)
-                selectedItems.removeAll()
+            if let selectedID = newSelection.first,
+               let selectedContent = content.first(where: { $0.id == selectedID }) {
+                switch selectedContent {
+                case .video(let video):
+                    store.selectVideo(video)
+                case .folder(let folder):
+                    // Navigate to folder programmatically
+                    store.navigateToFolder(folder.id)
+                    break
+                }
             }
         }
     }
+    
     
     // MARK: - Context Menus
     
@@ -4090,9 +4137,8 @@ struct FolderContentView: View {
     private func macOSContextMenu(for item: ContentType) -> some View {
         Group {
             Button("Open") {
-                if case .folder(let folder) = item {
+                if case .folder = item {
                     // NavigationLink handles folder navigation automatically
-                    print("Folder navigation handled by NavigationLink")
                 } else if case .video(let video) = item {
                     Task { @MainActor in
                         store.selectVideo(video)
@@ -4100,11 +4146,18 @@ struct FolderContentView: View {
                 }
             }
             
-            if case .folder = item {
+            if case .folder(let folder) = item {
+                Button("New Folder") {
+                    selectedFolderForSubfolder = folder
+                    showingCreateSubfolder = true
+                }
+                
+                Divider()
+                
                 Button("Rename") {
                     // Handle rename
                 }
-                Divider()
+                
                 Button("Delete", role: .destructive) {
                     // Handle delete
                 }
@@ -4115,12 +4168,20 @@ struct FolderContentView: View {
     @ViewBuilder
     private func iOSContextMenu(for item: ContentType) -> some View {
         Group {
-            if case .folder(let folder) = item {
+            if case .folder = item {
                 Button {
                     // NavigationLink handles folder navigation automatically
-                    print("Folder navigation handled by NavigationLink")
                 } label: {
                     Label("Open", systemImage: "folder")
+                }
+                
+                Button {
+                    if case .folder(let folder) = item {
+                        selectedFolderForSubfolder = folder
+                        showingCreateSubfolder = true
+                    }
+                } label: {
+                    Label("New Folder", systemImage: "folder.badge.plus")
                 }
                 
                 Button {
@@ -4181,9 +4242,6 @@ struct FolderContentView: View {
             }
         }
         
-        Button("Create Folder") { 
-            showingCreateFolder = true 
-        }
         
         Button("Import Videos") { 
             showingImportPicker = true 
@@ -4226,11 +4284,6 @@ struct FolderContentView: View {
             }
             .disabled(libraryManager.currentLibrary == nil)
             
-            Button { 
-                showingCreateFolder = true 
-            } label: {
-                Label("New Folder", systemImage: "folder.badge.plus")
-            }
             
             Picker("View Mode", selection: $viewMode) {
                 ForEach(ViewMode.allCases, id: \.self) { mode in
@@ -4274,72 +4327,6 @@ struct FolderContentView: View {
     private func refreshContent() async {
         // Refresh logic for iOS pull-to-refresh
         try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second delay for demo
-    }
-}
-
-================================================================================
-
-File: Views/Components/DragModifier.swift
-//
-//  DragModifier.swift
-//  Pangolin
-//
-//  Created by Matt Kevan on 17/08/2025.
-//
-
-import SwiftUI
-
-struct DragModifier: ViewModifier {
-    let video: Video
-    let selectedVideos: Set<Video>
-    let sourceFolder: Folder?
-    
-    func body(content: Content) -> some View {
-        if selectedVideos.contains(video) && selectedVideos.count > 1 {
-            // Drag batch of videos
-            content
-                .draggable(VideoBatchTransfer(videos: Array(selectedVideos), sourceFolder: sourceFolder)) {
-                    batchDragPreview
-                }
-        } else {
-            // Drag single video
-            content
-                .draggable(VideoTransfer(video: video, sourceFolder: sourceFolder)) {
-                    singleDragPreview
-                }
-        }
-    }
-    
-    @ViewBuilder
-    private var batchDragPreview: some View {
-        VStack {
-            HStack {
-                Image(systemName: "video")
-                    .font(.title)
-                Text("\(selectedVideos.count)")
-                    .font(.title2)
-                    .fontWeight(.bold)
-            }
-            Text("\(selectedVideos.count) videos")
-                .font(.caption)
-        }
-        .padding()
-        .background(Color.accentColor.opacity(0.8))
-        .cornerRadius(8)
-    }
-    
-    @ViewBuilder
-    private var singleDragPreview: some View {
-        VStack {
-            Image(systemName: "video")
-                .font(.title)
-            Text(video.title)
-                .font(.caption)
-                .lineLimit(1)
-        }
-        .padding()
-        .background(Color.gray.opacity(0.8))
-        .cornerRadius(8)
     }
 }
 
@@ -4568,10 +4555,12 @@ struct ContentRowView: View {
     let isSelected: Bool
     let showCheckbox: Bool
     let viewMode: ViewMode
-    @Binding var selectedItems: Set<UUID> // This binding is now correctly included
+    @Binding var selectedItems: Set<UUID>
     
     @EnvironmentObject private var store: FolderNavigationStore
     @State private var isDropTargeted = false
+    @State private var isEditing = false
+    @State private var editingName = ""
     
     enum ViewMode {
         case grid
@@ -4599,6 +4588,15 @@ struct ContentRowView: View {
             }
         }
         .draggable(dragPayload)
+        #if os(macOS)
+        .onReceive(NotificationCenter.default.publisher(for: .init("startRename"))) { notification in
+            if let itemID = notification.userInfo?["itemID"] as? UUID,
+               itemID == content.id {
+                isEditing = true
+                editingName = content.name
+            }
+        }
+        #endif
         .onDrop(of: [.data], isTargeted: $isDropTargeted) { providers in
             // Only folders can be drop targets
             guard case .folder(let folder) = content else { return false }
@@ -4613,7 +4611,7 @@ struct ContentRowView: View {
                             Task { @MainActor in
                                 await store.moveItems(Set(transfer.itemIDs), to: folder.id)
                                 // Force immediate UI update
-                                NotificationCenter.default.post(name: .playlistsUpdated, object: nil)
+                                NotificationCenter.default.post(name: .contentUpdated, object: nil)
                             }
                         }
                     }
@@ -4652,7 +4650,7 @@ struct ContentRowView: View {
             }
             
             VStack(alignment: .leading, spacing: 4) {
-                Text(content.name)
+                nameView
                     .font(.caption)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
@@ -4675,9 +4673,7 @@ struct ContentRowView: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(isDropTargeted ? Color.accentColor : Color.clear, lineWidth: 2)
         )
-        #if os(macOS)
         .contentShape(Rectangle())
-        #endif
     }
     
     @ViewBuilder
@@ -4694,7 +4690,7 @@ struct ContentRowView: View {
                 .frame(width: 24)
             
             VStack(alignment: .leading, spacing: 2) {
-                Text(content.name)
+                nameView
                     .lineLimit(1)
                 
                 HStack {
@@ -4725,9 +4721,7 @@ struct ContentRowView: View {
              RoundedRectangle(cornerRadius: 4)
                 .stroke(isDropTargeted ? Color.accentColor : Color.clear, lineWidth: 2)
         )
-        #if os(macOS)
         .contentShape(Rectangle())
-        #endif
     }
     
     @ViewBuilder
@@ -4748,10 +4742,47 @@ struct ContentRowView: View {
                 }
                 .frame(width: viewMode == .grid ? 80 : 20, height: viewMode == .grid ? 45 : 15)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
+                .allowsHitTesting(false)
             } else {
                 Image(systemName: "video.fill")
             }
         }
+    }
+    
+    // MARK: - Name View with Editing Support
+    @ViewBuilder
+    private var nameView: some View {
+        #if os(macOS)
+        if isEditing {
+            TextField("Name", text: $editingName)
+                .textFieldStyle(.plain)
+                .onSubmit {
+                    let trimmedName = editingName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    
+                    // Exit editing state immediately
+                    isEditing = false
+                    editingName = ""
+                    
+                    // Perform the rename operation asynchronously
+                    if !trimmedName.isEmpty && trimmedName != content.name {
+                        Task.detached { @MainActor in
+                            await store.renameItem(content.id, to: trimmedName)
+                        }
+                    }
+                }
+                .onExitCommand {
+                    isEditing = false
+                    editingName = ""
+                }
+                .onAppear {
+                    editingName = content.name
+                }
+        } else {
+            Text(content.name)
+        }
+        #else
+        Text(content.name)
+        #endif
     }
 }
 
@@ -4769,7 +4800,9 @@ File: Views/Components/VideoInfoView.swift
 import SwiftUI
 
 struct VideoInfoView: View {
-    let video: Video
+    // Use @ObservedObject for a managed object to ensure the view updates on change
+    @ObservedObject var video: Video
+    @EnvironmentObject var libraryManager: LibraryManager
     
     var body: some View {
         ScrollView {
@@ -4791,6 +4824,14 @@ struct VideoInfoView: View {
                     .foregroundColor(.secondary)
                 }
                 
+                // Favorite Button
+                Button(action: toggleFavorite) {
+                    Label(video.isFavorite ? "Remove from Favorites" : "Add to Favorites",
+                          systemImage: video.isFavorite ? "heart.fill" : "heart")
+                }
+                .buttonStyle(.bordered)
+                .tint(video.isFavorite ? .red : .secondary)
+
                 Divider()
                 
                 // File info
@@ -4839,6 +4880,20 @@ struct VideoInfoView: View {
             .padding()
         }
     }
+
+    private func toggleFavorite() {
+        video.isFavorite.toggle()
+        if let context = libraryManager.viewContext, context.hasChanges {
+            do {
+                try context.save()
+            } catch {
+                // In a real app, handle this error
+                print("Failed to save favorite status: \(error)")
+                // Revert the change on failure
+                video.isFavorite.toggle()
+            }
+        }
+    }
 }
 
 struct InfoRow: View {
@@ -4856,6 +4911,7 @@ struct InfoRow: View {
         .font(.caption)
     }
 }
+
 
 ================================================================================
 

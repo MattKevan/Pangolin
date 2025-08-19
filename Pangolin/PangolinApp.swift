@@ -1,9 +1,4 @@
-//
-//  PangolinApp.swift
-//  Pangolin
-//
-//  Created by Matt Kevan on 16/08/2025.
-//
+// PangolinApp.swift
 
 import SwiftUI
 
@@ -17,7 +12,10 @@ struct PangolinApp: App {
         WindowGroup {
             Group {
                 if libraryManager.isLibraryOpen {
-                    MainView()
+                    // REFACTORED: Pass the configured libraryManager into MainView's initializer.
+                    // This ensures the entire view hierarchy, including the FolderNavigationStore,
+                    // uses the correct, active Core Data context.
+                    MainView(libraryManager: libraryManager)
                         .environmentObject(libraryManager)
                 } else {
                     LibraryWelcomeView(
@@ -70,7 +68,6 @@ struct PangolinApp: App {
                 }
             }
         }
-        // CORRECTED: The .commands modifier is only available on macOS.
         #if os(macOS)
         .commands {
             CommandGroup(replacing: .newItem) {

@@ -13,16 +13,18 @@ struct ContentRowView: View {
     let showCheckbox: Bool
     let viewMode: ViewMode
     @Binding var selectedItems: Set<UUID>
-    
+    @Binding var renamingItemID: UUID?
+    @FocusState.Binding var focusedField: UUID?
+    @Binding var editedName: String
+
     @EnvironmentObject private var store: FolderNavigationStore
     @State private var isDropTargeted = false
-    
+
     enum ViewMode {
         case grid
         case list
     }
-    
-    // The payload for dragging, which now correctly includes all selected items
+
     private var dragPayload: ContentTransfer {
         // If the dragged item is part of a larger selection, drag all selected items.
         // Otherwise, just drag the single item.
@@ -32,7 +34,7 @@ struct ContentRowView: View {
             return ContentTransfer(itemIDs: [content.id])
         }
     }
-    
+
     var body: some View {
         Group {
             switch viewMode {
@@ -42,23 +44,21 @@ struct ContentRowView: View {
                 listContent
             }
         }
+        .contextMenu {
+            Button("Rename") { startRenaming() }
+            Button("Delete", role: .destructive) { /* TODO: Implement deletion */ }
+        }
         .draggable(dragPayload)
         .onDrop(of: [.data], isTargeted: $isDropTargeted) { providers in
-            // Only folders can be drop targets
             guard case .folder(let folder) = content else { return false }
             
             if let provider = providers.first {
                 let _ = provider.loadDataRepresentation(for: .data) { data, _ in
                     if let data = data,
-                       let transfer = try? JSONDecoder().decode(ContentTransfer.self, from: data) {
-                        
-                        // Prevent dropping a folder onto itself or one of its own children
-                        if !transfer.itemIDs.contains(folder.id) {
-                            Task { @MainActor in
-                                await store.moveItems(Set(transfer.itemIDs), to: folder.id)
-                                // Force immediate UI update
-                                NotificationCenter.default.post(name: .contentUpdated, object: nil)
-                            }
+                       let transfer = try? JSONDecoder().decode(ContentTransfer.self, from: data),
+                       !transfer.itemIDs.contains(folder.id) {
+                        Task { @MainActor in
+                            await store.moveItems(Set(transfer.itemIDs), to: folder.id)
                         }
                     }
                 }
@@ -67,6 +67,8 @@ struct ContentRowView: View {
             return false
         }
     }
+
+    // MARK: - View Builders
     
     @ViewBuilder
     private var gridContent: some View {
@@ -95,8 +97,8 @@ struct ContentRowView: View {
                 }
             }
             
-            VStack(alignment: .leading, spacing: 4) {
-                Text(content.name)
+            VStack(alignment: .center, spacing: 4) {
+                nameEditorView
                     .font(.caption)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
@@ -119,9 +121,8 @@ struct ContentRowView: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(isDropTargeted ? Color.accentColor : Color.clear, lineWidth: 2)
         )
-        .contentShape(Rectangle())
     }
-    
+
     @ViewBuilder
     private var listContent: some View {
         HStack {
@@ -136,7 +137,7 @@ struct ContentRowView: View {
                 .frame(width: 24)
             
             VStack(alignment: .leading, spacing: 2) {
-                Text(content.name)
+                nameEditorView
                     .lineLimit(1)
                 
                 HStack {
@@ -157,18 +158,41 @@ struct ContentRowView: View {
                     }
                 }
             }
-            
             Spacer()
         }
         .padding(.vertical, 4)
-        .background(isSelected && !showCheckbox ? Color.accentColor.opacity(0.2) : Color.clear)
+        .background(isSelected && !showCheckbox ? Color.accentColor.opacity(0.1) : Color.clear)
         .cornerRadius(4)
         .overlay(
              RoundedRectangle(cornerRadius: 4)
                 .stroke(isDropTargeted ? Color.accentColor : Color.clear, lineWidth: 2)
         )
-        .contentShape(Rectangle())
     }
+    
+    /// A view that conditionally shows a `Text` label or a `TextField` for renaming.
+    @ViewBuilder
+    private var nameEditorView: some View {
+        if renamingItemID == content.id {
+            TextField("Name", text: $editedName)
+                .focused($focusedField, equals: content.id)
+                .onSubmit {
+                    commitRename()
+                }
+                .onKeyPress { keyPress in
+                    if keyPress.key == .escape {
+                        cancelRename()
+                        return .handled
+                    }
+                    return .ignored
+                }
+                .onAppear {
+                    editedName = content.name
+                }
+        } else {
+            Text(content.name)
+        }
+    }
+    
     
     @ViewBuilder
     private var contentIcon: some View {
@@ -188,10 +212,52 @@ struct ContentRowView: View {
                 }
                 .frame(width: viewMode == .grid ? 80 : 20, height: viewMode == .grid ? 45 : 15)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
-                .allowsHitTesting(false)
             } else {
                 Image(systemName: "video.fill")
             }
         }
     }
+
+    // MARK: - Renaming Logic
+
+    /// Initiates the renaming process for this item.
+    private func startRenaming() {
+        editedName = content.name
+        renamingItemID = content.id
+        // Set focus after a brief delay to ensure TextField is rendered
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+            focusedField = content.id
+        }
+    }
+    
+    /// Commits the rename operation and updates the store.
+    private func commitRename() {
+        guard let itemID = renamingItemID, itemID == content.id else { return }
+        
+        let trimmedName = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty && trimmedName != content.name else {
+            // Cancel rename if name is empty or unchanged
+            cancelRename()
+            return
+        }
+        
+        // Perform rename operation on background queue to avoid publishing changes during view update
+        Task {
+            await store.renameItem(id: itemID, to: trimmedName)
+            await MainActor.run {
+                renamingItemID = nil
+                focusedField = nil
+            }
+        }
+    }
+    
+    /// Cancels the rename operation without saving.
+    private func cancelRename() {
+        editedName = content.name // Reset to original name
+        renamingItemID = nil
+        focusedField = nil
+    }
+
+
 }

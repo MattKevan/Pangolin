@@ -33,7 +33,6 @@ struct DetailView: View {
     var body: some View {
         GeometryReader { geometry in
             if let video = video {
-                let _ = print("📱 DetailView: Showing video: \(video.title)")  
                 VStack(spacing: 0) {
                     // Video Player with Poster Frame
                     VideoPlayerWithPosterView(video: video, viewModel: playerViewModel)
@@ -50,7 +49,6 @@ struct DetailView: View {
                         .background(windowBackgroundColor)
                 }
             } else {
-                let _ = print("📱 DetailView: No video selected")
                 ContentUnavailableView(
                     "Select a Video",
                     systemImage: "play.rectangle",

@@ -48,6 +48,30 @@ class LibraryManager: ObservableObject {
     
     // MARK: - Public Methods
     
+    /// Saves the current library's data context if there are changes.
+    func save() async {
+        guard let context = self.viewContext else {
+            return
+        }
+        
+        guard context.hasChanges else {
+            return
+        }
+        
+        do {
+            try context.save()
+            
+            // Force persistence by saving parent context if it exists
+            if let parentContext = context.parent, parentContext.hasChanges {
+                try parentContext.save()
+            }
+            
+        } catch {
+            self.error = .saveFailed(error)
+            context.rollback()
+        }
+    }
+    
     /// Create a new library at the specified URL
     func createLibrary(at url: URL, name: String) async throws -> Library {
         isLoading = true
@@ -219,9 +243,7 @@ class LibraryManager: ObservableObject {
         guard currentLibrary != nil else { return }
         
         // Save any pending changes
-        if let context = coreDataStack?.viewContext, context.hasChanges {
-            try? context.save()
-        }
+        await save()
         
         // Clean up
         coreDataStack = nil
@@ -381,7 +403,8 @@ class LibraryManager: ObservableObject {
             ("Favorites", "heart.fill")
         ]
         
-        for folderInfo in smartFolders {
+        // CORRECTED: The unused 'index' variable is replaced with '_'
+        for (_, folderInfo) in smartFolders.enumerated() {
             let folder = Folder(entity: folderEntityDescription, insertInto: context)
             folder.id = UUID()
             folder.name = folderInfo.0
@@ -439,6 +462,7 @@ enum LibraryError: LocalizedError {
     case corruptedDatabase
     case insufficientPermissions
     case diskSpaceInsufficient
+    case saveFailed(Error)
     
     var errorDescription: String? {
         switch self {
@@ -458,6 +482,8 @@ enum LibraryError: LocalizedError {
             return "Insufficient permissions to access library"
         case .diskSpaceInsufficient:
             return "Not enough disk space available"
+        case .saveFailed(let error):
+            return "Failed to save the library. \(error.localizedDescription)"
         }
     }
     
@@ -469,8 +495,8 @@ enum LibraryError: LocalizedError {
             return "Create a new library or open an existing one"
         case .invalidLibrary:
             return "Try repairing the library or create a new one"
-        case .migrationFailed:
-            return "Restore from a backup or contact support"
+        case .migrationFailed, .saveFailed:
+            return "Please try the operation again. If the problem persists, restart the application."
         case .corruptedDatabase:
             return "Restore from a backup or rebuild the library"
         case .insufficientPermissions:
