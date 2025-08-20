@@ -18,6 +18,9 @@ struct HierarchicalContentRowView: View {
     
     @EnvironmentObject private var store: FolderNavigationStore
     
+    // Add state to prevent double-commits on focus loss
+    @State private var shouldCommitOnDisappear = false
+    
     var body: some View {
         HStack(spacing: 12) {
             // Icon or Thumbnail
@@ -42,12 +45,24 @@ struct HierarchicalContentRowView: View {
                 TextField("Name", text: $editedName)
                     .textFieldStyle(.plain)
                     .focused($focusedField, equals: item.id)
+                    .onAppear {
+                        editedName = item.name
+                        shouldCommitOnDisappear = true
+                    }
                     .onSubmit {
+                        shouldCommitOnDisappear = false // Prevent double commit
                         commitRename()
                     }
                     .onKeyPress(.escape) {
+                        shouldCommitOnDisappear = false
                         cancelRename()
                         return .handled
+                    }
+                    .onChange(of: focusedField) { oldValue, newValue in
+                        // Detect when THIS TextField loses focus
+                        if oldValue == item.id && newValue != item.id && shouldCommitOnDisappear {
+                            commitRename()
+                        }
                     }
             } else {
                 Text(item.name)
@@ -136,15 +151,22 @@ struct HierarchicalContentRowView: View {
     }
     
     private func commitRename() {
+        shouldCommitOnDisappear = false // Prevent further commits
+        
         guard let renamingID = renamingItemID,
-              renamingID == item.id,
-              !editedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+              renamingID == item.id else {
+            cancelRename()
+            return
+        }
+        
+        let trimmedName = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty && trimmedName != item.name else {
             cancelRename()
             return
         }
         
         Task {
-            await store.renameItem(id: item.id, to: editedName)
+            await store.renameItem(id: item.id, to: trimmedName)
             await MainActor.run {
                 renamingItemID = nil
                 focusedField = nil
@@ -153,6 +175,7 @@ struct HierarchicalContentRowView: View {
     }
     
     private func cancelRename() {
+        shouldCommitOnDisappear = false
         renamingItemID = nil
         focusedField = nil
         editedName = ""
@@ -174,4 +197,3 @@ struct HierarchicalContentRowView: View {
         return true
     }
 }
-

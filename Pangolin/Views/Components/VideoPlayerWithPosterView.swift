@@ -83,7 +83,7 @@ struct VideoPlayerWithPosterView: View {
                                 .font(.system(size: 48))
                                 .foregroundColor(.white.opacity(0.7))
                             
-                            Text(video.title)
+                            Text(video.title!)
                                 .font(.title2)
                                 .foregroundColor(.white)
                                 .multilineTextAlignment(.center)
@@ -130,7 +130,7 @@ struct VideoPlayerWithPosterView: View {
             
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(video.title)
+                    Text(video.title!)
                         .font(.title3)
                         .fontWeight(.semibold)
                         .foregroundColor(.white)

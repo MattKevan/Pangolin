@@ -50,25 +50,48 @@ class LibraryManager: ObservableObject {
     
     /// Saves the current library's data context if there are changes.
     func save() async {
+        print("💽 LIBRARY: save() called")
+        
         guard let context = self.viewContext else {
+            print("❌ LIBRARY: No viewContext available")
             return
         }
         
+        print("📊 LIBRARY: Context hasChanges: \(context.hasChanges)")
+        print("📊 LIBRARY: Context insertedObjects count: \(context.insertedObjects.count)")
+        print("📊 LIBRARY: Context updatedObjects count: \(context.updatedObjects.count)")
+        print("📊 LIBRARY: Context deletedObjects count: \(context.deletedObjects.count)")
+        
+        // Log details about updated objects
+        for obj in context.updatedObjects {
+            print("📝 LIBRARY: Updated object: \(obj)")
+            if let folder = obj as? Folder {
+                print("📁 LIBRARY: Updated folder: '\(folder.name ?? "nil")' (ID: \(folder.id?.uuidString ?? "nil"))")
+            } else if let video = obj as? Video {
+                print("🎥 LIBRARY: Updated video: '\(video.title ?? "nil")' (ID: \(video.id?.uuidString ?? "nil"))")
+            }
+        }
+        
         guard context.hasChanges else {
+            print("ℹ️ LIBRARY: No changes to save")
             return
         }
         
         do {
+            print("💾 LIBRARY: Attempting context.save()...")
             try context.save()
+            print("✅ LIBRARY: Save successful!")
             
-            // Force persistence by saving parent context if it exists
-            if let parentContext = context.parent, parentContext.hasChanges {
-                try parentContext.save()
-            }
+            // Verify that changes were actually saved by re-fetching
+            print("🔄 LIBRARY: Verifying save by checking context state...")
+            print("📊 LIBRARY: After save - hasChanges: \(context.hasChanges)")
+            print("📊 LIBRARY: After save - updatedObjects count: \(context.updatedObjects.count)")
             
         } catch {
+            print("💥 LIBRARY: Save failed: \(error.localizedDescription)")
             self.error = .saveFailed(error)
             context.rollback()
+            print("🔄 LIBRARY: Context rolled back")
         }
     }
     
@@ -208,8 +231,8 @@ class LibraryManager: ObservableObject {
         loadingProgress = 0.7
         
         // Check for migration needs
-        if library.version != currentVersion {
-            try await migrateLibrary(library, from: library.version, to: currentVersion)
+        if library.version! != currentVersion {
+            try await migrateLibrary(library, from: library.version!, to: currentVersion)
         }
         loadingProgress = 0.8
         
@@ -354,12 +377,12 @@ class LibraryManager: ObservableObject {
         guard let url = library.url else { return }
         
         let descriptor = LibraryDescriptor(
-            id: library.id,
-            name: library.name,
+            id: library.id!,
+            name: library.name!,
             path: url,
-            lastOpenedDate: library.lastOpenedDate,
-            createdDate: library.createdDate,
-            version: library.version,
+            lastOpenedDate: library.lastOpenedDate!,
+            createdDate: library.createdDate!,
+            version: library.version!,
             thumbnailData: nil,
             videoCount: library.videoCount,
             totalSize: library.totalSize

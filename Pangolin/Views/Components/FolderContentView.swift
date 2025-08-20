@@ -91,20 +91,11 @@ struct FolderContentView: View {
         .sheet(isPresented: $showingCreateFolder) {
             CreateFolderView(parentFolderID: store.currentFolderID)
         }
-        // This onChange handles committing a rename when the user clicks away,
-        // causing the TextField to lose focus.
-        .onChange(of: focusedField) { _, newValue in
-            if newValue == nil {
-                // If focus is lost (e.g., user clicked elsewhere), and we were in the middle
-                // of a rename, we should end the rename process. The commit is handled
-                // by the `onSubmit` modifier in the ContentRowView's TextField.
-                renamingItemID = nil
-            }
-        }
+        
         .onKeyPress { keyPress in
             // Trigger rename on Return key for the single selected item on macOS
             guard keyPress.key == .return, selectedItems.count == 1,
-                  let selectedID = selectedItems.first else {
+                  let selectedID = selectedItems.first, renamingItemID == nil else {
                 return .ignored
             }
             
@@ -282,7 +273,7 @@ struct FolderContentView: View {
                 selectedItems = [item.id]
                 switch item {
                 case .folder(let folder):
-                    store.navigateToFolder(folder.id)
+                    store.navigateToFolder(folder.id!)
                 case .video(let video):
                     Task { @MainActor in
                         store.selectVideo(video)

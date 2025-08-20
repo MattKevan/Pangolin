@@ -166,7 +166,7 @@ class VideoImporter: ObservableObject {
         }
         
         // Create subtitle directory
-        let videoDir = URL(fileURLWithPath: video.relativePath).deletingLastPathComponent().path
+        let videoDir = URL(fileURLWithPath: video.relativePath!).deletingLastPathComponent().path
         let subtitlesDir = libraryURL.appendingPathComponent("Subtitles")
             .appendingPathComponent(videoDir)
         

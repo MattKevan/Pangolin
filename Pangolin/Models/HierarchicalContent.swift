@@ -19,8 +19,8 @@ struct HierarchicalContentItem: Identifiable, Hashable {
     
     /// Initialize from a folder (with potential children)
     init(folder: Folder) {
-        self.id = folder.id
-        self.name = folder.name
+        self.id = folder.id!
+        self.name = folder.name!
         self.contentType = .folder(folder)
         
         // Combine child folders and videos into hierarchical structure
@@ -42,8 +42,8 @@ struct HierarchicalContentItem: Identifiable, Hashable {
     
     /// Initialize from a video (leaf node)
     init(video: Video) {
-        self.id = video.id
-        self.name = video.title
+        self.id = video.id!
+        self.name = video.title!
         self.contentType = .video(video)
         self.children = nil // Videos are always leaf nodes
     }

@@ -27,48 +27,69 @@ class FolderNavigationStore: ObservableObject {
         self.libraryManager = libraryManager
         // Set initial folder to "All Videos" if available
         Task { @MainActor in
-            if let allVideosFolder = systemFolders().first(where: { $0.name == "All Videos" }) {
-                selectedTopLevelFolder = allVideosFolder
-                currentFolderID = allVideosFolder.id
+            guard let context = libraryManager.viewContext,
+                  let library = libraryManager.currentLibrary else { return }
+            
+            let request = Folder.fetchRequest()
+            request.predicate = NSPredicate(format: "library == %@ AND isTopLevel == YES AND isSmartFolder == YES AND name == %@", library, "All Videos")
+            request.fetchLimit = 1
+            
+            do {
+                if let allVideosFolder = try context.fetch(request).first {
+                    selectedTopLevelFolder = allVideosFolder
+                    currentFolderID = allVideosFolder.id
+                }
+            } catch {
+                print("Error setting initial folder: \(error)")
             }
         }
     }
     
     // MARK: - Content Access
     @MainActor func systemFolders() -> [Folder] {
+        print("🔍 FETCH: systemFolders() called")
         guard let context = libraryManager.viewContext,
-              let library = libraryManager.currentLibrary else { return [] }
+              let library = libraryManager.currentLibrary else { 
+            print("❌ FETCH: No context or library for systemFolders")
+            return [] 
+        }
         
         let request = Folder.fetchRequest()
         request.predicate = NSPredicate(format: "library == %@ AND isTopLevel == YES AND isSmartFolder == YES", library)
         request.sortDescriptors = [NSSortDescriptor(keyPath: \Folder.name, ascending: true)]
         
         do {
-            return try context.fetch(request)
+            let folders = try context.fetch(request)
+            print("📁 FETCH: systemFolders returned \(folders.count) folders: \(folders.map { $0.name ?? "nil" })")
+            return folders
         } catch {
+            print("💥 FETCH: systemFolders error: \(error.localizedDescription)")
             errorMessage = "Failed to load system folders: \(error.localizedDescription)"
             return []
         }
     }
     
     @MainActor func userFolders() -> [Folder] {
+        print("🔍 FETCH: userFolders() called")
         guard let context = libraryManager.viewContext,
-              let library = libraryManager.currentLibrary else { return [] }
+              let library = libraryManager.currentLibrary else { 
+            print("❌ FETCH: No context or library for userFolders")
+            return [] 
+        }
         
         let request = Folder.fetchRequest()
         request.predicate = NSPredicate(format: "library == %@ AND isTopLevel == YES AND isSmartFolder == NO", library)
         request.sortDescriptors = [NSSortDescriptor(keyPath: \Folder.name, ascending: true)]
         
         do {
-            return try context.fetch(request)
+            let folders = try context.fetch(request)
+            print("📁 FETCH: userFolders returned \(folders.count) folders: \(folders.map { $0.name ?? "nil" })")
+            return folders
         } catch {
+            print("💥 FETCH: userFolders error: \(error.localizedDescription)")
             errorMessage = "Failed to load user folders: \(error.localizedDescription)"
             return []
         }
-    }
-    
-    @MainActor func topLevelFolders() -> [Folder] {
-        return systemFolders() + userFolders()
     }
     
     @MainActor func content(for folderID: UUID?) -> [ContentType] {
@@ -313,7 +334,7 @@ class FolderNavigationStore: ObservableObject {
         
         do {
             if let folder = try context.fetch(request).first {
-                return folder.name
+                return folder.name!
             }
         } catch {}
         
@@ -358,51 +379,82 @@ class FolderNavigationStore: ObservableObject {
     // MARK: - Renaming
     @MainActor
     func renameItem(id: UUID, to newName: String) async {
+        print("🔄 RENAME: Starting rename of \(id) to '\(newName)'")
+        
         guard let context = libraryManager.viewContext,
-              let library = libraryManager.currentLibrary else { 
-            return 
+              let library = libraryManager.currentLibrary else {
+            print("❌ RENAME: No context or library available")
+            return
         }
+        
+        print("📋 RENAME: Context: \(context), Library: \(library.name ?? "Unknown")")
         
         let trimmedName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else { 
-            return 
+        guard !trimmedName.isEmpty else {
+            print("❌ RENAME: Empty name after trimming")
+            return
         }
         
+        print("📝 RENAME: Trimmed name: '\(trimmedName)'")
+        
+        // This is a single transaction, so we can wrap the logic in a do-catch
         do {
-            // Work directly on main context - no background queue needed for simple operations
-            
-            // Try to find and rename a folder
+            // Try to find a folder with the given ID
+            print("🔍 RENAME: Searching for folder with ID \(id)")
             let folderRequest = Folder.fetchRequest()
-            folderRequest.predicate = NSPredicate(format: "library == %@ AND id == %@", library, id as CVarArg)
+            folderRequest.predicate = NSPredicate(format: "id == %@", id as CVarArg)
             
             if let folder = try context.fetch(folderRequest).first {
+                print("📁 RENAME: Found folder '\(folder.name ?? "nil")' -> '\(trimmedName)'")
+                let oldName = folder.name
                 folder.name = trimmedName
                 folder.dateModified = Date()
+                print("💾 RENAME: Set folder.name = '\(folder.name ?? "nil")' (was '\(oldName ?? "nil")')")
+                print("📊 RENAME: Context hasChanges: \(context.hasChanges)")
                 
-                if context.hasChanges {
-                    try context.save()
-                    // No manual notification needed - SwiftUI will automatically detect Core Data changes
-                }
-                return
+                // We've made our change, now we must save it through the manager
+                print("💽 RENAME: Calling libraryManager.save()...")
+                await libraryManager.save()
+                
+                // Verify the change persisted
+                print("✅ RENAME: Save completed. Folder name is now: '\(folder.name ?? "nil")'")
+                
+                // Force a refresh to see if context is up to date
+                context.refresh(folder, mergeChanges: true)
+                print("🔄 RENAME: After refresh, folder name is: '\(folder.name ?? "nil")'")
+                
+                return // Exit after successful operation
             }
             
-            // Try to find and rename a video
+            // If no folder was found, try to find a video
+            print("🔍 RENAME: No folder found, searching for video with ID \(id)")
             let videoRequest = Video.fetchRequest()
-            videoRequest.predicate = NSPredicate(format: "library == %@ AND id == %@", library, id as CVarArg)
+            videoRequest.predicate = NSPredicate(format: "id == %@", id as CVarArg)
             
             if let video = try context.fetch(videoRequest).first {
+                print("🎥 RENAME: Found video '\(video.title ?? "nil")' -> '\(trimmedName)'")
+                let oldTitle = video.title
                 video.title = trimmedName
+                print("💾 RENAME: Set video.title = '\(video.title ?? "nil")' (was '\(oldTitle ?? "nil")')")
+                print("📊 RENAME: Context hasChanges: \(context.hasChanges)")
                 
-                if context.hasChanges {
-                    try context.save()
-                    // No manual notification needed - SwiftUI will automatically detect Core Data changes
-                }
-                return
+                // We've made our change, now we must save it through the manager
+                print("💽 RENAME: Calling libraryManager.save()...")
+                await libraryManager.save()
+                
+                // Verify the change persisted
+                print("✅ RENAME: Save completed. Video title is now: '\(video.title ?? "nil")'")
+                
+                return // Exit after successful operation
             }
             
+            print("❌ RENAME: No folder or video found with ID \(id)")
+            
         } catch {
-            errorMessage = "Failed to rename item: \(error.localizedDescription)"
-            context.rollback()
+            // If any part of the fetch fails, we can handle it here
+            print("💥 RENAME: Fetch error: \(error.localizedDescription)")
+            errorMessage = "Failed to find item to rename: \(error.localizedDescription)"
+            context.rollback() // Rollback any potential bad state
         }
     }
 }

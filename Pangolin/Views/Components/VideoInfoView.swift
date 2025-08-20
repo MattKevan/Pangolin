@@ -17,7 +17,7 @@ struct VideoInfoView: View {
             VStack(alignment: .leading, spacing: 16) {
                 // Title and metadata
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(video.title)
+                    Text(video.title!)
                         .font(.title2)
                         .fontWeight(.bold)
                     
@@ -47,10 +47,10 @@ struct VideoInfoView: View {
                     Text("File Information")
                         .font(.headline)
                     
-                    InfoRow(label: "Filename", value: video.fileName)
+                    InfoRow(label: "Filename", value: video.fileName!)
                     InfoRow(label: "Format", value: video.videoFormat ?? "Unknown")
                     InfoRow(label: "Frame Rate", value: String(format: "%.1f fps", video.frameRate))
-                    InfoRow(label: "Date Added", value: DateFormatter.localizedString(from: video.dateAdded, dateStyle: .medium, timeStyle: .short))
+                    InfoRow(label: "Date Added", value: DateFormatter.localizedString(from: video.dateAdded!, dateStyle: .medium, timeStyle: .short))
                     
                     if let lastPlayed = video.lastPlayed {
                         InfoRow(label: "Last Played", value: DateFormatter.localizedString(from: lastPlayed, dateStyle: .medium, timeStyle: .short))
@@ -67,11 +67,11 @@ struct VideoInfoView: View {
                             .font(.headline)
                         
                         if let subtitles = video.subtitles {
-                            ForEach(Array(subtitles), id: \.id) { subtitle in
+                            ForEach(Array(subtitles as! Set<Subtitle>), id: \.id) { subtitle in
                                 HStack {
                                     Text(subtitle.displayName)
                                     Spacer()
-                                    Text(subtitle.format.uppercased())
+                                    Text(subtitle.format!.uppercased())
                                         .font(.caption2)
                                         .padding(.horizontal, 6)
                                         .padding(.vertical, 2)
@@ -91,15 +91,8 @@ struct VideoInfoView: View {
 
     private func toggleFavorite() {
         video.isFavorite.toggle()
-        if let context = libraryManager.viewContext, context.hasChanges {
-            do {
-                try context.save()
-            } catch {
-                // In a real app, handle this error
-                print("Failed to save favorite status: \(error)")
-                // Revert the change on failure
-                video.isFavorite.toggle()
-            }
+        Task {
+            await libraryManager.save()
         }
     }
 }

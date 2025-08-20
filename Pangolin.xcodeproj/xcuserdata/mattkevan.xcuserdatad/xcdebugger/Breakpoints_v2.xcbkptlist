@@ -5,19 +5,31 @@
    version = "2.0">
    <Breakpoints>
       <BreakpointProxy
-         BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
+         BreakpointExtensionID = "Xcode.Breakpoint.AddressBreakpoint">
          <BreakpointContent
-            uuid = "9B6C6067-0B99-4BFE-8F63-8A40A75689A9"
-            shouldBeEnabled = "No"
+            uuid = "BF5DA0B5-522C-43F7-AB78-7C6F5C6D1B6F"
+            shouldBeEnabled = "Yes"
             ignoreCount = "0"
             continueAfterRunningActions = "No"
-            filePath = "Pangolin/Stores/FolderNavigationStore.swift"
-            startingColumnNumber = "9223372036854775807"
-            endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "306"
-            endingLineNumber = "306"
-            landmarkName = "folderName(for:)"
-            landmarkType = "7">
+            symbolName = "*0x18d810620">
+            <Locations>
+               <Location
+                  uuid = "BF5DA0B5-522C-43F7-AB78-7C6F5C6D1B6F - 9e6d26437e18aadc"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "*0x18d810620"
+                  usesParentBreakpointCondition = "Yes">
+               </Location>
+               <Location
+                  uuid = "BF5DA0B5-522C-43F7-AB78-7C6F5C6D1B6F - 9e6d26437e18aadc"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "*0x18d810620"
+                  usesParentBreakpointCondition = "Yes">
+               </Location>
+            </Locations>
          </BreakpointContent>
       </BreakpointProxy>
    </Breakpoints>

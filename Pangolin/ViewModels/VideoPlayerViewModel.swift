@@ -36,7 +36,7 @@ class VideoPlayerViewModel: ObservableObject {
         
         // Load subtitles
         if let subtitles = video.subtitles {
-            availableSubtitles = Array(subtitles)
+            availableSubtitles = Array(subtitles as! Set<Subtitle>)
             // Load subtitle tracks into player item
         }
         

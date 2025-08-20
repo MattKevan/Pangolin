@@ -15,8 +15,8 @@ struct FolderTransfer: Codable, Transferable {
     let parentId: UUID?
     
     init(folder: Folder) {
-        self.id = folder.id
-        self.name = folder.name
+        self.id = folder.id!
+        self.name = folder.name!
         self.parentId = folder.parentFolder?.id
     }
     

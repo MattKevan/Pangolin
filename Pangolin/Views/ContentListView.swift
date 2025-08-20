@@ -15,7 +15,6 @@ import Combine
 struct ContentListView: View {
     @EnvironmentObject private var store: FolderNavigationStore
     let searchText: String
-    @State private var refreshTrigger = UUID()
     @AppStorage("contentViewMode") private var viewMode = ViewMode.grid
     @State private var showingImportPicker = false
     @State private var showingImportProgress = false
@@ -48,10 +47,7 @@ struct ContentListView: View {
         case list = "List"
     }
     
-    var content: [ContentType] {
-        // Use refreshTrigger to force recomputation when needed
-        let _ = refreshTrigger
-        
+    var content: [ContentType] {        
         var allContent = store.content(for: store.currentFolderID)
         if !searchText.isEmpty {
             allContent = allContent.filter { item in
@@ -135,9 +131,7 @@ struct ContentListView: View {
             return .handled
         }
         .onReceive(NotificationCenter.default.publisher(for: .contentUpdated)) { _ in
-            DispatchQueue.main.async {
-                refreshTrigger = UUID()
-            }
+            // Core Data change notifications now handled automatically
         }
     }
     
@@ -341,7 +335,7 @@ struct ContentListView: View {
         } else {
             switch item {
             case .folder(let folder):
-                store.navigateToFolder(folder.id)
+                store.navigateToFolder(folder.id!)
             case .video(let video):
                 Task { @MainActor in
                     store.selectVideo(video)
@@ -376,7 +370,7 @@ struct ContentListView: View {
         
         switch item {
         case .folder(let folder):
-            store.navigateToFolder(folder.id)
+            store.navigateToFolder(folder.id!)
         case .video(let video):
             Task { @MainActor in
                 store.selectVideo(video)
@@ -436,7 +430,7 @@ struct ContentListView: View {
         
         switch item {
         case .folder(let folder):
-            store.navigateToFolder(folder.id)
+            store.navigateToFolder(folder.id!)
         case .video(let video):
             // Double-click should also select the video
             Task { @MainActor in

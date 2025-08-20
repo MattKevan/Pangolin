@@ -19,6 +19,7 @@ struct ContentRowView: View {
 
     @EnvironmentObject private var store: FolderNavigationStore
     @State private var isDropTargeted = false
+    @State private var shouldCommitOnDisappear = false
 
     enum ViewMode {
         case grid
@@ -56,7 +57,7 @@ struct ContentRowView: View {
                 let _ = provider.loadDataRepresentation(for: .data) { data, _ in
                     if let data = data,
                        let transfer = try? JSONDecoder().decode(ContentTransfer.self, from: data),
-                       !transfer.itemIDs.contains(folder.id) {
+                       !transfer.itemIDs.contains(folder.id!) {
                         Task { @MainActor in
                             await store.moveItems(Set(transfer.itemIDs), to: folder.id)
                         }
@@ -175,18 +176,28 @@ struct ContentRowView: View {
         if renamingItemID == content.id {
             TextField("Name", text: $editedName)
                 .focused($focusedField, equals: content.id)
+                .onAppear {
+                    editedName = content.name
+                    shouldCommitOnDisappear = true
+                }
                 .onSubmit {
+                    shouldCommitOnDisappear = false // Prevent double commit
                     commitRename()
                 }
                 .onKeyPress { keyPress in
                     if keyPress.key == .escape {
+                        shouldCommitOnDisappear = false
                         cancelRename()
                         return .handled
                     }
                     return .ignored
                 }
-                .onAppear {
-                    editedName = content.name
+                .onChange(of: focusedField) { oldValue, newValue in
+                    // Detect when THIS TextField loses focus
+                    if oldValue == content.id && newValue != content.id && shouldCommitOnDisappear {
+                        print("🎯 FOCUS: ContentRow TextField \(content.id) lost focus (old: \(oldValue?.uuidString ?? "nil") -> new: \(newValue?.uuidString ?? "nil")), committing rename")
+                        commitRename()
+                    }
                 }
         } else {
             Text(content.name)
@@ -233,14 +244,22 @@ struct ContentRowView: View {
     
     /// Commits the rename operation and updates the store.
     private func commitRename() {
-        guard let itemID = renamingItemID, itemID == content.id else { return }
+        print("🔧 UI: commitRename called for '\(content.name)' -> '\(editedName)'")
+        shouldCommitOnDisappear = false // Prevent further commits
+        guard let itemID = renamingItemID, itemID == content.id else { 
+            print("❌ UI: Guard failed - renamingItemID: \(renamingItemID?.uuidString ?? "nil"), content.id: \(content.id)")
+            return 
+        }
         
         let trimmedName = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty && trimmedName != content.name else {
             // Cancel rename if name is empty or unchanged
+            print("❌ UI: Name unchanged or empty - '\(trimmedName)' vs '\(content.name)'")
             cancelRename()
             return
         }
+        
+        print("🚀 UI: About to call store.renameItem")
         
         // Perform rename operation on background queue to avoid publishing changes during view update
         Task {
@@ -255,6 +274,7 @@ struct ContentRowView: View {
     /// Cancels the rename operation without saving.
     private func cancelRename() {
         editedName = content.name // Reset to original name
+        shouldCommitOnDisappear = false
         renamingItemID = nil
         focusedField = nil
     }

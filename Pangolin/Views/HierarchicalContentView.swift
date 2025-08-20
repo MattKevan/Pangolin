@@ -14,7 +14,6 @@ struct HierarchicalContentView: View {
     @EnvironmentObject var libraryManager: LibraryManager
     let searchText: String
     
-    @State private var refreshTrigger = UUID()
     @State private var selectedItems: Set<UUID> = []
     @State private var showingImportPicker = false
     @State private var showingImportProgress = false
@@ -28,7 +27,6 @@ struct HierarchicalContentView: View {
     @State private var editedName: String = ""
     
     private var hierarchicalContent: [HierarchicalContentItem] {
-        let _ = refreshTrigger // Keep for video import and folder creation, but not for renaming
         let allContent = store.hierarchicalContent(for: store.currentFolderID)
         
         if searchText.isEmpty {
@@ -69,15 +67,14 @@ struct HierarchicalContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .contentUpdated)) { _ in
-            DispatchQueue.main.async {
-                refreshTrigger = UUID()
-            }
+            // Core Data change notifications now handled automatically
         }
         .onKeyPress { keyPress in
             // Return key triggers rename on single selected item
             guard keyPress.key == .return, selectedItems.count == 1,
                   let selectedID = selectedItems.first,
-                  let selectedItem = findItem(withID: selectedID, in: hierarchicalContent) else {
+                  let selectedItem = findItem(withID: selectedID, in: hierarchicalContent),
+                  renamingItemID == nil else {
                 return .ignored
             }
             

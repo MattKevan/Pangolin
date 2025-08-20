@@ -10,20 +10,36 @@ import CoreData
 
 struct SidebarView: View {
     @EnvironmentObject private var store: FolderNavigationStore
+    @Environment(\.managedObjectContext) private var viewContext
+    
     @State private var isShowingCreateFolder = false
     @State private var editingFolder: Folder?
     @State private var renamingFolderID: UUID? = nil
     @FocusState private var focusedField: UUID?
-    @State private var refreshTrigger = UUID()
     
-    // Computed properties that force refresh when trigger changes
+    // Use @FetchRequest for automatic Core Data change observation
+    @FetchRequest(
+        sortDescriptors: [NSSortDescriptor(keyPath: \Folder.name, ascending: true)],
+        predicate: NSPredicate(format: "isTopLevel == YES AND isSmartFolder == YES")
+    ) private var allSystemFolders: FetchedResults<Folder>
+    
+    @FetchRequest(
+        sortDescriptors: [NSSortDescriptor(keyPath: \Folder.name, ascending: true)],
+        predicate: NSPredicate(format: "isTopLevel == YES AND isSmartFolder == NO")
+    ) private var allUserFolders: FetchedResults<Folder>
+    
+    // Filter by current library - these will update automatically when @FetchRequest data changes
     private var systemFolders: [Folder] {
-        let _ = refreshTrigger // Force recomputation
+        // Use the store's systemFolders method to get the current library filtering
+        // This will trigger when @FetchRequest data changes due to the allSystemFolders dependency
+        let _ = allSystemFolders // Create dependency on @FetchRequest
         return store.systemFolders()
     }
     
     private var userFolders: [Folder] {
-        let _ = refreshTrigger // Force recomputation
+        // Use the store's userFolders method to get the current library filtering
+        // This will trigger when @FetchRequest data changes due to the allUserFolders dependency
+        let _ = allUserFolders // Create dependency on @FetchRequest
         return store.userFolders()
     }
     
@@ -95,23 +111,12 @@ struct SidebarView: View {
             }
             return .ignored
         }
-        // Handle focus loss to end rename mode
-        .onChange(of: focusedField) { _, newValue in
-            if newValue == nil {
-                renamingFolderID = nil
-            }
-        }
-        // Listen for content updates to refresh sidebar
-        .onReceive(NotificationCenter.default.publisher(for: .contentUpdated)) { _ in
-            DispatchQueue.main.async {
-                refreshTrigger = UUID()
-            }
-        }
+       
     }
     
     private func deleteFolder(_ folder: Folder) {
         // TODO: Implement folder deletion with confirmation
-        print("Deleting folder: \(folder.name)")
+        print("Deleting folder: \(folder.name!)")
     }
 }
 
@@ -127,12 +132,13 @@ private struct FolderRowView: View {
     
     @State private var isDropTargeted = false
     @State private var editedName: String = ""
+    @State private var shouldCommitOnDisappear = false
 
     var body: some View {
         Label {
             nameEditorView
         } icon: {
-            Image(systemName: folder.isSmartFolder ? getSmartFolderIcon(folder.name) : "folder")
+            Image(systemName: folder.isSmartFolder ? getSmartFolderIcon(folder.name!) : "folder")
                 .foregroundColor(folder.isSmartFolder ? .blue : .orange)
         }
         .onTapGesture {
@@ -188,31 +194,44 @@ private struct FolderRowView: View {
                 .textFieldStyle(.plain)
                 .focused($focusedField, equals: folder.id)
                 .onAppear {
-                    editedName = folder.name
+                    editedName = folder.name!
+                    shouldCommitOnDisappear = true
                 }
                 .onSubmit {
                     // Commit the rename when the user presses Return/Enter
+                    shouldCommitOnDisappear = false // Prevent double commit
                     commitRename()
                 }
                 .onKeyPress { keyPress in
                     if keyPress.key == .escape {
                         // Cancel the rename when the user presses Escape
+                        shouldCommitOnDisappear = false
                         cancelRename()
                         return .handled
                     }
                     return .ignored
                 }
+                .onChange(of: focusedField) { oldValue, newValue in
+                    // Detect when THIS TextField loses focus
+                    if oldValue == folder.id && newValue != folder.id && shouldCommitOnDisappear {
+                        print("🎯 FOCUS: TextField \(folder.id) lost focus (old: \(oldValue?.uuidString ?? "nil") -> new: \(newValue?.uuidString ?? "nil")), committing rename")
+                        commitRename()
+                    }
+                }
         } else {
-            Text(folder.name)
+            Text(folder.name!)
         }
     }
     
     /// Commits the new name to the data store.
     private func commitRename() {
+        print("🏷️ SIDEBAR: commitRename called for '\(folder.name!)' -> '\(editedName)'")
+        shouldCommitOnDisappear = false // Prevent further commits
         let trimmedName = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedName.isEmpty && trimmedName != folder.name {
+        if !trimmedName.isEmpty && trimmedName != folder.name! {
+            print("🚀 SIDEBAR: About to call store.renameItem")
             Task {
-                await store.renameItem(id: folder.id, to: trimmedName)
+                await store.renameItem(id: folder.id!, to: trimmedName)
                 await MainActor.run {
                     renamingFolderID = nil
                     focusedField = nil
@@ -227,7 +246,8 @@ private struct FolderRowView: View {
 
     /// Cancels the renaming process.
     private func cancelRename() {
-        editedName = folder.name // Reset to original name
+        editedName = folder.name! // Reset to original name
+        shouldCommitOnDisappear = false
         renamingFolderID = nil
         focusedField = nil
     }
@@ -243,7 +263,7 @@ private struct FolderRowView: View {
         }
         
         // Start renaming
-        editedName = folder.name
+        editedName = folder.name!
         renamingFolderID = folder.id
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s delay

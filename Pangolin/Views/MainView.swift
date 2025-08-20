@@ -21,6 +21,7 @@ struct MainView: View {
             SidebarView()
                 .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 350)
                 .environmentObject(folderStore)
+                .environment(\.managedObjectContext, libraryManager.viewContext!)
         } content: {
             // Hierarchical Content View - shows content of selected top-level sidebar item
             HierarchicalContentView(searchText: searchText)
@@ -28,11 +29,13 @@ struct MainView: View {
                 .navigationSplitViewColumnWidth(min: 300, ideal: 400, max: 600)
                 .searchable(text: $searchText, prompt: "Search videos")
                 .environmentObject(folderStore)
+                .environment(\.managedObjectContext, libraryManager.viewContext!)
         } detail: {
             // Detail View
             DetailView(video: folderStore.selectedVideo)
                 .navigationSplitViewColumnWidth(min: 500, ideal: 700)
         }
         .navigationTitle(libraryManager.currentLibrary?.name ?? "Pangolin")
+        .pangolinAlert(error: $libraryManager.error)
     }
 }
