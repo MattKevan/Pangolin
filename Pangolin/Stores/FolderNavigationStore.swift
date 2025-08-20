@@ -358,7 +358,6 @@ class FolderNavigationStore: ObservableObject {
     // MARK: - Renaming
     @MainActor
     func renameItem(id: UUID, to newName: String) async {
-        // Simple synchronous approach
         guard let context = libraryManager.viewContext,
               let library = libraryManager.currentLibrary else { 
             return 
@@ -369,55 +368,41 @@ class FolderNavigationStore: ObservableObject {
             return 
         }
         
-        // Perform on background queue to avoid UI blocking
-        await withCheckedContinuation { continuation in
-            context.perform {
-                do {
-                    // Try to find and rename a folder
-                    let folderRequest = Folder.fetchRequest()
-                    folderRequest.predicate = NSPredicate(format: "library == %@ AND id == %@", library, id as CVarArg)
-                    
-                    if let folder = try context.fetch(folderRequest).first {
-                        folder.name = trimmedName
-                        folder.dateModified = Date()
-                        
-                        if context.hasChanges {
-                            try context.save()
-                        }
-                        
-                        DispatchQueue.main.async {
-                            NotificationCenter.default.post(name: .contentUpdated, object: nil)
-                        }
-                        continuation.resume()
-                        return
-                    }
-                    
-                    // Try to find and rename a video
-                    let videoRequest = Video.fetchRequest()
-                    videoRequest.predicate = NSPredicate(format: "library == %@ AND id == %@", library, id as CVarArg)
-                    
-                    if let video = try context.fetch(videoRequest).first {
-                        video.title = trimmedName
-                        
-                        if context.hasChanges {
-                            try context.save()
-                        }
-                        
-                        DispatchQueue.main.async {
-                            NotificationCenter.default.post(name: .contentUpdated, object: nil)
-                        }
-                        continuation.resume()
-                        return
-                    }
-                    
-                } catch {
-                    DispatchQueue.main.async {
-                        self.errorMessage = "Failed to rename item: \(error.localizedDescription)"
-                    }
-                    context.rollback()
+        do {
+            // Work directly on main context - no background queue needed for simple operations
+            
+            // Try to find and rename a folder
+            let folderRequest = Folder.fetchRequest()
+            folderRequest.predicate = NSPredicate(format: "library == %@ AND id == %@", library, id as CVarArg)
+            
+            if let folder = try context.fetch(folderRequest).first {
+                folder.name = trimmedName
+                folder.dateModified = Date()
+                
+                if context.hasChanges {
+                    try context.save()
+                    // No manual notification needed - SwiftUI will automatically detect Core Data changes
                 }
-                continuation.resume()
+                return
             }
+            
+            // Try to find and rename a video
+            let videoRequest = Video.fetchRequest()
+            videoRequest.predicate = NSPredicate(format: "library == %@ AND id == %@", library, id as CVarArg)
+            
+            if let video = try context.fetch(videoRequest).first {
+                video.title = trimmedName
+                
+                if context.hasChanges {
+                    try context.save()
+                    // No manual notification needed - SwiftUI will automatically detect Core Data changes
+                }
+                return
+            }
+            
+        } catch {
+            errorMessage = "Failed to rename item: \(error.localizedDescription)"
+            context.rollback()
         }
     }
 }

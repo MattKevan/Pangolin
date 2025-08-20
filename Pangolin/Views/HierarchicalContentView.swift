@@ -28,7 +28,7 @@ struct HierarchicalContentView: View {
     @State private var editedName: String = ""
     
     private var hierarchicalContent: [HierarchicalContentItem] {
-        let _ = refreshTrigger // Force recomputation
+        let _ = refreshTrigger // Keep for video import and folder creation, but not for renaming
         let allContent = store.hierarchicalContent(for: store.currentFolderID)
         
         if searchText.isEmpty {
@@ -224,14 +224,17 @@ struct HierarchicalContentView: View {
     }
     
     private func handleSelectionChange(_ newSelection: Set<UUID>) {
-        // When a single video is selected, set it for detail view
-        if newSelection.count == 1, let selectedID = newSelection.first {
-            if let selectedItem = findItem(withID: selectedID, in: hierarchicalContent),
-               let video = selectedItem.video {
-                store.selectVideo(video)
+        // Defer the state update to avoid "Publishing changes from within view updates" error
+        Task { @MainActor in
+            // When a single video is selected, set it for detail view
+            if newSelection.count == 1, let selectedID = newSelection.first {
+                if let selectedItem = findItem(withID: selectedID, in: hierarchicalContent),
+                   let video = selectedItem.video {
+                    store.selectVideo(video)
+                }
+            } else {
+                store.selectedVideo = nil
             }
-        } else {
-            store.selectedVideo = nil
         }
     }
     

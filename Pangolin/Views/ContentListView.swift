@@ -343,7 +343,9 @@ struct ContentListView: View {
             case .folder(let folder):
                 store.navigateToFolder(folder.id)
             case .video(let video):
-                store.selectVideo(video)
+                Task { @MainActor in
+                    store.selectVideo(video)
+                }
             }
             selectedItems.removeAll()
         }
@@ -353,15 +355,18 @@ struct ContentListView: View {
     private func handleSelectionChange(_ newSelection: Set<UUID>) {
         guard !isSelectionMode else { return }
         
-        // When a single video is selected, set it for detail view
-        if newSelection.count == 1, let selectedID = newSelection.first {
-            if let selectedItem = content.first(where: { $0.id == selectedID }),
-               case .video(let video) = selectedItem {
-                store.selectVideo(video)
+        // Defer the state update to avoid "Publishing changes from within view updates" error
+        Task { @MainActor in
+            // When a single video is selected, set it for detail view
+            if newSelection.count == 1, let selectedID = newSelection.first {
+                if let selectedItem = content.first(where: { $0.id == selectedID }),
+                   case .video(let video) = selectedItem {
+                    store.selectVideo(video)
+                }
+            } else {
+                // Clear selected video if not single selection
+                store.selectedVideo = nil
             }
-        } else {
-            // Clear selected video if not single selection
-            store.selectedVideo = nil
         }
     }
     
@@ -373,7 +378,9 @@ struct ContentListView: View {
         case .folder(let folder):
             store.navigateToFolder(folder.id)
         case .video(let video):
-            store.selectVideo(video)
+            Task { @MainActor in
+                store.selectVideo(video)
+            }
         }
     }
     
@@ -415,7 +422,9 @@ struct ContentListView: View {
                 
                 // For videos, also set the selected video for detail view
                 if case .video(let video) = item {
-                    store.selectVideo(video)
+                    Task { @MainActor in
+                        store.selectVideo(video)
+                    }
                 }
             }
         }
@@ -430,7 +439,9 @@ struct ContentListView: View {
             store.navigateToFolder(folder.id)
         case .video(let video):
             // Double-click should also select the video
-            store.selectVideo(video)
+            Task { @MainActor in
+                store.selectVideo(video)
+            }
         }
     }
     

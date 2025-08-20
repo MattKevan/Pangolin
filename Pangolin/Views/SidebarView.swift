@@ -60,8 +60,11 @@ struct SidebarView: View {
             }
         }
         .onChange(of: store.selectedTopLevelFolder) { _, newFolder in
-            if let newFolder {
-                store.currentFolderID = newFolder.id
+            // Defer the state update to avoid "Publishing changes from within view updates" error
+            Task { @MainActor in
+                if let newFolder {
+                    store.currentFolderID = newFolder.id
+                }
             }
         }
         #if os(macOS)

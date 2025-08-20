@@ -284,7 +284,9 @@ struct FolderContentView: View {
                 case .folder(let folder):
                     store.navigateToFolder(folder.id)
                 case .video(let video):
-                    store.selectVideo(video)
+                    Task { @MainActor in
+                        store.selectVideo(video)
+                    }
                 }
             }
         }
