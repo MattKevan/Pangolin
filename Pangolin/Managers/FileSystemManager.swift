@@ -281,7 +281,7 @@ class FileSystemManager {
                         video.thumbnailPath = thumbnailPath
                     }
                 } catch {
-                    print("Failed to generate thumbnail for \(video.fileName): \(error)")
+                    print("Failed to generate thumbnail for \(video.fileName ?? "Unknown Video"): \(error)")
                 }
             }
             

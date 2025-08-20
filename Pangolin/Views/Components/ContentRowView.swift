@@ -27,8 +27,6 @@ struct ContentRowView: View {
     }
 
     private var dragPayload: ContentTransfer {
-        // If the dragged item is part of a larger selection, drag all selected items.
-        // Otherwise, just drag the single item.
         if selectedItems.contains(content.id) {
             return ContentTransfer(itemIDs: Array(selectedItems))
         } else {
@@ -170,7 +168,6 @@ struct ContentRowView: View {
         )
     }
     
-    /// A view that conditionally shows a `Text` label or a `TextField` for renaming.
     @ViewBuilder
     private var nameEditorView: some View {
         if renamingItemID == content.id {
@@ -181,8 +178,9 @@ struct ContentRowView: View {
                     shouldCommitOnDisappear = true
                 }
                 .onSubmit {
-                    shouldCommitOnDisappear = false // Prevent double commit
-                    commitRename()
+                    shouldCommitOnDisappear = false
+                    // ✅ Call async function from a Task
+                    Task { await commitRename() }
                 }
                 .onKeyPress { keyPress in
                     if keyPress.key == .escape {
@@ -193,17 +191,15 @@ struct ContentRowView: View {
                     return .ignored
                 }
                 .onChange(of: focusedField) { oldValue, newValue in
-                    // Detect when THIS TextField loses focus
                     if oldValue == content.id && newValue != content.id && shouldCommitOnDisappear {
-                        print("🎯 FOCUS: ContentRow TextField \(content.id) lost focus (old: \(oldValue?.uuidString ?? "nil") -> new: \(newValue?.uuidString ?? "nil")), committing rename")
-                        commitRename()
+                        // ✅ Call async function from a Task
+                        Task { await commitRename() }
                     }
                 }
         } else {
             Text(content.name)
         }
     }
-    
     
     @ViewBuilder
     private var contentIcon: some View {
@@ -231,53 +227,44 @@ struct ContentRowView: View {
 
     // MARK: - Renaming Logic
 
-    /// Initiates the renaming process for this item.
     private func startRenaming() {
         editedName = content.name
         renamingItemID = content.id
-        // Set focus after a brief delay to ensure TextField is rendered
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+            try? await Task.sleep(nanoseconds: 100_000_000)
             focusedField = content.id
         }
     }
     
-    /// Commits the rename operation and updates the store.
-    private func commitRename() {
-        print("🔧 UI: commitRename called for '\(content.name)' -> '\(editedName)'")
-        shouldCommitOnDisappear = false // Prevent further commits
-        guard let itemID = renamingItemID, itemID == content.id else { 
-            print("❌ UI: Guard failed - renamingItemID: \(renamingItemID?.uuidString ?? "nil"), content.id: \(content.id)")
-            return 
+    // ✅ Make the function async
+    private func commitRename() async {
+        shouldCommitOnDisappear = false
+        
+        guard let itemID = renamingItemID, itemID == content.id else {
+            await MainActor.run { cancelRename() }
+            return
         }
         
         let trimmedName = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty && trimmedName != content.name else {
-            // Cancel rename if name is empty or unchanged
-            print("❌ UI: Name unchanged or empty - '\(trimmedName)' vs '\(content.name)'")
-            cancelRename()
+            await MainActor.run { cancelRename() }
             return
         }
         
-        print("🚀 UI: About to call store.renameItem")
+        // ✅ Await the store operation before updating local state
+        await store.renameItem(id: itemID, to: trimmedName)
         
-        // Perform rename operation on background queue to avoid publishing changes during view update
-        Task {
-            await store.renameItem(id: itemID, to: trimmedName)
-            await MainActor.run {
-                renamingItemID = nil
-                focusedField = nil
-            }
+        // ✅ Now update local state after the save is complete
+        await MainActor.run {
+            renamingItemID = nil
+            focusedField = nil
         }
     }
     
-    /// Cancels the rename operation without saving.
     private func cancelRename() {
-        editedName = content.name // Reset to original name
+        editedName = content.name
         shouldCommitOnDisappear = false
         renamingItemID = nil
         focusedField = nil
     }
-
-
 }

@@ -50,8 +50,9 @@ struct HierarchicalContentRowView: View {
                         shouldCommitOnDisappear = true
                     }
                     .onSubmit {
-                        shouldCommitOnDisappear = false // Prevent double commit
-                        commitRename()
+                        shouldCommitOnDisappear = false
+                        // Use a Task to call the new async function
+                        Task { await commitRename() }
                     }
                     .onKeyPress(.escape) {
                         shouldCommitOnDisappear = false
@@ -59,9 +60,9 @@ struct HierarchicalContentRowView: View {
                         return .handled
                     }
                     .onChange(of: focusedField) { oldValue, newValue in
-                        // Detect when THIS TextField loses focus
                         if oldValue == item.id && newValue != item.id && shouldCommitOnDisappear {
-                            commitRename()
+                            // Use a Task here as well
+                            Task { await commitRename() }
                         }
                     }
             } else {
@@ -150,27 +151,28 @@ struct HierarchicalContentRowView: View {
         }
     }
     
-    private func commitRename() {
-        shouldCommitOnDisappear = false // Prevent further commits
-        
+    private func commitRename() async {
+        shouldCommitOnDisappear = false
+
         guard let renamingID = renamingItemID,
               renamingID == item.id else {
-            cancelRename()
+            await MainActor.run { cancelRename() }
             return
         }
         
         let trimmedName = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty && trimmedName != item.name else {
-            cancelRename()
+            await MainActor.run { cancelRename() }
             return
         }
         
-        Task {
-            await store.renameItem(id: item.id, to: trimmedName)
-            await MainActor.run {
-                renamingItemID = nil
-                focusedField = nil
-            }
+        // ❗ KEY CHANGE: Await the save operation BEFORE updating the local UI state.
+        await store.renameItem(id: item.id, to: trimmedName)
+        
+        // This now runs only AFTER the save is complete.
+        await MainActor.run {
+            renamingItemID = nil
+            focusedField = nil
         }
     }
     

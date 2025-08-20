@@ -178,7 +178,7 @@ class LibraryManager: ObservableObject {
         self.currentLibrary = library
         self.isLibraryOpen = true
         
-        print("Library created successfully: \(library.name)")
+        print("Library created successfully: \(library.name ?? "Untitled")")
         print("Library open state: \(self.isLibraryOpen)")
         
         // Add to recent libraries

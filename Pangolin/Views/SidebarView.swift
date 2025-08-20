@@ -49,8 +49,8 @@ struct SidebarView: View {
             Section("Pangolin") {
                 ForEach(systemFolders) { folder in
                     FolderRowView(
-                        folder: folder, 
-                        showContextMenu: false, 
+                        folder: folder,
+                        showContextMenu: false,
                         editingFolder: $editingFolder,
                         renamingFolderID: $renamingFolderID,
                         focusedField: $focusedField,
@@ -64,8 +64,8 @@ struct SidebarView: View {
             Section("Library") {
                 ForEach(userFolders) { folder in
                     FolderRowView(
-                        folder: folder, 
-                        showContextMenu: true, 
+                        folder: folder,
+                        showContextMenu: true,
                         editingFolder: $editingFolder,
                         renamingFolderID: $renamingFolderID,
                         focusedField: $focusedField,
@@ -111,7 +111,6 @@ struct SidebarView: View {
             }
             return .ignored
         }
-       
     }
     
     private func deleteFolder(_ folder: Folder) {
@@ -198,13 +197,12 @@ private struct FolderRowView: View {
                     shouldCommitOnDisappear = true
                 }
                 .onSubmit {
-                    // Commit the rename when the user presses Return/Enter
-                    shouldCommitOnDisappear = false // Prevent double commit
-                    commitRename()
+                    shouldCommitOnDisappear = false
+                    // ✅ Call async function from a Task
+                    Task { await commitRename() }
                 }
                 .onKeyPress { keyPress in
                     if keyPress.key == .escape {
-                        // Cancel the rename when the user presses Escape
                         shouldCommitOnDisappear = false
                         cancelRename()
                         return .handled
@@ -212,10 +210,9 @@ private struct FolderRowView: View {
                     return .ignored
                 }
                 .onChange(of: focusedField) { oldValue, newValue in
-                    // Detect when THIS TextField loses focus
                     if oldValue == folder.id && newValue != folder.id && shouldCommitOnDisappear {
-                        print("🎯 FOCUS: TextField \(folder.id) lost focus (old: \(oldValue?.uuidString ?? "nil") -> new: \(newValue?.uuidString ?? "nil")), committing rename")
-                        commitRename()
+                        // ✅ Call async function from a Task
+                        Task { await commitRename() }
                     }
                 }
         } else {
@@ -224,21 +221,22 @@ private struct FolderRowView: View {
     }
     
     /// Commits the new name to the data store.
-    private func commitRename() {
-        print("🏷️ SIDEBAR: commitRename called for '\(folder.name!)' -> '\(editedName)'")
-        shouldCommitOnDisappear = false // Prevent further commits
+    // ✅ Make the function async
+    private func commitRename() async {
+        shouldCommitOnDisappear = false
+        
         let trimmedName = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedName.isEmpty && trimmedName != folder.name! {
-            print("🚀 SIDEBAR: About to call store.renameItem")
-            Task {
-                await store.renameItem(id: folder.id!, to: trimmedName)
-                await MainActor.run {
-                    renamingFolderID = nil
-                    focusedField = nil
-                }
-            }
-        } else {
+        guard !trimmedName.isEmpty && trimmedName != folder.name! else {
             // Cancel if no change
+            await MainActor.run { cancelRename() }
+            return
+        }
+        
+        // ✅ Await the store operation before updating local state
+        await store.renameItem(id: folder.id!, to: trimmedName)
+        
+        // ✅ Now update local state after the save is complete
+        await MainActor.run {
             renamingFolderID = nil
             focusedField = nil
         }
@@ -246,7 +244,7 @@ private struct FolderRowView: View {
 
     /// Cancels the renaming process.
     private func cancelRename() {
-        editedName = folder.name! // Reset to original name
+        editedName = folder.name!
         shouldCommitOnDisappear = false
         renamingFolderID = nil
         focusedField = nil
@@ -254,19 +252,17 @@ private struct FolderRowView: View {
     
     /// Handles slow-click rename for user folders only
     private func handleSlowClickRename() {
-        // Only allow renaming for user folders (not system folders) and only if this folder is already selected
-        guard !folder.isSmartFolder, 
-              showContextMenu, 
+        guard !folder.isSmartFolder,
+              showContextMenu,
               store.selectedTopLevelFolder?.id == folder.id,
-              renamingFolderID == nil else { 
-            return 
+              renamingFolderID == nil else {
+            return
         }
         
-        // Start renaming
         editedName = folder.name!
         renamingFolderID = folder.id
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s delay
+            try? await Task.sleep(nanoseconds: 100_000_000)
             focusedField = folder.id
         }
     }

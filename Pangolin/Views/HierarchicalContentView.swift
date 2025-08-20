@@ -26,14 +26,15 @@ struct HierarchicalContentView: View {
     @FocusState private var focusedField: UUID?
     @State private var editedName: String = ""
     
-    private var hierarchicalContent: [HierarchicalContentItem] {
-        let allContent = store.hierarchicalContent(for: store.currentFolderID)
+    // This new property filters the store's reactive data source
+    private var filteredContent: [HierarchicalContentItem] {
+        let sourceContent = store.hierarchicalContent
         
         if searchText.isEmpty {
-            return allContent
+            return sourceContent
         } else {
             // Filter hierarchical content by search text
-            return filterHierarchicalContent(allContent, searchText: searchText)
+            return filterHierarchicalContent(sourceContent, searchText: searchText)
         }
     }
     
@@ -61,19 +62,11 @@ struct HierarchicalContentView: View {
         .sheet(isPresented: $showingCreateFolder) {
             CreateFolderView(parentFolderID: store.currentFolderID)
         }
-        .onChange(of: videoImporter.isImporting) { _, isImporting in
-            if !isImporting && showingImportProgress {
-                NotificationCenter.default.post(name: .contentUpdated, object: nil)
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .contentUpdated)) { _ in
-            // Core Data change notifications now handled automatically
-        }
         .onKeyPress { keyPress in
             // Return key triggers rename on single selected item
             guard keyPress.key == .return, selectedItems.count == 1,
                   let selectedID = selectedItems.first,
-                  let selectedItem = findItem(withID: selectedID, in: hierarchicalContent),
+                  let selectedItem = findItem(withID: selectedID, in: filteredContent),
                   renamingItemID == nil else {
                 return .ignored
             }
@@ -85,7 +78,7 @@ struct HierarchicalContentView: View {
     
     @ViewBuilder
     private var contentView: some View {
-        if hierarchicalContent.isEmpty {
+        if filteredContent.isEmpty {
             ContentUnavailableView(
                 "No Content", 
                 systemImage: "folder.badge.questionmark", 
@@ -98,7 +91,7 @@ struct HierarchicalContentView: View {
     
     @ViewBuilder 
     private var hierarchicalListView: some View {
-        List(hierarchicalContent, id: \.id, children: \.children, selection: $selectedItems) { item in
+        List(filteredContent, id: \.id, children: \.children, selection: $selectedItems) { item in
             HierarchicalContentRowView(
                 item: item,
                 renamingItemID: $renamingItemID,
@@ -175,7 +168,7 @@ struct HierarchicalContentView: View {
     // MARK: - Helper Functions
     
     private var videosWithoutThumbnails: [Video] {
-        return getAllVideos(from: hierarchicalContent).filter { $0.thumbnailPath == nil }
+        return getAllVideos(from: store.hierarchicalContent).filter { $0.thumbnailPath == nil }
     }
     
     private func getAllVideos(from items: [HierarchicalContentItem]) -> [Video] {
@@ -207,15 +200,18 @@ struct HierarchicalContentView: View {
     private func filterHierarchicalContent(_ items: [HierarchicalContentItem], searchText: String) -> [HierarchicalContentItem] {
         return items.compactMap { item in
             let nameMatches = item.name.localizedCaseInsensitiveContains(searchText)
-            let filteredChildren = item.children?.compactMap { child in
-                filterHierarchicalContent([child], searchText: searchText).first
-            }
             
+            // Recursively filter children
+            let filteredChildren = item.children.flatMap { filterHierarchicalContent($0, searchText: searchText) }
+            
+            // An item should be included if its name matches OR if it has children that match
             if nameMatches || (filteredChildren?.isEmpty == false) {
                 var filteredItem = item
+                // Assign the filtered children back to the item
                 filteredItem.children = filteredChildren
                 return filteredItem
             }
+            
             return nil
         }
     }
@@ -225,7 +221,7 @@ struct HierarchicalContentView: View {
         Task { @MainActor in
             // When a single video is selected, set it for detail view
             if newSelection.count == 1, let selectedID = newSelection.first {
-                if let selectedItem = findItem(withID: selectedID, in: hierarchicalContent),
+                if let selectedItem = findItem(withID: selectedID, in: filteredContent),
                    let video = selectedItem.video {
                     store.selectVideo(video)
                 }
