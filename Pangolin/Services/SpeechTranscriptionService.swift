@@ -10,12 +10,8 @@ class SpeechTranscriptionService: ObservableObject {
     @Published var statusMessage = ""
     @Published var errorMessage: String?
     
-    // iOS 26.0+ properties stored as Any to avoid compilation issues
+    // iOS 26.0+ properties
     private var _currentAnalyzer: Any?
-    
-    // Legacy properties for current SDK
-    private var speechRecognizer: SFSpeechRecognizer?
-    private var recognitionTask: SFSpeechRecognitionTask?
     
     func transcribeVideo(_ video: Video, libraryManager: LibraryManager) async {
         guard !isTranscribing else { return }
@@ -45,11 +41,7 @@ class SpeechTranscriptionService: ObservableObject {
             statusMessage = "Transcribing audio..."
             let transcriptText: String
             
-            if #available(iOS 26.0, macOS 26.0, *) {
-                transcriptText = try await performModernTranscription(audioFile: audioFile, locale: detectedLocale)
-            } else {
-                transcriptText = try await performLegacyTranscription(audioFile: audioFile, locale: detectedLocale)
-            }
+            transcriptText = try await performModernTranscription(audioFile: audioFile, locale: detectedLocale)
             
             progress = 0.9
             
@@ -122,40 +114,15 @@ class SpeechTranscriptionService: ObservableObject {
                 return
             }
             
-            // Use modern export API if available, fallback to legacy
-            if #available(macOS 15.0, iOS 18.0, *) {
-                Task {
-                    do {
-                        for await state in session.states(updateInterval: 0.1) {
-                            switch state.status {
-                            case .completed:
-                                continuation.resume(returning: tempAudioURL)
-                                return
-                            case .failed, .cancelled:
-                                continuation.resume(throwing: TranscriptionError.audioExtractionFailed)
-                                return
-                            case .waiting, .exporting:
-                                continue
-                            @unknown default:
-                                continue
-                            }
-                        }
-                    } catch {
-                        continuation.resume(throwing: TranscriptionError.audioExtractionFailed)
-                    }
-                }
-                session.export()
-            } else {
-                // Legacy approach
-                session.exportAsynchronously {
-                    switch session.status {
-                    case .completed:
-                        continuation.resume(returning: tempAudioURL)
-                    case .failed, .cancelled:
-                        continuation.resume(throwing: TranscriptionError.audioExtractionFailed)
-                    default:
-                        continuation.resume(throwing: TranscriptionError.audioExtractionFailed)
-                    }
+            // Use export session
+            session.exportAsynchronously {
+                switch session.status {
+                case .completed:
+                    continuation.resume(returning: tempAudioURL)
+                case .failed, .cancelled:
+                    continuation.resume(throwing: TranscriptionError.audioExtractionFailed)
+                default:
+                    continuation.resume(throwing: TranscriptionError.audioExtractionFailed)
                 }
             }
         }
@@ -169,65 +136,142 @@ class SpeechTranscriptionService: ObservableObject {
             return Locale(identifier: language)
         }
         
-        // Could implement audio-based language detection here using the extracted audio
-        // For now, use system locale as fallback
+        // Try audio-based language detection using Speech Recognition
+        do {
+            let detectedLocale = try await detectLanguageFromAudio(audioURL)
+            if detectedLocale != nil {
+                return detectedLocale!
+            }
+        } catch {
+            print("🚨 Language detection failed: \(error)")
+        }
+        
+        // Fallback to system locale
         return Locale.current
     }
     
+    private func detectLanguageFromAudio(_ audioURL: URL) async throws -> Locale? {
+        // Extract a small sample from the beginning for language detection
+        let sampleURL = try await extractAudioSample(from: audioURL, duration: 10.0)
+        defer { try? FileManager.default.removeItem(at: sampleURL) }
+        
+        // Get list of supported locales for speech recognition
+        let supportedLocales = SpeechRecognizer.supportedLocales()
+        
+        // Try detection with the most common languages first
+        let commonLanguages = ["en-US", "es-ES", "fr-FR", "de-DE", "it-IT", "pt-BR", "ja-JP", "ko-KR", "zh-CN"]
+        
+        for languageCode in commonLanguages {
+            if let locale = supportedLocales.first(where: { $0.identifier.hasPrefix(languageCode.prefix(2)) }) {
+                if let confidence = try await testLanguageConfidence(audioURL: sampleURL, locale: locale) {
+                    if confidence > 0.6 { // High confidence threshold
+                        print("🎯 Detected language: \(locale.identifier) with confidence: \(confidence)")
+                        return locale
+                    }
+                }
+            }
+        }
+        
+        return nil
+    }
+    
+    private func extractAudioSample(from audioURL: URL, duration: TimeInterval) async throws -> URL {
+        let asset = AVURLAsset(url: audioURL)
+        let tempSampleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("m4a")
+        
+        guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
+            throw TranscriptionError.audioExtractionFailed
+        }
+        
+        exportSession.outputURL = tempSampleURL
+        exportSession.outputFileType = .m4a
+        exportSession.timeRange = CMTimeRange(start: .zero, duration: CMTime(seconds: duration, preferredTimescale: 600))
+        
+        return try await withCheckedThrowingContinuation { continuation in
+            exportSession.exportAsynchronously {
+                switch exportSession.status {
+                case .completed:
+                    continuation.resume(returning: tempSampleURL)
+                case .failed:
+                    continuation.resume(throwing: exportSession.error ?? TranscriptionError.audioExtractionFailed)
+                case .cancelled:
+                    continuation.resume(throwing: TranscriptionError.cancelled)
+                default:
+                    continuation.resume(throwing: TranscriptionError.audioExtractionFailed)
+                }
+            }
+        }
+    }
+    
+    private func testLanguageConfidence(audioURL: URL, locale: Locale) async throws -> Double? {
+        guard SpeechRecognizer.authorizationStatus() == .authorized else { return nil }
+        
+        let recognizer = SpeechRecognizer(locale: locale)
+        guard recognizer.isAvailable else { return nil }
+        
+        let request = SFSpeechURLRecognitionRequest(url: audioURL)
+        request.shouldReportPartialResults = false
+        request.taskHint = .dictation
+        
+        return try await withCheckedThrowingContinuation { continuation in
+            recognizer.recognitionTask(with: request) { result, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                
+                if let result = result, result.isFinal {
+                    let confidence = result.bestTranscription.segments.isEmpty ? 0.0 : 
+                        result.bestTranscription.segments.map { $0.confidence }.reduce(0, +) / Double(result.bestTranscription.segments.count)
+                    continuation.resume(returning: confidence)
+                }
+            }
+        }
+    }
+    
     // MARK: - iOS 26.0+ Modern Implementation
-    @available(iOS 26.0, macOS 26.0, *)
     private func performModernTranscription(audioFile: URL, locale: Locale) async throws -> String {
-        // This implementation will work when iOS 26.0 SDK is available
-        // For now, fall back to legacy implementation
-        return try await performLegacyTranscription(audioFile: audioFile, locale: locale)
+        // iOS 26.0 beta implementation using modern SpeechTranscriber APIs
         
-        /*
-        // Full iOS 26.0 implementation - uncomment when SDK is available:
         statusMessage = "Setting up modern speech transcriber..."
-        guard let supportedLocale = SpeechTranscriber.supportedLocale(equivalentTo: locale) else {
-            throw TranscriptionError.languageNotSupported(locale)
-        }
         
-        guard SpeechTranscriber.isAvailable else {
-            throw TranscriptionError.speechTranscriberNotAvailable
-        }
+        // Step 1: Create transcriber with enhanced configuration for better quality
+        let transcriber = SpeechTranscriber(locale: locale,
+                                           transcriptionOptions: [.enablePunctuation, .enableCapitalization],
+                                           reportingOptions: [.includeWordConfidences, .includeTimestamps],
+                                           attributeOptions: [.includePartialResults])
+        progress = 0.3
         
-        let transcriber = SpeechTranscriber(locale: supportedLocale, preset: .transcriptionWithAlternatives)
+        // Step 2: Ensure model is available
+        statusMessage = "Ensuring speech model availability..."
+        try await ensureModel(transcriber: transcriber, locale: locale)
         progress = 0.4
         
-        // Download assets if needed
-        statusMessage = "Downloading speech assets if needed..."
-        if let installationRequest = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
-            try await installationRequest.downloadAndInstall()
+        // Step 3: Get the best available audio format
+        guard let audioFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
+            throw TranscriptionError.audioExtractionFailed
         }
-        progress = 0.5
         
-        // Get the best available audio format
-        let audioFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber])
-        
-        // Create the analyzer
+        // Step 4: Create the analyzer
         let analyzer = SpeechAnalyzer(modules: [transcriber])
         _currentAnalyzer = analyzer
+        progress = 0.5
         
+        // Step 5: Set up input stream
+        let (inputSequence, inputBuilder) = AsyncStream<AnalyzerInput>.makeStream()
+        
+        // Step 6: Collect results
         var transcriptParts: [String] = []
-        var totalConfidence: Double = 0.0
-        var resultCount = 0
-        
-        // Collect results
         let resultsTask = Task {
             do {
                 for try await result in transcriber.results {
                     let text = String(result.text.characters)
-                    if !text.isEmpty {
+                    if result.isFinal && !text.isEmpty {
                         transcriptParts.append(text)
-                        
-                        if let confidence = result.text.runs.first?.transcriptionConfidence {
-                            totalConfidence += confidence
-                            resultCount += 1
-                        }
-                        
                         await MainActor.run {
-                            self.progress = min(0.8, 0.5 + Double(transcriptParts.count) * 0.05)
+                            self.progress = min(0.9, 0.5 + Double(transcriptParts.count) * 0.05)
                         }
                     }
                 }
@@ -236,87 +280,118 @@ class SpeechTranscriptionService: ObservableObject {
             }
         }
         
+        // Step 7: Start analysis
+        try await analyzer.start(inputSequence: inputSequence)
+        statusMessage = "Transcribing audio..."
+        
+        // Step 8: Process audio file
         do {
-            let audioFileObj = try AVAudioFile(forReading: audioFile)
-            let lastSampleTime = try await analyzer.analyzeSequence(from: audioFileObj)
+            let audioFile = try AVAudioFile(forReading: audioFile)
             
-            if let lastSampleTime = lastSampleTime {
-                try await analyzer.finalizeAndFinish(through: lastSampleTime)
-            } else {
-                await analyzer.cancelAndFinishNow()
+            // Convert and stream audio data
+            let bufferSize: AVAudioFrameCount = 4096
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: audioFile.processingFormat, frameCapacity: bufferSize) else {
+                throw TranscriptionError.audioExtractionFailed
             }
             
+            while audioFile.framePosition < audioFile.length {
+                try audioFile.read(into: buffer)
+                
+                if buffer.frameLength > 0 {
+                    // Convert buffer to analyzer format if needed
+                    let convertedBuffer: AVAudioPCMBuffer
+                    if buffer.format == audioFormat {
+                        convertedBuffer = buffer
+                    } else {
+                        // Create converter if formats don't match
+                        guard let converter = AVAudioConverter(from: buffer.format, to: audioFormat) else {
+                            throw TranscriptionError.audioExtractionFailed
+                        }
+                        
+                        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: audioFormat, frameCapacity: bufferSize) else {
+                            throw TranscriptionError.audioExtractionFailed
+                        }
+                        
+                        var error: NSError?
+                        let status = converter.convert(to: outputBuffer, error: &error) { _, outStatus in
+                            outStatus.pointee = AVAudioConverterInputStatus.haveData
+                            return buffer
+                        }
+                        
+                        if status == .error {
+                            throw TranscriptionError.audioExtractionFailed
+                        }
+                        
+                        convertedBuffer = outputBuffer
+                    }
+                    
+                    let input = AnalyzerInput(buffer: convertedBuffer)
+                    inputBuilder.yield(input)
+                }
+            }
+            
+            // Step 9: Finish processing
+            inputBuilder.finish()
+            try await analyzer.finalizeAndFinishThroughEndOfInput()
+            
+            // Wait for results
             try await resultsTask.value
+            
+            _currentAnalyzer = nil
+            
+            let rawTranscript = transcriptParts.joined(separator: " ").trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+            
+            if rawTranscript.isEmpty {
+                throw TranscriptionError.noSpeechDetected
+            }
+            
+            // Post-process and validate transcript quality
+            let fullTranscript = try cleanupTranscript(rawTranscript)
+            
+            if !isTranscriptQualityAcceptable(fullTranscript) {
+                throw TranscriptionError.poorQualityTranscription
+            }
+            
+            print("📊 Modern transcription completed successfully with \(transcriptParts.count) parts")
+            return fullTranscript
             
         } catch {
             resultsTask.cancel()
             _currentAnalyzer = nil
             throw error
         }
-        
-        _currentAnalyzer = nil
-        
-        let fullTranscript = transcriptParts.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        if fullTranscript.isEmpty {
-            throw TranscriptionError.noSpeechDetected
-        }
-        
-        if resultCount > 0 {
-            let averageConfidence = totalConfidence / Double(resultCount)
-            print("📊 Modern transcription completed with average confidence: \(String(format: "%.2f", averageConfidence))")
-        }
-        
-        return fullTranscript
-        */
     }
     
-    // MARK: - Legacy Implementation (iOS < 26.0)
-    private func performLegacyTranscription(audioFile: URL, locale: Locale) async throws -> String {
-        statusMessage = "Setting up legacy speech recognizer..."
-        guard let speechRecognizer = SFSpeechRecognizer(locale: locale) else {
+    // MARK: - Model Management
+    private func ensureModel(transcriber: SpeechTranscriber, locale: Locale) async throws {
+        guard await supported(locale: locale) else {
             throw TranscriptionError.languageNotSupported(locale)
         }
         
-        guard speechRecognizer.isAvailable else {
-            throw TranscriptionError.speechTranscriberNotAvailable
-        }
-        
-        self.speechRecognizer = speechRecognizer
-        progress = 0.4
-        
-        return try await withCheckedThrowingContinuation { continuation in
-            let request = SFSpeechURLRecognitionRequest(url: audioFile)
-            request.shouldReportPartialResults = false
-            request.taskHint = .dictation
-            
-            if #available(iOS 13.0, macOS 10.15, *) {
-                request.requiresOnDeviceRecognition = false
-            }
-            
-            recognitionTask = speechRecognizer.recognitionTask(with: request) { result, error in
-                if let error = error {
-                    continuation.resume(throwing: error)
-                    return
-                }
-                
-                guard let result = result else {
-                    continuation.resume(throwing: TranscriptionError.noSpeechDetected)
-                    return
-                }
-                
-                if result.isFinal {
-                    let transcript = result.bestTranscription.formattedString
-                    if transcript.isEmpty {
-                        continuation.resume(throwing: TranscriptionError.noSpeechDetected)
-                    } else {
-                        print("📊 Legacy transcription completed")
-                        continuation.resume(returning: transcript)
-                    }
-                }
-            }
+        if await installed(locale: locale) {
+            return
+        } else {
+            try await downloadIfNeeded(for: transcriber)
         }
     }
+    
+    private func supported(locale: Locale) async -> Bool {
+        let supported = await SpeechTranscriber.supportedLocales
+        return supported.map { $0.identifier(.bcp47) }.contains(locale.identifier(.bcp47))
+    }
+
+    private func installed(locale: Locale) async -> Bool {
+        let installed = await Set(SpeechTranscriber.installedLocales)
+        return installed.map { $0.identifier(.bcp47) }.contains(locale.identifier(.bcp47))
+    }
+
+    private func downloadIfNeeded(for module: SpeechTranscriber) async throws {
+        statusMessage = "Downloading speech models..."
+        if let downloader = try await AssetInventory.assetInstallationRequest(supporting: [module]) {
+            try await downloader.downloadAndInstall()
+        }
+    }
+    
     
     private func saveTranscriptionResults(
         video: Video,
@@ -333,13 +408,12 @@ class SpeechTranscriptionService: ObservableObject {
     }
     
     func cancelTranscription() {
-        if #available(iOS 26.0, macOS 26.0, *), _currentAnalyzer != nil {
-            // Modern cancellation - would work with real iOS 26 SDK
-            _currentAnalyzer = nil
-        } else {
-            recognitionTask?.cancel()
-            recognitionTask = nil
+        if let analyzer = _currentAnalyzer as? SpeechAnalyzer {
+            Task {
+                await analyzer.cancelAndFinishNow()
+            }
         }
+        _currentAnalyzer = nil
         
         isTranscribing = false
         statusMessage = "Transcription cancelled"
