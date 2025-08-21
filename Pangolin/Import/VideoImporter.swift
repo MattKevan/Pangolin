@@ -20,6 +20,7 @@ class VideoImporter: ObservableObject {
     @Published var processedFiles = 0
     @Published var errors: [ImportError] = []
     @Published var importedVideos: [Video] = []
+    @Published var skippedFolders: [String] = []
     
     private let fileSystemManager = FileSystemManager.shared
     private let subtitleMatcher = SubtitleMatcher()
@@ -49,13 +50,17 @@ class VideoImporter: ObservableObject {
             totalFiles = videoFiles.count
         }
         
-        // Import each file
+        // Import each file  
+        print("🎬 IMPORT: Starting import of \(videoFiles.count) video files")
+        print("📚 IMPORT: Library settings - copyFilesOnImport: \(library.copyFilesOnImport), autoMatchSubtitles: \(library.autoMatchSubtitles)")
         for (index, fileURL) in videoFiles.enumerated() {
             await MainActor.run {
                 currentFile = fileURL.lastPathComponent
                 processedFiles = index
                 progress = Double(index) / Double(videoFiles.count)
             }
+            
+            print("📹 IMPORT: Processing file \(index + 1)/\(videoFiles.count): \(fileURL.lastPathComponent)")
             
             do {
                 // Import video
@@ -65,6 +70,7 @@ class VideoImporter: ObservableObject {
                     context: context,
                     copyFile: library.copyFilesOnImport
                 )
+                print("✅ IMPORT: Successfully imported video: \(video.title ?? "Unknown")")
                 
                 // Add video to appropriate folder based on its original folder path
                 assignVideoToFolder(video: video, originalPath: fileURL, createdFolders: createdFolders)
@@ -75,14 +81,20 @@ class VideoImporter: ObservableObject {
                         for: fileURL,
                         in: fileURL.deletingLastPathComponent()
                     )
+                    print("📄 IMPORT: Found \(subtitles.count) subtitle files for \(fileURL.lastPathComponent)")
                     
                     for subtitleURL in subtitles {
-                        _ = try? await importSubtitle(
-                            from: subtitleURL,
-                            for: video,
-                            to: library,
-                            context: context
-                        )
+                        do {
+                            let subtitle = try await importSubtitle(
+                                from: subtitleURL,
+                                for: video,
+                                to: library,
+                                context: context
+                            )
+                            print("✅ IMPORT: Successfully imported subtitle: \(subtitle.fileName ?? "Unknown")")
+                        } catch {
+                            print("❌ IMPORT: Failed to import subtitle \(subtitleURL.lastPathComponent): \(error)")
+                        }
                     }
                 }
                 
@@ -91,6 +103,7 @@ class VideoImporter: ObservableObject {
                 }
                 
             } catch {
+                print("❌ IMPORT: Failed to import video \(fileURL.lastPathComponent): \(error)")
                 await MainActor.run {
                     errors.append(ImportError(
                         fileName: fileURL.lastPathComponent,
@@ -119,6 +132,16 @@ class VideoImporter: ObservableObject {
         }
     }
     
+    func resetImportState() {
+        errors.removeAll()
+        importedVideos.removeAll()
+        skippedFolders.removeAll()
+        progress = 0
+        totalFiles = 0
+        processedFiles = 0
+        currentFile = ""
+    }
+    
     private func gatherVideoFiles(from urls: [URL]) -> [URL] {
         var videoFiles: [URL] = []
         
@@ -126,30 +149,53 @@ class VideoImporter: ObservableObject {
             var isDirectory: ObjCBool = false
             if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) {
                 if isDirectory.boolValue {
+                    print("📁 IMPORT: Gathering videos from directory: \(url.lastPathComponent)")
                     // Recursively find video files in directory
-                    videoFiles.append(contentsOf: findVideoFiles(in: url))
+                    let foundFiles = findVideoFiles(in: url)
+                    print("📹 IMPORT: Found \(foundFiles.count) video files in \(url.lastPathComponent)")
+                    videoFiles.append(contentsOf: foundFiles)
                 } else if isVideoFile(url) {
+                    print("📹 IMPORT: Direct video file: \(url.lastPathComponent)")
                     videoFiles.append(url)
                 }
             }
         }
         
+        print("📊 IMPORT: Total video files gathered: \(videoFiles.count)")
         return videoFiles
     }
     
     private func findVideoFiles(in directory: URL) -> [URL] {
         var videoFiles: [URL] = []
         
-        if let enumerator = FileManager.default.enumerator(
-            at: directory,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) {
-            for case let fileURL as URL in enumerator {
-                if isVideoFile(fileURL) {
-                    videoFiles.append(fileURL)
+        // Start accessing security-scoped resource
+        let accessing = directory.startAccessingSecurityScopedResource()
+        defer {
+            if accessing {
+                directory.stopAccessingSecurityScopedResource()
+            }
+        }
+        
+        do {
+            let contents = try FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            )
+            
+            for item in contents {
+                var isDirectory: ObjCBool = false
+                if FileManager.default.fileExists(atPath: item.path, isDirectory: &isDirectory) {
+                    if isDirectory.boolValue {
+                        // Recursively search subdirectories
+                        videoFiles.append(contentsOf: findVideoFiles(in: item))
+                    } else if isVideoFile(item) {
+                        videoFiles.append(item)
+                    }
                 }
             }
+        } catch {
+            print("⚠️ IMPORT: Could not access directory \(directory.lastPathComponent): \(error)")
         }
         
         return videoFiles
@@ -163,6 +209,18 @@ class VideoImporter: ObservableObject {
     private func importSubtitle(from url: URL, for video: Video, to library: Library, context: NSManagedObjectContext) async throws -> Subtitle {
         guard let libraryURL = library.url else {
             throw FileSystemError.invalidLibraryPath
+        }
+        
+        // Start accessing security-scoped resources for both source and destination
+        let sourceAccessing = url.startAccessingSecurityScopedResource()
+        let libraryAccessing = libraryURL.startAccessingSecurityScopedResource()
+        defer {
+            if sourceAccessing {
+                url.stopAccessingSecurityScopedResource()
+            }
+            if libraryAccessing {
+                libraryURL.stopAccessingSecurityScopedResource()
+            }
         }
         
         // Create subtitle directory
@@ -243,6 +301,14 @@ class VideoImporter: ObservableObject {
         let folderName = folderURL.lastPathComponent
         var node = FolderNode(url: folderURL, name: folderName, isRoot: true)
         
+        // Start accessing security-scoped resource
+        let accessing = folderURL.startAccessingSecurityScopedResource()
+        defer {
+            if accessing {
+                folderURL.stopAccessingSecurityScopedResource()
+            }
+        }
+        
         do {
             let contents = try FileManager.default.contentsOfDirectory(
                 at: folderURL,
@@ -254,8 +320,12 @@ class VideoImporter: ObservableObject {
                 var isDirectory: ObjCBool = false
                 if FileManager.default.fileExists(atPath: item.path, isDirectory: &isDirectory) {
                     if isDirectory.boolValue {
-                        // Subfolder - recursively build tree
+                        // Subfolder - recursively build tree with security scope
+                        let childAccessing = item.startAccessingSecurityScopedResource()
                         let childNode = buildFolderTree(from: item)
+                        if childAccessing {
+                            item.stopAccessingSecurityScopedResource()
+                        }
                         if !childNode.videoFiles.isEmpty || !childNode.children.isEmpty {
                             node.children.append(childNode)
                         }
@@ -266,7 +336,15 @@ class VideoImporter: ObservableObject {
                 }
             }
         } catch {
-            print("Error reading folder contents: \(error)")
+            let nsError = error as NSError
+            if nsError.domain == NSCocoaErrorDomain && nsError.code == 257 {
+                print("⚠️ IMPORT: Permission denied for folder '\(folderName)' - may need individual selection")
+                Task { @MainActor in
+                    skippedFolders.append(folderName)
+                }
+            } else {
+                print("⚠️ IMPORT: Error reading folder '\(folderName)': \(error)")
+            }
         }
         
         return node

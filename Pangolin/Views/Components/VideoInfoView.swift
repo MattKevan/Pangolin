@@ -90,9 +90,13 @@ struct VideoInfoView: View {
     }
 
     private func toggleFavorite() {
+        print("🧠 VIDEO: Toggling favorite status for '\(video.title ?? "Unknown")' to \(!video.isFavorite)")
         video.isFavorite.toggle()
+        print("🧠 VIDEO: isFavorite is now \(video.isFavorite)")
+        
         Task {
             await libraryManager.save()
+            print("🧠 VIDEO: Save completed for favorite toggle")
         }
     }
 }

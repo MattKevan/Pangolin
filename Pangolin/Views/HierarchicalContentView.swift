@@ -47,6 +47,7 @@ struct HierarchicalContentView: View {
             switch result {
             case .success(let urls):
                 if let library = libraryManager.currentLibrary, let context = libraryManager.viewContext {
+                    videoImporter.resetImportState()
                     showingImportProgress = true
                     Task {
                         await videoImporter.importFiles(urls, to: library, context: context)
@@ -78,14 +79,20 @@ struct HierarchicalContentView: View {
     
     @ViewBuilder
     private var contentView: some View {
-        if filteredContent.isEmpty {
-            ContentUnavailableView(
-                "No Content", 
-                systemImage: "folder.badge.questionmark", 
-                description: Text(store.currentFolderID == nil ? "Import videos to get started" : "This folder is empty")
-            )
-        } else {
-            hierarchicalListView
+        VStack(spacing: 0) {
+            FolderNavigationHeader {
+                showingCreateFolder = true
+            }
+            
+            if filteredContent.isEmpty {
+                ContentUnavailableView(
+                    "No Content", 
+                    systemImage: "folder.badge.questionmark", 
+                    description: Text(store.currentFolderID == nil ? "Import videos to get started" : "This folder is empty")
+                )
+            } else {
+                hierarchicalListView
+            }
         }
     }
     
@@ -130,7 +137,6 @@ struct HierarchicalContentView: View {
     
     @ViewBuilder
     private var macOSToolbarButtons: some View {
-        Button("Create Folder") { showingCreateFolder = true }
         Button("Import Videos") { showingImportPicker = true }
             .disabled(libraryManager.currentLibrary == nil)
         
@@ -157,9 +163,6 @@ struct HierarchicalContentView: View {
                 Label("Import Videos", systemImage: "square.and.arrow.down") 
             }
             .disabled(libraryManager.currentLibrary == nil)
-            Button { showingCreateFolder = true } label: { 
-                Label("New Folder", systemImage: "folder.badge.plus") 
-            }
         } label: {
             Image(systemName: "ellipsis.circle")
         }

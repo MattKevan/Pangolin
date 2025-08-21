@@ -38,6 +38,18 @@ class FileSystemManager {
             throw FileSystemError.unsupportedFileType(sourceURL.pathExtension)
         }
         
+        // Start accessing security-scoped resources for both source and destination
+        let sourceAccessing = sourceURL.startAccessingSecurityScopedResource()
+        let libraryAccessing = libraryURL.startAccessingSecurityScopedResource()
+        defer {
+            if sourceAccessing {
+                sourceURL.stopAccessingSecurityScopedResource()
+            }
+            if libraryAccessing {
+                libraryURL.stopAccessingSecurityScopedResource()
+            }
+        }
+        
         // Create date-based subdirectory
         let importDate = Date()
         let dateString = dateFormatter.string(from: importDate)
@@ -213,10 +225,22 @@ class FileSystemManager {
             throw FileSystemError.invalidLibraryPath
         }
         
+        // Start accessing security-scoped resources for both video and library
+        let videoAccessing = videoURL.startAccessingSecurityScopedResource()
+        let libraryAccessing = libraryURL.startAccessingSecurityScopedResource()
+        defer {
+            if videoAccessing {
+                videoURL.stopAccessingSecurityScopedResource()
+            }
+            if libraryAccessing {
+                libraryURL.stopAccessingSecurityScopedResource()
+            }
+        }
+        
         let asset = AVURLAsset(url: videoURL)
         let imageGenerator = AVAssetImageGenerator(asset: asset)
         imageGenerator.appliesPreferredTrackTransform = true
-        imageGenerator.maximumSize = CGSize(width: 320, height: 180) // 16:9 aspect ratio
+        imageGenerator.maximumSize = CGSize(width: 1280, height: 720) // High quality 16:9 aspect ratio
         
         // Generate thumbnail at 10% of video duration, or 5 seconds, whichever is smaller
         let duration = try await asset.load(.duration)
@@ -297,6 +321,44 @@ class FileSystemManager {
             
         } catch {
             print("Failed to fetch videos without thumbnails: \(error)")
+        }
+    }
+    
+    func rebuildAllThumbnails(for library: Library, context: NSManagedObjectContext) async {
+        guard library.url != nil else { return }
+        
+        let request = Video.fetchRequest()
+        request.predicate = NSPredicate(format: "library == %@", library)
+        
+        do {
+            let allVideos = try context.fetch(request)
+            print("Rebuilding thumbnails for \(allVideos.count) videos")
+            
+            for video in allVideos {
+                guard let videoURL = video.fileURL else { continue }
+                
+                do {
+                    let thumbnailPath = try await generateThumbnail(for: videoURL, in: library)
+                    await MainActor.run {
+                        video.thumbnailPath = thumbnailPath
+                    }
+                } catch {
+                    print("Failed to rebuild thumbnail for \(video.fileName ?? "Unknown Video"): \(error)")
+                }
+            }
+            
+            // Save context on main thread
+            await MainActor.run {
+                do {
+                    try context.save()
+                    print("Successfully rebuilt thumbnails for \(allVideos.count) videos")
+                } catch {
+                    print("Failed to save rebuilt thumbnail paths: \(error)")
+                }
+            }
+            
+        } catch {
+            print("Failed to fetch videos for thumbnail rebuild: \(error)")
         }
     }
 }

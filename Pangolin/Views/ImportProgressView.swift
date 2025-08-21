@@ -35,22 +35,57 @@ struct ImportProgressView: View {
                 .progressViewStyle(.linear)
                 .frame(width: 300)
             
-            if !importer.errors.isEmpty {
-                VStack(alignment: .leading) {
-                    Text("Errors:")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                    
-                    ScrollView {
+            if !importer.errors.isEmpty || !importer.skippedFolders.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    if !importer.errors.isEmpty {
                         VStack(alignment: .leading) {
-                            ForEach(importer.errors) { error in
-                                Text("• \(error.fileName): \(error.error.localizedDescription)")
-                                    .font(.caption)
-                                    .foregroundColor(.red)
+                            Text("Errors:")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                            
+                            ScrollView {
+                                VStack(alignment: .leading) {
+                                    ForEach(importer.errors) { error in
+                                        Text("• \(error.fileName): \(error.error.localizedDescription)")
+                                            .font(.caption)
+                                            .foregroundColor(.red)
+                                    }
+                                }
                             }
+                            .frame(maxHeight: 80)
                         }
                     }
-                    .frame(maxHeight: 100)
+                    
+                    if !importer.skippedFolders.isEmpty {
+                        VStack(alignment: .leading) {
+                            Text("Skipped folders (permission denied):")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                            
+                            ScrollView {
+                                VStack(alignment: .leading) {
+                                    ForEach(importer.skippedFolders, id: \.self) { folder in
+                                        Text("• \(folder)")
+                                            .font(.caption)
+                                            .foregroundColor(.orange)
+                                    }
+                                }
+                            }
+                            .frame(maxHeight: 80)
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("💡 To access these folders:")
+                                    .font(.caption2)
+                                    .fontWeight(.medium)
+                                
+                                Text("1. Use 'Import Videos' again")
+                                Text("2. Navigate to and select the specific folder")
+                                Text("3. This grants the app permission to access it")
+                            }
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        }
+                    }
                 }
             }
             

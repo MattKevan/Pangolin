@@ -325,12 +325,19 @@ class FolderNavigationStore: ObservableObject {
         case "Favorites":
             videoRequest.predicate = NSPredicate(format: "library == %@ AND isFavorite == YES", library)
             videoRequest.sortDescriptors = [NSSortDescriptor(keyPath: \Video.title, ascending: true)]
+            print("🧠 STORE: Fetching Favorites smart folder content")
         default:
             return []
         }
         
         do {
             let videos = try context.fetch(videoRequest)
+            if folder.name == "Favorites" {
+                print("🧠 STORE: Found \(videos.count) favorite videos")
+                for video in videos {
+                    print("🧠 STORE: Favorite video: '\(video.title ?? "Unknown")' (isFavorite: \(video.isFavorite))")
+                }
+            }
             contentItems = videos.map { .video($0) }
         } catch {
             errorMessage = "Failed to load smart folder content: \(error.localizedDescription)"
