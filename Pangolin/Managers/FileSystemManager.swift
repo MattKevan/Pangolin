@@ -286,7 +286,7 @@ class FileSystemManager {
     
     // MARK: - Thumbnail Generation for Existing Videos
     
-    func generateMissingThumbnails(for library: Library, context: NSManagedObjectContext) async {
+    nonisolated func generateMissingThumbnails(for library: Library, context: NSManagedObjectContext) async {
         guard library.url != nil else { return }
         
         let request = Video.fetchRequest()
@@ -324,7 +324,7 @@ class FileSystemManager {
         }
     }
     
-    func rebuildAllThumbnails(for library: Library, context: NSManagedObjectContext) async {
+    nonisolated func rebuildAllThumbnails(for library: Library, context: NSManagedObjectContext) async {
         guard library.url != nil else { return }
         
         let request = Video.fetchRequest()

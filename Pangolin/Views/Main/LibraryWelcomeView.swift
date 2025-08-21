@@ -51,7 +51,7 @@ struct LibraryWelcomeView: View {
                         
                         ForEach(libraryManager.recentLibraries.prefix(3)) { library in
                             Button(action: {
-                                Task {
+                                Task { @MainActor in
                                     try? await libraryManager.openLibrary(at: library.path)
                                 }
                             }) {

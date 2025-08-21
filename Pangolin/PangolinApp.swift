@@ -102,7 +102,7 @@ struct PangolinApp: App {
                 Menu("Recent Libraries") {
                     ForEach(libraryManager.recentLibraries) { library in
                         Button(library.name) {
-                            Task {
+                            Task { @MainActor in
                                 try? await libraryManager.openLibrary(at: library.path)
                             }
                         }

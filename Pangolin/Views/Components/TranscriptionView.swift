@@ -3,7 +3,7 @@ import Speech
 
 struct TranscriptionView: View {
     @ObservedObject var video: Video
-    @StateObject private var transcriptionService = TranscriptionService()
+    @StateObject private var transcriptionService = SpeechTranscriptionService()
     @EnvironmentObject var libraryManager: LibraryManager
     
     var body: some View {
@@ -35,7 +35,7 @@ struct TranscriptionView: View {
                         .buttonStyle(.bordered)
                     }
                 }
-                
+            
                 if transcriptionService.isTranscribing {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
@@ -58,7 +58,7 @@ struct TranscriptionView: View {
                 }
                 
                 if let errorMessage = transcriptionService.errorMessage {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 12) {
                         HStack {
                             Image(systemName: "exclamationmark.triangle")
                                 .foregroundColor(.orange)
@@ -68,13 +68,41 @@ struct TranscriptionView: View {
                         
                         Text(errorMessage)
                             .font(.body)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(.primary)
+                        
+                        // Show recovery suggestion if available
+                        if let error = parseTranscriptionError(from: errorMessage),
+                           let suggestion = error.recoverySuggestion {
+                            Divider()
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("💡 Suggestion:")
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                    .foregroundColor(.blue)
+                                
+                                Text(suggestion)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        
+                        HStack {
+                            Spacer()
+                            Button("Try Again") {
+                                Task {
+                                    await transcriptionService.transcribeVideo(video, libraryManager: libraryManager)
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                        }
                     }
                     .padding()
                     .background(Color.orange.opacity(0.1))
                     .cornerRadius(8)
                 }
-                
+            
                 if let transcriptText = video.transcriptText {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
@@ -122,6 +150,27 @@ struct TranscriptionView: View {
             }
             .padding()
         }
+    }
+    
+    private func parseTranscriptionError(from message: String) -> TranscriptionError? {
+        // Simple parsing to extract error type from message
+        // In a real implementation, you might want to pass the actual error object
+        if message.contains("permission") {
+            return .permissionDenied
+        } else if message.contains("language") && message.contains("not supported") {
+            return .languageNotSupported(Locale.current)
+        } else if message.contains("SpeechTranscriber") && message.contains("not available") {
+            return .speechTranscriberNotAvailable
+        } else if message.contains("extract audio") {
+            return .audioExtractionFailed
+        } else if message.contains("locate the video file") {
+            return .videoFileNotFound
+        } else if message.contains("No speech was detected") {
+            return .noSpeechDetected
+        } else if message.contains("download") && message.contains("assets") {
+            return .assetInstallationFailed
+        }
+        return nil
     }
 }
 
