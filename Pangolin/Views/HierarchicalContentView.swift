@@ -20,6 +20,8 @@ struct HierarchicalContentView: View {
     @State private var showingCreateFolder = false
     @State private var isGeneratingThumbnails = false
     @StateObject private var videoImporter = VideoImporter()
+    @State private var showingDeletionConfirmation = false
+    @State private var itemsToDelete: [DeletionItem] = []
     
     // Renaming state
     @State private var renamingItemID: UUID? = nil
@@ -63,17 +65,35 @@ struct HierarchicalContentView: View {
         .sheet(isPresented: $showingCreateFolder) {
             CreateFolderView(parentFolderID: store.currentFolderID)
         }
+        .sheet(isPresented: $showingDeletionConfirmation) {
+            DeletionConfirmationView(
+                items: itemsToDelete,
+                onConfirm: {
+                    Task {
+                        await confirmDeletion()
+                    }
+                },
+                onCancel: {
+                    cancelDeletion()
+                }
+            )
+        }
         .onKeyPress { keyPress in
             // Return key triggers rename on single selected item
-            guard keyPress.key == .return, selectedItems.count == 1,
-                  let selectedID = selectedItems.first,
-                  let selectedItem = findItem(withID: selectedID, in: filteredContent),
-                  renamingItemID == nil else {
-                return .ignored
+            if keyPress.key == .return, selectedItems.count == 1,
+               let selectedID = selectedItems.first,
+               let selectedItem = findItem(withID: selectedID, in: filteredContent),
+               renamingItemID == nil {
+                startRenaming(selectedItem)
+                return .handled
+            }
+            // Delete key triggers deletion of selected items
+            else if (keyPress.key == .delete || keyPress.key == .deleteForward), !selectedItems.isEmpty {
+                deleteSelectedItems()
+                return .handled
             }
             
-            startRenaming(selectedItem)
-            return .handled
+            return .ignored
         }
     }
     
@@ -252,5 +272,64 @@ struct HierarchicalContentView: View {
                 isGeneratingThumbnails = false
             }
         }
+    }
+    
+    // MARK: - Deletion Methods
+    
+    private func deleteSelectedItems() {
+        guard let context = libraryManager.viewContext else { return }
+        
+        var deletionItems: [DeletionItem] = []
+        
+        for itemID in selectedItems {
+            if let item = findItem(withID: itemID, in: filteredContent) {
+                switch item.contentType {
+                case .folder(let folder):
+                    deletionItems.append(DeletionItem(folder: folder))
+                case .video(let video):
+                    deletionItems.append(DeletionItem(video: video))
+                }
+            }
+        }
+        
+        // Check if any system folders are selected
+        let hasSystemFolder = deletionItems.contains { item in
+            if item.isFolder {
+                // Find the folder in Core Data and check if it's a system folder
+                let request = Folder.fetchRequest()
+                request.predicate = NSPredicate(format: "id == %@", item.id as CVarArg)
+                if let folder = try? context.fetch(request).first {
+                    return folder.isSmartFolder
+                }
+            }
+            return false
+        }
+        
+        if hasSystemFolder {
+            // Show error - cannot delete system folders
+            store.errorMessage = "Cannot delete system folders"
+            return
+        }
+        
+        itemsToDelete = deletionItems
+        showingDeletionConfirmation = true
+    }
+    
+    private func confirmDeletion() async {
+        let itemIDs = Set(itemsToDelete.map { $0.id })
+        let success = await store.deleteItems(itemIDs)
+        
+        await MainActor.run {
+            if success {
+                // Clear selection
+                selectedItems.removeAll()
+            }
+            cancelDeletion()
+        }
+    }
+    
+    private func cancelDeletion() {
+        itemsToDelete.removeAll()
+        showingDeletionConfirmation = false
     }
 }

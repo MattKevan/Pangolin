@@ -377,4 +377,172 @@ class FolderNavigationStore: ObservableObject {
             context.rollback()
         }
     }
+    
+    // MARK: - Deletion
+    func deleteItems(_ itemIDs: Set<UUID>) async -> Bool {
+        guard let context = libraryManager.viewContext,
+              let library = libraryManager.currentLibrary else {
+            errorMessage = "Unable to access library context"
+            return false
+        }
+        
+        do {
+            // Find all folders to delete
+            let folderRequest = Folder.fetchRequest()
+            folderRequest.predicate = NSPredicate(format: "id IN %@", itemIDs)
+            let foldersToDelete = try context.fetch(folderRequest)
+            
+            // Find all videos to delete
+            let videoRequest = Video.fetchRequest()
+            videoRequest.predicate = NSPredicate(format: "id IN %@", itemIDs)
+            let videosToDelete = try context.fetch(videoRequest)
+            
+            // Prevent deletion of system folders
+            for folder in foldersToDelete {
+                if folder.isSmartFolder {
+                    errorMessage = "Cannot delete system folders"
+                    return false
+                }
+            }
+            
+            // Delete files from file system first
+            var allVideosToDelete: [Video] = []
+            
+            // Collect videos from folders recursively
+            for folder in foldersToDelete {
+                allVideosToDelete.append(contentsOf: collectAllVideos(from: folder))
+            }
+            
+            // Add directly selected videos
+            allVideosToDelete.append(contentsOf: videosToDelete)
+            
+            // Remove duplicates
+            allVideosToDelete = Array(Set(allVideosToDelete))
+            
+            // Delete files from disk
+            await deleteVideoFiles(allVideosToDelete, library: library)
+            
+            // Delete from Core Data (this will cascade to child folders and videos)
+            for folder in foldersToDelete {
+                context.delete(folder)
+            }
+            
+            for video in videosToDelete {
+                context.delete(video)
+            }
+            
+            // Save changes
+            if context.hasChanges {
+                try context.save()
+                print("🗑️ DELETION: Successfully deleted \(itemIDs.count) items")
+                
+                // Update selected video if it was deleted
+                if let selectedVideo = selectedVideo,
+                   itemIDs.contains(selectedVideo.id!) {
+                    self.selectedVideo = nil
+                }
+                
+                return true
+            }
+            
+            return true
+            
+        } catch {
+            errorMessage = "Failed to delete items: \(error.localizedDescription)"
+            context.rollback()
+            return false
+        }
+    }
+    
+    private func collectAllVideos(from folder: Folder) -> [Video] {
+        var videos: [Video] = []
+        
+        // Add videos directly in this folder
+        videos.append(contentsOf: folder.videosArray)
+        
+        // Recursively collect from child folders
+        for childFolder in folder.childFoldersArray {
+            videos.append(contentsOf: collectAllVideos(from: childFolder))
+        }
+        
+        return videos
+    }
+    
+    private func deleteVideoFiles(_ videos: [Video], library: Library) async {
+        guard let libraryURL = library.url else { return }
+        
+        for video in videos {
+            // Delete video file
+            if let videoURL = video.fileURL {
+                do {
+                    try FileManager.default.removeItem(at: videoURL)
+                    print("🗑️ DELETION: Deleted video file: \(videoURL.lastPathComponent)")
+                } catch {
+                    print("⚠️ DELETION: Failed to delete video file \(videoURL.lastPathComponent): \(error)")
+                }
+            }
+            
+            // Delete thumbnail
+            if let thumbnailURL = video.thumbnailURL {
+                do {
+                    try FileManager.default.removeItem(at: thumbnailURL)
+                    print("🗑️ DELETION: Deleted thumbnail: \(thumbnailURL.lastPathComponent)")
+                } catch {
+                    print("⚠️ DELETION: Failed to delete thumbnail \(thumbnailURL.lastPathComponent): \(error)")
+                }
+            }
+            
+            // Delete subtitles
+            if let subtitles = video.subtitles as? Set<Subtitle> {
+                for subtitle in subtitles {
+                    if let subtitleURL = subtitle.fileURL {
+                        do {
+                            try FileManager.default.removeItem(at: subtitleURL)
+                            print("🗑️ DELETION: Deleted subtitle: \(subtitleURL.lastPathComponent)")
+                        } catch {
+                            print("⚠️ DELETION: Failed to delete subtitle \(subtitleURL.lastPathComponent): \(error)")
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Clean up empty directories
+        await cleanupEmptyDirectories(in: libraryURL)
+    }
+    
+    private func cleanupEmptyDirectories(in libraryURL: URL) async {
+        let directories = [
+            libraryURL.appendingPathComponent("Videos"),
+            libraryURL.appendingPathComponent("Thumbnails"),
+            libraryURL.appendingPathComponent("Subtitles")
+        ]
+        
+        for directory in directories {
+            await cleanupEmptyDirectoriesRecursively(at: directory)
+        }
+    }
+    
+    private func cleanupEmptyDirectoriesRecursively(at url: URL) async {
+        do {
+            let contents = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
+            
+            // First, recursively clean subdirectories
+            for item in contents {
+                var isDirectory: ObjCBool = false
+                if FileManager.default.fileExists(atPath: item.path, isDirectory: &isDirectory), isDirectory.boolValue {
+                    await cleanupEmptyDirectoriesRecursively(at: item)
+                }
+            }
+            
+            // Check if directory is now empty and remove it
+            let updatedContents = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
+            if updatedContents.isEmpty {
+                try FileManager.default.removeItem(at: url)
+                print("🗑️ DELETION: Cleaned up empty directory: \(url.lastPathComponent)")
+            }
+        } catch {
+            // Directory doesn't exist or can't be read - that's fine
+        }
+    }
 }

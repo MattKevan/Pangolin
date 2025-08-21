@@ -17,9 +17,11 @@ struct HierarchicalContentRowView: View {
     @Binding var selectedItems: Set<UUID>
     
     @EnvironmentObject private var store: FolderNavigationStore
+    @Environment(\.managedObjectContext) private var viewContext
     
     // Add state to prevent double-commits on focus loss
     @State private var shouldCommitOnDisappear = false
+    @State private var showingDeletionConfirmation = false
     
     var body: some View {
         HStack(spacing: 12) {

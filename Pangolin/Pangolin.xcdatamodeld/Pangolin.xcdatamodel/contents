@@ -55,6 +55,11 @@
         <attribute name="thumbnailPath" optional="YES" attributeType="String"/>
         <attribute name="title" attributeType="String"/>
         <attribute name="videoFormat" optional="YES" attributeType="String"/>
+        <attribute name="transcriptText" optional="YES" attributeType="String"/>
+        <attribute name="transcriptLanguage" optional="YES" attributeType="String"/>
+        <attribute name="transcriptStatus" optional="YES" attributeType="String"/>
+        <attribute name="transcriptSummary" optional="YES" attributeType="String"/>
+        <attribute name="transcriptDateGenerated" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <relationship name="folder" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Folder" inverseName="videos" inverseEntity="Folder"/>
         <relationship name="library" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Library" inverseName="videos" inverseEntity="Library"/>
         <relationship name="subtitles" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Subtitle" inverseName="video" inverseEntity="Subtitle"/>

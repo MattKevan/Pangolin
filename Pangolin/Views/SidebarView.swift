@@ -16,6 +16,8 @@ struct SidebarView: View {
     @State private var editingFolder: Folder?
     @State private var renamingFolderID: UUID? = nil
     @FocusState private var focusedField: UUID?
+    @State private var showingDeletionConfirmation = false
+    @State private var folderToDelete: Folder?
     
     // Use @FetchRequest for automatic Core Data change observation
     @FetchRequest(
@@ -98,6 +100,21 @@ struct SidebarView: View {
         .sheet(isPresented: $isShowingCreateFolder) {
             CreateFolderView(parentFolderID: nil)
         }
+        .sheet(isPresented: $showingDeletionConfirmation) {
+            if let folder = folderToDelete {
+                DeletionConfirmationView(
+                    items: [DeletionItem(folder: folder)],
+                    onConfirm: {
+                        Task {
+                            await confirmDeletion()
+                        }
+                    },
+                    onCancel: {
+                        cancelDeletion()
+                    }
+                )
+            }
+        }
         .onKeyPress { keyPress in
             if keyPress.key == .return,
                let selected = store.selectedTopLevelFolder,
@@ -108,14 +125,46 @@ struct SidebarView: View {
                     focusedField = selected.id
                 }
                 return .handled
+            } else if (keyPress.key == .delete || keyPress.key == .deleteForward),
+                      let selected = store.selectedTopLevelFolder,
+                      !selected.isSmartFolder { // Only allow deletion for user folders
+                deleteFolder(selected)
+                return .handled
             }
             return .ignored
         }
     }
     
     private func deleteFolder(_ folder: Folder) {
-        // TODO: Implement folder deletion with confirmation
-        print("Deleting folder: \(folder.name!)")
+        folderToDelete = folder
+        showingDeletionConfirmation = true
+    }
+    
+    private func confirmDeletion() async {
+        guard let folder = folderToDelete else { return }
+        
+        let success = await store.deleteItems([folder.id!])
+        
+        await MainActor.run {
+            if success {
+                // Clear selection if the deleted folder was selected
+                if store.selectedTopLevelFolder?.id == folder.id {
+                    // Select "All Videos" folder as fallback
+                    let systemFolders = store.systemFolders()
+                    if let allVideosFolder = systemFolders.first(where: { $0.name == "All Videos" }) {
+                        store.selectedTopLevelFolder = allVideosFolder
+                        store.currentFolderID = allVideosFolder.id
+                    }
+                }
+            }
+            
+            cancelDeletion()
+        }
+    }
+    
+    private func cancelDeletion() {
+        folderToDelete = nil
+        showingDeletionConfirmation = false
     }
 }
 

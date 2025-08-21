@@ -43,8 +43,8 @@ struct DetailView: View {
                         .frame(height: 60)
                         .background(controlsBackgroundColor)
                     
-                    // Bottom area
-                    VideoInfoView(video: video)
+                    // Bottom area with tabs
+                    VideoDetailTabView(video: video)
                         .frame(maxHeight: .infinity)
                         .background(windowBackgroundColor)
                 }
