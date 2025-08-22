@@ -12,6 +12,7 @@ import AVKit
 struct DetailView: View {
     let video: Video?
     @StateObject private var playerViewModel = VideoPlayerViewModel()
+    @State private var splitRatio: Double = 0.67 // Default 67% for video, 33% for details
     
     // CORRECTED: Use platform-specific color APIs.
     private var controlsBackgroundColor: Color {
@@ -34,18 +35,29 @@ struct DetailView: View {
         GeometryReader { geometry in
             if let video = video {
                 VStack(spacing: 0) {
-                    // Video Player with Poster Frame
+                    // Top panel: Video Player with Poster Frame
                     VideoPlayerWithPosterView(video: video, viewModel: playerViewModel)
-                        .frame(height: geometry.size.height * 0.67)
+                        .frame(height: max(200, geometry.size.height * splitRatio - 30)) // Reserve 30pt for controls
                     
-                    // Controls Bar
+                    // Controls Bar (fixed height)
                     VideoControlsBar(viewModel: playerViewModel)
                         .frame(height: 60)
                         .background(controlsBackgroundColor)
                     
-                    // Bottom area with tabs
+                    // Draggable Splitter
+                    DraggableSplitter(
+                        splitRatio: $splitRatio,
+                        totalSize: geometry.size.height,
+                        minRatio: 0.3, // Minimum 30% for video
+                        maxRatio: 0.85, // Maximum 85% for video
+                        isVertical: true
+                    )
+                    .frame(height: 8)
+                    .background(Color.clear)
+                    
+                    // Bottom panel: Detail tabs
                     VideoDetailTabView(video: video)
-                        .frame(maxHeight: .infinity)
+                        .frame(height: max(150, geometry.size.height * (1 - splitRatio) - 38)) // Reserve space for controls and splitter
                         .background(windowBackgroundColor)
                 }
             } else {

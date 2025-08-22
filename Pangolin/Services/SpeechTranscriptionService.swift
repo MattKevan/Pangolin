@@ -2,489 +2,596 @@ import Foundation
 import Speech
 import AVFoundation
 import NaturalLanguage
+import Translation
+import FoundationModels
+
+enum TranscriptionError: LocalizedError {
+    case permissionDenied
+    case languageNotSupported(Locale)
+    case audioExtractionFailed
+    case videoFileNotFound
+    case noSpeechDetected
+    case assetInstallationFailed
+    case analysisFailed(String)
+    case translationNotSupported(String, String)
+    case translationFailed(String)
+    case translationModelsNotInstalled(String, String)
+    case summarizationFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .permissionDenied:
+            return "Speech recognition permission was denied."
+        case .languageNotSupported(let locale):
+            return "The language '\(locale.identifier)' is not supported for transcription on this device."
+        case .audioExtractionFailed:
+            return "Failed to extract a usable audio track from the video file."
+        case .videoFileNotFound:
+            return "The video file could not be found. It may have been moved or deleted."
+        case .noSpeechDetected:
+            return "No speech could be detected in the video's audio track."
+        case .assetInstallationFailed:
+            return "Failed to download required language models. Please check your internet connection."
+        case .analysisFailed(let reason):
+            return "The transcription analysis failed: \(reason)"
+        case .translationNotSupported(let from, let to):
+            return "Translation from \(from) to \(to) is not supported on this device."
+        case .translationFailed(let reason):
+            return "Translation failed: \(reason)"
+        case .translationModelsNotInstalled(let from, let to):
+            return "Translation models for \(from) to \(to) are not installed on this system."
+        case .summarizationFailed(let reason):
+            return "Summarization failed: \(reason)"
+        }
+    }
+
+    var recoverySuggestion: String? {
+        switch self {
+        case .permissionDenied:
+            return "Please go to System Settings > Privacy & Security > Speech Recognition and grant access to Pangolin."
+        case .languageNotSupported:
+            return "Ensure your Mac is connected to the internet to see all available languages."
+        case .audioExtractionFailed:
+            return "Try converting the video to a standard format like MP4 and re-importing it."
+        case .videoFileNotFound:
+            return "Please re-import the video into your Pangolin library."
+        case .noSpeechDetected:
+            return "The video's audio may be silent or contain only music."
+        case .assetInstallationFailed:
+            return "Ensure you have a stable internet connection and sufficient disk space, then try again."
+        case .analysisFailed:
+            return "This may be a temporary issue with the Speech framework. Please try again later."
+        case .translationNotSupported:
+            return "Enable translation languages in System Settings > General > Language & Region."
+        case .translationFailed:
+            return "Check your internet connection and try again. Translation requires network access and may need to download translation models."
+        case .translationModelsNotInstalled:
+            return "Go to System Settings → General → Language & Region → Translation Languages to download the required translation models, then try again."
+        case .summarizationFailed:
+            return "Ensure Apple Intelligence is enabled in System Settings and try again. Summarization requires Apple Intelligence to be active."
+        }
+    }
+}
 
 @MainActor
 class SpeechTranscriptionService: ObservableObject {
     @Published var isTranscribing = false
+    @Published var isSummarizing = false
     @Published var progress: Double = 0.0
     @Published var statusMessage = ""
     @Published var errorMessage: String?
     
-    // iOS 26.0+ properties
-    private var _currentAnalyzer: Any?
-    
+    private var speechAnalyzer: SpeechAnalyzer?
+    private var translationSession: TranslationSession?
+
     func transcribeVideo(_ video: Video, libraryManager: LibraryManager) async {
+        print("🟢 Started transcribeVideo for \(video.title ?? "Unknown")")
         guard !isTranscribing else { return }
         
         isTranscribing = true
         errorMessage = nil
         progress = 0.0
-        statusMessage = "Preparing transcription..."
+        statusMessage = "Starting transcription..."
         
         do {
-            // Step 1: Check permissions
-            statusMessage = "Checking speech recognition permissions..."
+            guard let videoURL = video.fileURL, FileManager.default.fileExists(atPath: videoURL.path) else {
+                throw TranscriptionError.videoFileNotFound
+            }
+            
+            statusMessage = "Checking permissions..."
             try await requestSpeechRecognitionPermission()
             progress = 0.1
             
-            // Step 2: Extract audio from video
-            statusMessage = "Extracting audio from video..."
-            let audioFile = try await extractAudioFromVideo(video)
+            statusMessage = "Extracting audio sample..."
+            let sampleAudioURL = try await extractAudio(from: videoURL, duration: 15.0)
+            defer { try? FileManager.default.removeItem(at: sampleAudioURL) }
             progress = 0.2
             
-            // Step 3: Detect language 
             statusMessage = "Detecting language..."
-            let detectedLocale = await detectLanguage(from: audioFile, video: video)
+            let detectedLocale = try await detectLanguage(from: sampleAudioURL)
+            
+            // Diagnostic: Print detected language and supported locales for debugging
+            print("🧠 DETECTED: Language locale is \(detectedLocale.identifier)")
+            let supportedLocales = SFSpeechRecognizer.supportedLocales()
+            print("🧠 SUPPORTED LOCALES:")
+            for locale in supportedLocales.sorted(by: { $0.identifier < $1.identifier }) {
+                print("- \(locale.identifier)")
+            }
+            
             progress = 0.3
             
-            // Step 4: Perform transcription using available API
-            statusMessage = "Transcribing audio..."
-            let transcriptText: String
-            
-            transcriptText = try await performModernTranscription(audioFile: audioFile, locale: detectedLocale)
-            
+            statusMessage = "Transcribing main audio..."
+            let transcriptText = try await performTranscription(
+                fullAudioURL: videoURL,
+                locale: detectedLocale
+            )
             progress = 0.9
             
-            // Step 7: Save results
             statusMessage = "Saving transcript..."
-            await saveTranscriptionResults(
-                video: video,
-                transcriptText: transcriptText,
-                language: detectedLocale.identifier,
-                libraryManager: libraryManager
-            )
-            progress = 1.0
-            statusMessage = "Transcription completed!"
+            video.transcriptText = transcriptText
+            video.transcriptLanguage = detectedLocale.identifier
+            video.transcriptDateGenerated = Date()
+            // Auto-translate if the detected language is different from system language
+            let systemLanguage = Locale.current.language
+            let detectedLanguage = detectedLocale.language
             
-            // Clean up temporary audio file
-            try? FileManager.default.removeItem(at: audioFile)
+            if detectedLanguage != systemLanguage {
+                statusMessage = "Translating transcript..."
+                progress = 0.95
+                
+                do {
+                    let translatedText = try await translateText(transcriptText, from: detectedLanguage, to: systemLanguage)
+                    video.translatedText = translatedText
+                    video.translatedLanguage = systemLanguage.languageCode?.identifier
+                    video.translationDateGenerated = Date()
+                    print("🟢 Translation completed successfully")
+                } catch {
+                    print("🟠 Translation failed, but continuing: \\(error)")
+                    // Don't fail the whole process if translation fails
+                }
+            }
+            
+            await libraryManager.save()
+            
+            progress = 1.0
+            statusMessage = "Transcription complete!"
             
         } catch {
-            errorMessage = "Transcription failed: \(error.localizedDescription)"
+            let localizedError = error as? LocalizedError
+            errorMessage = localizedError?.errorDescription ?? "An unknown error occurred."
             print("🚨 Transcription error: \(error)")
         }
         
         isTranscribing = false
     }
-    
-    private func requestSpeechRecognitionPermission() async throws {
-        let authorizationStatus = SFSpeechRecognizer.authorizationStatus()
+
+
+    func translateVideo(_ video: Video, libraryManager: LibraryManager) async {
+        print("🟢 Started translateVideo for \(video.title ?? "Unknown")")
+        guard !isTranscribing, let transcriptText = video.transcriptText else { return }
         
-        switch authorizationStatus {
-        case .authorized:
-            return
-        case .notDetermined:
-            return try await withCheckedThrowingContinuation { continuation in
-                SFSpeechRecognizer.requestAuthorization { status in
-                    switch status {
-                    case .authorized:
-                        continuation.resume()
-                    case .denied, .restricted, .notDetermined:
-                        continuation.resume(throwing: TranscriptionError.permissionDenied)
-                    @unknown default:
-                        continuation.resume(throwing: TranscriptionError.permissionDenied)
-                    }
+        isTranscribing = true
+        errorMessage = nil
+        progress = 0.0
+        statusMessage = "Starting translation..."
+        
+        do {
+            // Determine source language
+            var sourceLanguage: Locale.Language
+            if let transcriptLangIdentifier = video.transcriptLanguage {
+                print("🟡 Transcript language identifier: '\(transcriptLangIdentifier)'")
+                let sourceLocale = Locale(identifier: transcriptLangIdentifier)
+                sourceLanguage = sourceLocale.language
+                print("🟡 Parsed source language: \(sourceLanguage)")
+                
+                // Check if the parsed language is valid
+                if sourceLanguage.languageCode?.identifier == nil || sourceLanguage.languageCode?.identifier.isEmpty == true {
+                    print("🟠 Invalid stored language identifier, attempting to detect from transcript...")
+                    // Try to detect language from transcript text
+                    let detectedLanguage = detectLanguageFromText(transcriptText)
+                    sourceLanguage = detectedLanguage
+                    // Update the stored language with the correct identifier
+                    video.transcriptLanguage = detectedLanguage.languageCode?.identifier
                 }
+            } else {
+                print("🟠 No transcript language stored, detecting from transcript text...")
+                // Detect language from transcript text
+                let detectedLanguage = detectLanguageFromText(transcriptText)
+                sourceLanguage = detectedLanguage
+                // Store the detected language
+                video.transcriptLanguage = detectedLanguage.languageCode?.identifier
             }
-        case .denied, .restricted:
-            throw TranscriptionError.permissionDenied
-        @unknown default:
-            throw TranscriptionError.permissionDenied
-        }
-    }
-    
-    private func extractAudioFromVideo(_ video: Video) async throws -> URL {
-        let videoURL = try video.getFileURL()
-        let tempAudioURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(video.id!.uuidString)
-            .appendingPathExtension("m4a")
-        
-        let asset = AVURLAsset(url: videoURL)
-        
-        guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
-            throw TranscriptionError.audioExtractionFailed
-        }
-        
-        exportSession.outputURL = tempAudioURL
-        exportSession.outputFileType = .m4a
-        
-        return try await withCheckedThrowingContinuation { [weak exportSession] continuation in
-            guard let session = exportSession else {
-                continuation.resume(throwing: TranscriptionError.audioExtractionFailed)
+            
+            let targetLanguage = Locale.current.language
+            
+            // Validate that both languages have valid language codes
+            guard let sourceCode = sourceLanguage.languageCode?.identifier, !sourceCode.isEmpty else {
+                print("🔴 Invalid source language code: \(sourceLanguage)")
+                throw TranscriptionError.translationNotSupported(
+                    "Invalid source language",
+                    targetLanguage.languageCode?.identifier ?? "unknown"
+                )
+            }
+            
+            guard let targetCode = targetLanguage.languageCode?.identifier, !targetCode.isEmpty else {
+                print("🔴 Invalid target language code: \(targetLanguage)")
+                throw TranscriptionError.translationNotSupported(
+                    sourceCode,
+                    "Invalid target language"
+                )
+            }
+            
+            if sourceCode == targetCode {
+                statusMessage = "Translation not needed - already in target language"
+                isTranscribing = false
                 return
             }
             
-            // Use export session
-            session.exportAsynchronously {
-                switch session.status {
-                case .completed:
-                    continuation.resume(returning: tempAudioURL)
-                case .failed, .cancelled:
-                    continuation.resume(throwing: TranscriptionError.audioExtractionFailed)
-                default:
-                    continuation.resume(throwing: TranscriptionError.audioExtractionFailed)
-                }
-            }
-        }
-    }
-    
-    private func detectLanguage(from audioURL: URL, video: Video) async -> Locale {
-        // First, try to detect language from existing subtitles
-        if let subtitles = video.subtitles as? Set<Subtitle>,
-           let firstSubtitle = subtitles.first,
-           let language = firstSubtitle.language {
-            return Locale(identifier: language)
-        }
-        
-        // Try audio-based language detection using Speech Recognition
-        do {
-            let detectedLocale = try await detectLanguageFromAudio(audioURL)
-            if detectedLocale != nil {
-                return detectedLocale!
-            }
-        } catch {
-            print("🚨 Language detection failed: \(error)")
-        }
-        
-        // Fallback to system locale
-        return Locale.current
-    }
-    
-    private func detectLanguageFromAudio(_ audioURL: URL) async throws -> Locale? {
-        // Extract a small sample from the beginning for language detection
-        let sampleURL = try await extractAudioSample(from: audioURL, duration: 10.0)
-        defer { try? FileManager.default.removeItem(at: sampleURL) }
-        
-        // Get list of supported locales for speech recognition
-        let supportedLocales = SpeechRecognizer.supportedLocales()
-        
-        // Try detection with the most common languages first
-        let commonLanguages = ["en-US", "es-ES", "fr-FR", "de-DE", "it-IT", "pt-BR", "ja-JP", "ko-KR", "zh-CN"]
-        
-        for languageCode in commonLanguages {
-            if let locale = supportedLocales.first(where: { $0.identifier.hasPrefix(languageCode.prefix(2)) }) {
-                if let confidence = try await testLanguageConfidence(audioURL: sampleURL, locale: locale) {
-                    if confidence > 0.6 { // High confidence threshold
-                        print("🎯 Detected language: \(locale.identifier) with confidence: \(confidence)")
-                        return locale
-                    }
-                }
-            }
-        }
-        
-        return nil
-    }
-    
-    private func extractAudioSample(from audioURL: URL, duration: TimeInterval) async throws -> URL {
-        let asset = AVURLAsset(url: audioURL)
-        let tempSampleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("m4a")
-        
-        guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
-            throw TranscriptionError.audioExtractionFailed
-        }
-        
-        exportSession.outputURL = tempSampleURL
-        exportSession.outputFileType = .m4a
-        exportSession.timeRange = CMTimeRange(start: .zero, duration: CMTime(seconds: duration, preferredTimescale: 600))
-        
-        return try await withCheckedThrowingContinuation { continuation in
-            exportSession.exportAsynchronously {
-                switch exportSession.status {
-                case .completed:
-                    continuation.resume(returning: tempSampleURL)
-                case .failed:
-                    continuation.resume(throwing: exportSession.error ?? TranscriptionError.audioExtractionFailed)
-                case .cancelled:
-                    continuation.resume(throwing: TranscriptionError.cancelled)
-                default:
-                    continuation.resume(throwing: TranscriptionError.audioExtractionFailed)
-                }
-            }
-        }
-    }
-    
-    private func testLanguageConfidence(audioURL: URL, locale: Locale) async throws -> Double? {
-        guard SpeechRecognizer.authorizationStatus() == .authorized else { return nil }
-        
-        let recognizer = SpeechRecognizer(locale: locale)
-        guard recognizer.isAvailable else { return nil }
-        
-        let request = SFSpeechURLRecognitionRequest(url: audioURL)
-        request.shouldReportPartialResults = false
-        request.taskHint = .dictation
-        
-        return try await withCheckedThrowingContinuation { continuation in
-            recognizer.recognitionTask(with: request) { result, error in
-                if let error = error {
-                    continuation.resume(throwing: error)
-                    return
-                }
-                
-                if let result = result, result.isFinal {
-                    let confidence = result.bestTranscription.segments.isEmpty ? 0.0 : 
-                        result.bestTranscription.segments.map { $0.confidence }.reduce(0, +) / Double(result.bestTranscription.segments.count)
-                    continuation.resume(returning: confidence)
-                }
-            }
-        }
-    }
-    
-    // MARK: - iOS 26.0+ Modern Implementation
-    private func performModernTranscription(audioFile: URL, locale: Locale) async throws -> String {
-        // iOS 26.0 beta implementation using modern SpeechTranscriber APIs
-        
-        statusMessage = "Setting up modern speech transcriber..."
-        
-        // Step 1: Create transcriber with enhanced configuration for better quality
-        let transcriber = SpeechTranscriber(locale: locale,
-                                           transcriptionOptions: [.enablePunctuation, .enableCapitalization],
-                                           reportingOptions: [.includeWordConfidences, .includeTimestamps],
-                                           attributeOptions: [.includePartialResults])
-        progress = 0.3
-        
-        // Step 2: Ensure model is available
-        statusMessage = "Ensuring speech model availability..."
-        try await ensureModel(transcriber: transcriber, locale: locale)
-        progress = 0.4
-        
-        // Step 3: Get the best available audio format
-        guard let audioFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
-            throw TranscriptionError.audioExtractionFailed
-        }
-        
-        // Step 4: Create the analyzer
-        let analyzer = SpeechAnalyzer(modules: [transcriber])
-        _currentAnalyzer = analyzer
-        progress = 0.5
-        
-        // Step 5: Set up input stream
-        let (inputSequence, inputBuilder) = AsyncStream<AnalyzerInput>.makeStream()
-        
-        // Step 6: Collect results
-        var transcriptParts: [String] = []
-        let resultsTask = Task {
-            do {
-                for try await result in transcriber.results {
-                    let text = String(result.text.characters)
-                    if result.isFinal && !text.isEmpty {
-                        transcriptParts.append(text)
-                        await MainActor.run {
-                            self.progress = min(0.9, 0.5 + Double(transcriptParts.count) * 0.05)
-                        }
-                    }
-                }
-            } catch {
-                throw error
-            }
-        }
-        
-        // Step 7: Start analysis
-        try await analyzer.start(inputSequence: inputSequence)
-        statusMessage = "Transcribing audio..."
-        
-        // Step 8: Process audio file
-        do {
-            let audioFile = try AVAudioFile(forReading: audioFile)
+            progress = 0.3
+            let translatedText = try await translateText(transcriptText, from: sourceLanguage, to: targetLanguage)
             
-            // Convert and stream audio data
-            let bufferSize: AVAudioFrameCount = 4096
-            guard let buffer = AVAudioPCMBuffer(pcmFormat: audioFile.processingFormat, frameCapacity: bufferSize) else {
+            progress = 0.9
+            statusMessage = "Saving translation..."
+            
+            video.translatedText = translatedText
+            video.translatedLanguage = targetLanguage.languageCode?.identifier
+            video.translationDateGenerated = Date()
+            await libraryManager.save()
+            
+            progress = 1.0
+            statusMessage = "Translation complete!"
+            
+        } catch {
+            let localizedError = error as? LocalizedError
+            errorMessage = localizedError?.errorDescription ?? "An unknown error occurred."
+            print("🚨 Translation error: \(error)")
+        }
+        
+        isTranscribing = false
+    }
+
+    func summarizeVideo(_ video: Video, libraryManager: LibraryManager) async {
+        print("🟢 Started summarizeVideo for \(video.title ?? "Unknown")")
+        guard !isTranscribing else { return }
+        
+        // Use translated text if available, otherwise use original transcript
+        let textToSummarize: String
+        if let translatedText = video.translatedText, !translatedText.isEmpty {
+            textToSummarize = translatedText
+        } else if let transcriptText = video.transcriptText, !transcriptText.isEmpty {
+            textToSummarize = transcriptText
+        } else {
+            errorMessage = "No transcript available to summarize."
+            return
+        }
+        
+        isTranscribing = true
+        errorMessage = nil
+        progress = 0.0
+        statusMessage = "Generating summary..."
+        
+        do {
+            progress = 0.2
+            let summary = try await generateSummary(for: textToSummarize)
+            
+            progress = 0.8
+            statusMessage = "Saving summary..."
+            
+            video.transcriptSummary = summary
+            video.summaryDateGenerated = Date()
+            await libraryManager.save()
+            
+            progress = 1.0
+            statusMessage = "Summary complete!"
+            
+        } catch {
+            let localizedError = error as? LocalizedError
+            errorMessage = localizedError?.errorDescription ?? "An unknown error occurred."
+            print("🚨 Summarization error: \(error)")
+        }
+        
+        isTranscribing = false
+    }
+
+    func cancelTranscription() {
+        Task {
+            await speechAnalyzer?.cancelAndFinishNow()
+            speechAnalyzer = nil
+            isTranscribing = false
+            translationSession = nil
+            statusMessage = "Operation cancelled."
+        }
+    }
+    
+    // MARK: - Private Implementation Details
+
+    private func requestSpeechRecognitionPermission() async throws {
+        let status = SFSpeechRecognizer.authorizationStatus()
+        if status == .authorized { return }
+        if status == .denied || status == .restricted { throw TranscriptionError.permissionDenied }
+        
+        let granted = await withCheckedContinuation { continuation in
+            SFSpeechRecognizer.requestAuthorization { newStatus in
+                continuation.resume(returning: newStatus == .authorized)
+            }
+        }
+        
+        if !granted {
+            throw TranscriptionError.permissionDenied
+        }
+    }
+
+    private func extractAudio(from videoURL: URL, duration: TimeInterval? = nil) async throws -> URL {
+        print("🟠 [extractAudio] Called for URL: \(videoURL)")
+        do {
+            print("🟠 [extractAudio] About to create AVURLAsset")
+            let asset = AVURLAsset(url: videoURL)
+            print("🟠 [extractAudio] Created AVURLAsset: duration = \(String(describing: try? await asset.load(.duration)))")
+
+            print("🟠 [extractAudio] About to create AVAssetExportSession")
+            guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
+                print("🔴 [extractAudio] AVAssetExportSession is nil. Asset may not be exportable.")
                 throw TranscriptionError.audioExtractionFailed
             }
             
-            while audioFile.framePosition < audioFile.length {
-                try audioFile.read(into: buffer)
-                
-                if buffer.frameLength > 0 {
-                    // Convert buffer to analyzer format if needed
-                    let convertedBuffer: AVAudioPCMBuffer
-                    if buffer.format == audioFormat {
-                        convertedBuffer = buffer
-                    } else {
-                        // Create converter if formats don't match
-                        guard let converter = AVAudioConverter(from: buffer.format, to: audioFormat) else {
-                            throw TranscriptionError.audioExtractionFailed
-                        }
-                        
-                        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: audioFormat, frameCapacity: bufferSize) else {
-                            throw TranscriptionError.audioExtractionFailed
-                        }
-                        
-                        var error: NSError?
-                        let status = converter.convert(to: outputBuffer, error: &error) { _, outStatus in
-                            outStatus.pointee = AVAudioConverterInputStatus.haveData
-                            return buffer
-                        }
-                        
-                        if status == .error {
-                            throw TranscriptionError.audioExtractionFailed
-                        }
-                        
-                        convertedBuffer = outputBuffer
-                    }
-                    
-                    let input = AnalyzerInput(buffer: convertedBuffer)
-                    inputBuilder.yield(input)
-                }
+            if let duration {
+                exportSession.timeRange = CMTimeRange(start: .zero, duration: CMTime(seconds: duration, preferredTimescale: 600))
             }
             
-            // Step 9: Finish processing
-            inputBuilder.finish()
-            try await analyzer.finalizeAndFinishThroughEndOfInput()
+            let tempAudioURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathExtension("m4a")
+
+            print("🟠 [extractAudio] About to export audio to \(tempAudioURL)")
+            try await exportSession.export(to: tempAudioURL, as: .m4a)
+            print("🟠 [extractAudio] Audio export complete: \(tempAudioURL)")
+
+            return tempAudioURL
+        } catch {
+            print("🔴 [extractAudio] Caught error: \(error)")
+            throw error
+        }
+    }
+
+    private func detectLanguage(from sampleAudioURL: URL) async throws -> Locale {
+        print("🟢 Entered detectLanguage")
+        print("🟢 About to call performTranscription with locale: en-US (fallback)")
+        do {
+            let preliminaryTranscript = try await performTranscription(
+                fullAudioURL: sampleAudioURL,
+                locale: Locale(identifier: "en-US") // fallback for language guessing
+            )
+            print("🟢 Preliminary transcript: \(preliminaryTranscript.prefix(100))...")
+
+            let languageRecognizer = NLLanguageRecognizer()
+            languageRecognizer.processString(preliminaryTranscript)
             
-            // Wait for results
-            try await resultsTask.value
+            guard let languageCode = languageRecognizer.dominantLanguage?.rawValue,
+                  let supportedLocale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: languageCode)) else {
+                return Locale.current
+            }
+            print("🟢 LanguageRecognizer detected: \(languageCode)")
+
+            // Validate against SpeechTranscriber supported locales (beta API)
+            let supportedLocales = await SpeechTranscriber.supportedLocales
+            if !supportedLocales.contains(supportedLocale) {
+                throw TranscriptionError.languageNotSupported(supportedLocale)
+            }
             
-            _currentAnalyzer = nil
+            print("🟢 Returning detected locale: \(supportedLocale.identifier)")
+            return supportedLocale
+        } catch {
+            print("🛑 Failed preliminary transcription: \(error)")
+            throw error
+        }
+    }
+
+    private func performTranscription(fullAudioURL: URL, locale: Locale) async throws -> String {
+        // Use the correct beta preset
+        let transcriber = SpeechTranscriber(locale: locale, preset: .transcription)
+        
+        if let installationRequest = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
+            statusMessage = "Downloading language model (\(locale.identifier))..."
+            try await installationRequest.downloadAndInstall()
+        }
+        
+        // Get the best available audio format for this transcriber
+        let audioFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber])
+        let analyzer = SpeechAnalyzer(modules: [transcriber])
+        self.speechAnalyzer = analyzer
+
+        // Prepare the analyzer for better performance
+        try await analyzer.prepareToAnalyze(in: audioFormat)
+
+        let asset = AVURLAsset(url: fullAudioURL)
+        let duration = try await asset.load(.duration)
+        let fileExtension = fullAudioURL.pathExtension.lowercased()
+        let audioExtensions = ["m4a", "mp3", "wav", "aac", "caf", "aiff"]
+
+        let audioURLToTranscribe: URL
+        if audioExtensions.contains(fileExtension) {
+            // Already audio; just use it
+            print("🟢 [performTranscription] Using existing audio file: \(fullAudioURL)")
+            audioURLToTranscribe = fullAudioURL
+        } else {
+            // Extract audio from video
+            audioURLToTranscribe = try await extractAudio(from: fullAudioURL, duration: CMTimeGetSeconds(duration))
+            print("🟢 [performTranscription] Extracted audio file: \(audioURLToTranscribe)")
+        }
+        let audioFile = try AVAudioFile(forReading: audioURLToTranscribe)
+        
+        // Collect results using proper async pattern
+        let resultsTask = Task { () -> [String] in
+            var transcriptParts: [String] = []
+            do {
+                for try await result in transcriber.results {
+                    if result.isFinal {
+                        // Correctly convert from AttributedString.CharacterView to String
+                        transcriptParts.append(String(result.text.characters))
+                    }
+                }
+            } catch {
+                print("🔴 Results collection error: \(error)")
+                throw error
+            }
+            return transcriptParts
+        }
+        
+        // Perform the analysis using the documented beta pattern
+        do {
+            let lastSampleTime = try await analyzer.analyzeSequence(from: audioFile)
             
-            let rawTranscript = transcriptParts.joined(separator: " ").trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+            // Finalize analysis through the end of input
+            if let lastSampleTime {
+                try await analyzer.finalizeAndFinish(through: lastSampleTime)
+            } else {
+                await analyzer.cancelAndFinishNow()
+            }
             
-            if rawTranscript.isEmpty {
+            // Await the results from the collector task
+            let fullTranscriptParts = try await resultsTask.value
+
+            let combinedText = fullTranscriptParts.joined(separator: " ")
+            if combinedText.isEmpty {
                 throw TranscriptionError.noSpeechDetected
             }
             
-            // Post-process and validate transcript quality
-            let fullTranscript = try cleanupTranscript(rawTranscript)
-            
-            if !isTranscriptQualityAcceptable(fullTranscript) {
-                throw TranscriptionError.poorQualityTranscription
+            // Cleanup temp file if it was extracted from video
+            if !audioExtensions.contains(fileExtension) {
+                try? FileManager.default.removeItem(at: audioURLToTranscribe)
             }
             
-            print("📊 Modern transcription completed successfully with \(transcriptParts.count) parts")
-            return fullTranscript
+            return combinedText
             
         } catch {
+            // Cancel results collection if analysis fails
             resultsTask.cancel()
-            _currentAnalyzer = nil
             throw error
         }
     }
     
-    // MARK: - Model Management
-    private func ensureModel(transcriber: SpeechTranscriber, locale: Locale) async throws {
-        guard await supported(locale: locale) else {
-            throw TranscriptionError.languageNotSupported(locale)
-        }
+    // MARK: - Translation Implementation
+    
+    private func translateText(_ text: String, from sourceLanguage: Locale.Language, to targetLanguage: Locale.Language) async throws -> String {
+        print("🟢 Starting translation from \(sourceLanguage) to \(targetLanguage)")
         
-        if await installed(locale: locale) {
-            return
-        } else {
-            try await downloadIfNeeded(for: transcriber)
-        }
-    }
-    
-    private func supported(locale: Locale) async -> Bool {
-        let supported = await SpeechTranscriber.supportedLocales
-        return supported.map { $0.identifier(.bcp47) }.contains(locale.identifier(.bcp47))
-    }
-
-    private func installed(locale: Locale) async -> Bool {
-        let installed = await Set(SpeechTranscriber.installedLocales)
-        return installed.map { $0.identifier(.bcp47) }.contains(locale.identifier(.bcp47))
-    }
-
-    private func downloadIfNeeded(for module: SpeechTranscriber) async throws {
-        statusMessage = "Downloading speech models..."
-        if let downloader = try await AssetInventory.assetInstallationRequest(supporting: [module]) {
-            try await downloader.downloadAndInstall()
-        }
-    }
-    
-    
-    private func saveTranscriptionResults(
-        video: Video,
-        transcriptText: String,
-        language: String,
-        libraryManager: LibraryManager
-    ) async {
-        video.transcriptText = transcriptText
-        video.transcriptLanguage = language
-        video.transcriptStatus = "completed"
-        video.transcriptDateGenerated = Date()
-        
-        await libraryManager.save()
-    }
-    
-    func cancelTranscription() {
-        if let analyzer = _currentAnalyzer as? SpeechAnalyzer {
-            Task {
-                await analyzer.cancelAndFinishNow()
+        do {
+            // Check if translation models are available and install if needed
+            statusMessage = "Checking translation models..."
+            
+            // Create translation session using the beta API
+            let session = TranslationSession(installedSource: sourceLanguage, target: targetLanguage)
+            self.translationSession = session
+            
+            // The Translation framework will handle model downloads automatically
+            // during prepareTranslation() if needed
+            
+            // Prepare the translation session
+            try await session.prepareTranslation()
+            
+            statusMessage = "Translating to \(targetLanguage.languageCode?.identifier ?? "target language")..."
+            
+            // Perform the translation
+            let response = try await session.translate(text)
+            
+            print("🟢 Translation successful: \(response.targetText.prefix(100))...")
+            return response.targetText
+            
+        } catch {
+            print("🔴 Translation error: \(error)")
+            
+            // Check if it's a TranslationError with notInstalled cause
+            if let translationError = error as? TranslationError,
+               String(describing: translationError).contains("notInstalled") {
+                throw TranscriptionError.translationModelsNotInstalled(
+                    sourceLanguage.languageCode?.identifier ?? "unknown",
+                    targetLanguage.languageCode?.identifier ?? "unknown"
+                )
+            }
+            
+            // Map other specific translation errors
+            if error.localizedDescription.contains("not supported") {
+                throw TranscriptionError.translationNotSupported(
+                    sourceLanguage.languageCode?.identifier ?? "unknown",
+                    targetLanguage.languageCode?.identifier ?? "unknown"
+                )
+            } else if error.localizedDescription.contains("notInstalled") || error.localizedDescription.contains("Code=16") {
+                throw TranscriptionError.translationModelsNotInstalled(
+                    sourceLanguage.languageCode?.identifier ?? "unknown",
+                    targetLanguage.languageCode?.identifier ?? "unknown"
+                )
+            } else {
+                throw TranscriptionError.translationFailed(error.localizedDescription)
             }
         }
-        _currentAnalyzer = nil
-        
-        isTranscribing = false
-        statusMessage = "Transcription cancelled"
-    }
-}
-
-// MARK: - Video Extension
-extension Video {
-    func getFileURL() throws -> URL {
-        guard let fileURL = fileURL else {
-            throw TranscriptionError.videoFileNotFound
-        }
-        
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            throw TranscriptionError.videoFileNotFound
-        }
-        
-        return fileURL
-    }
-}
-
-// MARK: - Error Types
-enum TranscriptionError: LocalizedError {
-    case permissionDenied
-    case languageNotSupported(Locale)
-    case speechTranscriberNotAvailable
-    case audioExtractionFailed
-    case videoFileNotFound
-    case noSpeechDetected
-    case assetInstallationFailed
-    case analysisSessionFailed
-    
-    var errorDescription: String? {
-        switch self {
-        case .permissionDenied:
-            return "Speech recognition permission is required to transcribe videos."
-        case .languageNotSupported(let locale):
-            return "The detected language (\(locale.localizedString(forIdentifier: locale.identifier) ?? "Unknown")) is not supported for transcription."
-        case .speechTranscriberNotAvailable:
-            return "SpeechTranscriber is not available on this device. This feature requires iOS 26.0+ with compatible hardware."
-        case .audioExtractionFailed:
-            return "Failed to extract audio from the video file. Please ensure the video format is supported."
-        case .videoFileNotFound:
-            return "Could not locate the video file for transcription. The file may have been moved or deleted."
-        case .noSpeechDetected:
-            return "No speech was detected in the audio. The video may contain only music, ambient sounds, or very quiet speech."
-        case .assetInstallationFailed:
-            return "Failed to download required speech recognition assets. Please check your internet connection and try again."
-        case .analysisSessionFailed:
-            return "Speech analysis session failed unexpectedly. Please try again."
-        }
     }
     
-    var recoverySuggestion: String? {
-        switch self {
-        case .permissionDenied:
-            return "Go to Settings > Privacy & Security > Speech Recognition and enable access for Pangolin."
-        case .languageNotSupported:
-            return "Try changing your device language to a supported language, or manually select a different language for transcription."
-        case .speechTranscriberNotAvailable:
-            return "Update to iOS 26.0+ and ensure your device supports advanced speech recognition features."
-        case .audioExtractionFailed:
-            return "Try converting your video to a supported format (MP4, MOV, M4V) and try again."
-        case .videoFileNotFound:
-            return "Re-import the video file to your library and try transcription again."
-        case .noSpeechDetected:
-            return "Ensure the video contains clear speech and increase the device volume to maximum."
-        case .assetInstallationFailed:
-            return "Check your internet connection and ensure you have sufficient storage space for language assets."
-        case .analysisSessionFailed:
-            return "Close other apps to free up memory and try the transcription again."
+    // MARK: - Helper Functions
+    
+    private func detectLanguageFromText(_ text: String) -> Locale.Language {
+        let languageRecognizer = NLLanguageRecognizer()
+        languageRecognizer.processString(text)
+        
+        guard let languageCode = languageRecognizer.dominantLanguage?.rawValue else {
+            // Fallback to current system language
+            return Locale.current.language
         }
+        
+        return Locale(identifier: languageCode).language
+    }
+    
+    private func generateSummary(for text: String) async throws -> String {
+        print("🟢 Starting summarization with Foundation Models")
+        
+        // Get the system language model
+        let model = SystemLanguageModel.default
+        
+        let availability = model.availability
+        switch availability {
+        case .available:
+            break
+        case .unavailable(.deviceNotEligible):
+            throw TranscriptionError.summarizationFailed("This device doesn't support Apple Intelligence.")
+        case .unavailable(.appleIntelligenceNotEnabled):
+            throw TranscriptionError.summarizationFailed("Apple Intelligence is not enabled. Please enable it in System Settings.")
+        case .unavailable(.modelNotReady):
+            throw TranscriptionError.summarizationFailed("Apple Intelligence model is not ready. Please try again later.")
+        case .unavailable(let reason):
+            throw TranscriptionError.summarizationFailed("Apple Intelligence is unavailable: \(reason)")
+        }
+        
+        // Create instructions for summarization
+        let instructions = Instructions("""
+        You are an expert at creating concise, well-structured summaries of video transcripts. 
+        
+        Your task is to:
+        1. Identify and extract the main topics and key points from the transcript
+        2. Organize the information in a logical, coherent structure
+        3. Write a comprehensive summary using proper Markdown formatting
+        4. Focus on the most important information while maintaining context
+        5. Use clear headings, bullet points, and emphasis where appropriate
+        
+        Format your response as a properly structured Markdown document with:
+        - A brief overview paragraph
+        - Main sections with descriptive headings (##)
+        - Key points as bullet lists where appropriate
+        - Important concepts in **bold** or *italics*
+        
+        Keep the summary comprehensive but concise, covering all significant topics while being easy to read and well-organized.
+        """)
+        
+        // Create a session with the summarization-optimized instructions
+        let session = LanguageModelSession(instructions: instructions)
+        
+        // Create the summarization prompt
+        let prompt = "Please create a well-structured summary of the following transcript using proper Markdown formatting:\n\n\(text)"
+        
+        statusMessage = "Processing with Apple Intelligence..."
+        
+        // Generate the summary
+        let response = try await session.respond(to: prompt)
+        
+        print("🟢 Summarization successful: \(response.content.prefix(100))...")
+        return response.content
     }
 }

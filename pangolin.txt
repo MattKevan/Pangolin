@@ -1,6 +1,6 @@
 FILE CONCATENATION REPORT
 Root Directory: Pangolin/
-Excluded Directories: ios, public, node_modules
+Excluded Directories: public, ios, node_modules
 File Extensions: *.swift, *.plist, *.entitlements, *.jsx, *.css, *.html, *.json, *.hbs, *.mdx
 ================================================================================
 
@@ -14,6 +14,8 @@ struct PangolinApp: App {
     @StateObject private var libraryManager = LibraryManager.shared
     @State private var showLibrarySelector = false
     @State private var showCreateLibrary = false
+    @State private var hasAttemptedAutoOpen = false
+    @State private var isAttemptingAutoOpen = false
     
     var body: some Scene {
         WindowGroup {
@@ -24,12 +26,26 @@ struct PangolinApp: App {
                     // uses the correct, active Core Data context.
                     MainView(libraryManager: libraryManager)
                         .environmentObject(libraryManager)
+                } else if isAttemptingAutoOpen {
+                    // Show loading state while attempting to auto-open
+                    VStack(spacing: 20) {
+                        ProgressView()
+                            .scaleEffect(1.5)
+                        Text("Opening last library...")
+                            .font(.headline)
+                    }
+                    .frame(minWidth: 600, minHeight: 500)
                 } else {
                     LibraryWelcomeView(
                         showLibrarySelector: $showLibrarySelector,
                         showCreateLibrary: $showCreateLibrary
                     )
                     .environmentObject(libraryManager)
+                }
+            }
+            .onAppear {
+                if !hasAttemptedAutoOpen {
+                    attemptAutoOpenLastLibrary()
                 }
             }
             .fileImporter(
@@ -93,7 +109,7 @@ struct PangolinApp: App {
                 Menu("Recent Libraries") {
                     ForEach(libraryManager.recentLibraries) { library in
                         Button(library.name) {
-                            Task {
+                            Task { @MainActor in
                                 try? await libraryManager.openLibrary(at: library.path)
                             }
                         }
@@ -101,8 +117,44 @@ struct PangolinApp: App {
                     }
                 }
             }
+            
+            CommandMenu("Video") {
+                Button("Generate Thumbnails") {
+                    generateThumbnails()
+                }
+                .disabled(!libraryManager.isLibraryOpen)
+            }
         }
         #endif
+    }
+    
+    private func attemptAutoOpenLastLibrary() {
+        hasAttemptedAutoOpen = true
+        isAttemptingAutoOpen = true
+        
+        Task {
+            do {
+                try await libraryManager.openLastLibrary()
+                await MainActor.run {
+                    isAttemptingAutoOpen = false
+                }
+            } catch {
+                // Failed to auto-open, show welcome screen
+                print("Failed to auto-open last library: \(error)")
+                await MainActor.run {
+                    isAttemptingAutoOpen = false
+                }
+            }
+        }
+    }
+    
+    private func generateThumbnails() {
+        guard let library = libraryManager.currentLibrary,
+              let context = libraryManager.viewContext else { return }
+        
+        Task {
+            await FileSystemManager.shared.rebuildAllThumbnails(for: library, context: context)
+        }
     }
 }
 
@@ -118,6 +170,8 @@ File: Info.plist
 	<array>
 		<dict/>
 	</array>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Pangolin uses speech recognition to generate transcripts of your video content, making it searchable and accessible.</string>
 </dict>
 </plist>
 
@@ -129,14 +183,14 @@ File: Pangolin.entitlements
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>com.apple.security.app-sandbox</key>
+	<key>com.apple.security.files.bookmarks.app-scope</key>
 	<true/>
-	<key>com.apple.security.assets.movies.read-write</key>
+	<key>com.apple.security.files.bookmarks.document-scope</key>
 	<true/>
-	<key>com.apple.security.files.downloads.read-write</key>
-	<true/>
-	<key>com.apple.security.files.user-selected.read-write</key>
-	<true/>
+	<key>com.apple.security.temporary-exception.files.absolute-path.read-write</key>
+	<array>
+		<string>/</string>
+	</array>
 </dict>
 </plist>
 
@@ -467,7 +521,7 @@ class LibraryManager: ObservableObject {
         self.currentLibrary = library
         self.isLibraryOpen = true
         
-        print("Library created successfully: \(library.name)")
+        print("Library created successfully: \(library.name ?? "Untitled")")
         print("Library open state: \(self.isLibraryOpen)")
         
         // Add to recent libraries
@@ -863,6 +917,18 @@ class FileSystemManager {
             throw FileSystemError.unsupportedFileType(sourceURL.pathExtension)
         }
         
+        // Start accessing security-scoped resources for both source and destination
+        let sourceAccessing = sourceURL.startAccessingSecurityScopedResource()
+        let libraryAccessing = libraryURL.startAccessingSecurityScopedResource()
+        defer {
+            if sourceAccessing {
+                sourceURL.stopAccessingSecurityScopedResource()
+            }
+            if libraryAccessing {
+                libraryURL.stopAccessingSecurityScopedResource()
+            }
+        }
+        
         // Create date-based subdirectory
         let importDate = Date()
         let dateString = dateFormatter.string(from: importDate)
@@ -1038,10 +1104,22 @@ class FileSystemManager {
             throw FileSystemError.invalidLibraryPath
         }
         
+        // Start accessing security-scoped resources for both video and library
+        let videoAccessing = videoURL.startAccessingSecurityScopedResource()
+        let libraryAccessing = libraryURL.startAccessingSecurityScopedResource()
+        defer {
+            if videoAccessing {
+                videoURL.stopAccessingSecurityScopedResource()
+            }
+            if libraryAccessing {
+                libraryURL.stopAccessingSecurityScopedResource()
+            }
+        }
+        
         let asset = AVURLAsset(url: videoURL)
         let imageGenerator = AVAssetImageGenerator(asset: asset)
         imageGenerator.appliesPreferredTrackTransform = true
-        imageGenerator.maximumSize = CGSize(width: 320, height: 180) // 16:9 aspect ratio
+        imageGenerator.maximumSize = CGSize(width: 1280, height: 720) // High quality 16:9 aspect ratio
         
         // Generate thumbnail at 10% of video duration, or 5 seconds, whichever is smaller
         let duration = try await asset.load(.duration)
@@ -1087,7 +1165,7 @@ class FileSystemManager {
     
     // MARK: - Thumbnail Generation for Existing Videos
     
-    func generateMissingThumbnails(for library: Library, context: NSManagedObjectContext) async {
+    nonisolated func generateMissingThumbnails(for library: Library, context: NSManagedObjectContext) async {
         guard library.url != nil else { return }
         
         let request = Video.fetchRequest()
@@ -1106,7 +1184,7 @@ class FileSystemManager {
                         video.thumbnailPath = thumbnailPath
                     }
                 } catch {
-                    print("Failed to generate thumbnail for \(video.fileName): \(error)")
+                    print("Failed to generate thumbnail for \(video.fileName ?? "Unknown Video"): \(error)")
                 }
             }
             
@@ -1122,6 +1200,44 @@ class FileSystemManager {
             
         } catch {
             print("Failed to fetch videos without thumbnails: \(error)")
+        }
+    }
+    
+    nonisolated func rebuildAllThumbnails(for library: Library, context: NSManagedObjectContext) async {
+        guard library.url != nil else { return }
+        
+        let request = Video.fetchRequest()
+        request.predicate = NSPredicate(format: "library == %@", library)
+        
+        do {
+            let allVideos = try context.fetch(request)
+            print("Rebuilding thumbnails for \(allVideos.count) videos")
+            
+            for video in allVideos {
+                guard let videoURL = video.fileURL else { continue }
+                
+                do {
+                    let thumbnailPath = try await generateThumbnail(for: videoURL, in: library)
+                    await MainActor.run {
+                        video.thumbnailPath = thumbnailPath
+                    }
+                } catch {
+                    print("Failed to rebuild thumbnail for \(video.fileName ?? "Unknown Video"): \(error)")
+                }
+            }
+            
+            // Save context on main thread
+            await MainActor.run {
+                do {
+                    try context.save()
+                    print("Successfully rebuilt thumbnails for \(allVideos.count) videos")
+                } catch {
+                    print("Failed to save rebuilt thumbnail paths: \(error)")
+                }
+            }
+            
+        } catch {
+            print("Failed to fetch videos for thumbnail rebuild: \(error)")
         }
     }
 }
@@ -1290,7 +1406,9 @@ File: Stores/FolderNavigationStore.swift
 
 import SwiftUI
 import CoreData
+import Combine
 
+@MainActor
 class FolderNavigationStore: ObservableObject {
     // MARK: - Core State
     @Published var navigationPath = NavigationPath()
@@ -1298,20 +1416,56 @@ class FolderNavigationStore: ObservableObject {
     @Published var selectedTopLevelFolder: Folder?
     @Published var selectedVideo: Video?
     
+    // Reactive data sources for the UI
+    @Published var hierarchicalContent: [HierarchicalContentItem] = []
+    @Published var flatContent: [ContentType] = []
+
     // MARK: - UI State
-    @Published var currentSortOption: SortOption = .foldersFirst
+    @Published var currentSortOption: SortOption = .foldersFirst {
+        didSet {
+            // Re-apply sorting whenever the option changes
+            self.flatContent = applySorting(self.flatContent)
+        }
+    }
     @Published var isLoading = false
     @Published var errorMessage: String?
     
     // MARK: - Dependencies
     private let libraryManager: LibraryManager
+    private var cancellables = Set<AnyCancellable>()
     
     init(libraryManager: LibraryManager) {
         self.libraryManager = libraryManager
-        // Set initial folder to "All Videos" if available
-        Task { @MainActor in
+        
+        // Subscribe to Core Data saves to auto-refresh the UI
+        if let context = libraryManager.viewContext {
+            NotificationCenter.default
+                .publisher(for: .NSManagedObjectContextDidSave, object: context)
+                .debounce(for: .milliseconds(50), scheduler: DispatchQueue.main) // Prevent refresh storms
+                .sink { [weak self] _ in
+                    print("🧠 STORE: Context saved, refreshing content.")
+                    self?.refreshContent()
+                }
+                .store(in: &cancellables)
+        }
+        
+        // Subscribe to internal navigation changes to refresh content
+        $currentFolderID
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                print("🧠 STORE: Current folder changed, refreshing content.")
+                self?.refreshContent()
+            }
+            .store(in: &cancellables)
+        
+        // Set initial folder and load initial content
+        Task {
             guard let context = libraryManager.viewContext,
-                  let library = libraryManager.currentLibrary else { return }
+                  let library = libraryManager.currentLibrary else {
+                refreshContent()
+                return
+            }
             
             let request = Folder.fetchRequest()
             request.predicate = NSPredicate(format: "library == %@ AND isTopLevel == YES AND isSmartFolder == YES AND name == %@", library, "All Videos")
@@ -1320,170 +1474,106 @@ class FolderNavigationStore: ObservableObject {
             do {
                 if let allVideosFolder = try context.fetch(request).first {
                     selectedTopLevelFolder = allVideosFolder
-                    currentFolderID = allVideosFolder.id
+                    currentFolderID = allVideosFolder.id // This triggers the sink above to load content
+                } else {
+                    refreshContent()
                 }
             } catch {
                 print("Error setting initial folder: \(error)")
+                refreshContent()
             }
         }
     }
     
-    // MARK: - Content Access
-    @MainActor func systemFolders() -> [Folder] {
-        print("🔍 FETCH: systemFolders() called")
+    // MARK: - Content Fetching
+    private func refreshContent() {
         guard let context = libraryManager.viewContext,
-              let library = libraryManager.currentLibrary else { 
-            print("❌ FETCH: No context or library for systemFolders")
-            return [] 
+              let library = libraryManager.currentLibrary,
+              let folderID = currentFolderID else {
+            self.hierarchicalContent = []
+            self.flatContent = []
+            return
         }
         
+        let folderRequest = Folder.fetchRequest()
+        folderRequest.predicate = NSPredicate(format: "library == %@ AND id == %@", library, folderID as CVarArg)
+        
+        var newHierarchicalContent: [HierarchicalContentItem] = []
+        var newFlatContent: [ContentType] = []
+        
+        do {
+            if let folder = try context.fetch(folderRequest).first {
+                if folder.isSmartFolder {
+                    let contentItems = getSmartFolderContent(folder: folder, library: library, context: context)
+                    newFlatContent = contentItems
+                    newHierarchicalContent = contentItems.compactMap { item in
+                        if case .video(let video) = item { return HierarchicalContentItem(video: video) }
+                        return nil
+                    }
+                } else {
+                    let childFolders = folder.childFoldersArray
+                    let childVideos = folder.videosArray
+
+                    for childFolder in childFolders {
+                        newHierarchicalContent.append(HierarchicalContentItem(folder: childFolder))
+                        newFlatContent.append(.folder(childFolder))
+                    }
+                    for video in childVideos {
+                        newHierarchicalContent.append(HierarchicalContentItem(video: video))
+                        newFlatContent.append(.video(video))
+                    }
+                }
+            }
+        } catch {
+            errorMessage = "Failed to load content: \(error.localizedDescription)"
+        }
+        
+        // Populate the publishers
+        self.hierarchicalContent = newHierarchicalContent
+        self.flatContent = applySorting(newFlatContent)
+    }
+    
+    // MARK: - Content Access (for Sidebar)
+    func systemFolders() -> [Folder] {
+        guard let context = libraryManager.viewContext, let library = libraryManager.currentLibrary else { return [] }
         let request = Folder.fetchRequest()
         request.predicate = NSPredicate(format: "library == %@ AND isTopLevel == YES AND isSmartFolder == YES", library)
         request.sortDescriptors = [NSSortDescriptor(keyPath: \Folder.name, ascending: true)]
-        
         do {
-            let folders = try context.fetch(request)
-            print("📁 FETCH: systemFolders returned \(folders.count) folders: \(folders.map { $0.name ?? "nil" })")
-            return folders
+            return try context.fetch(request)
         } catch {
-            print("💥 FETCH: systemFolders error: \(error.localizedDescription)")
             errorMessage = "Failed to load system folders: \(error.localizedDescription)"
             return []
         }
     }
     
-    @MainActor func userFolders() -> [Folder] {
-        print("🔍 FETCH: userFolders() called")
-        guard let context = libraryManager.viewContext,
-              let library = libraryManager.currentLibrary else { 
-            print("❌ FETCH: No context or library for userFolders")
-            return [] 
-        }
-        
+    func userFolders() -> [Folder] {
+        guard let context = libraryManager.viewContext, let library = libraryManager.currentLibrary else { return [] }
         let request = Folder.fetchRequest()
         request.predicate = NSPredicate(format: "library == %@ AND isTopLevel == YES AND isSmartFolder == NO", library)
         request.sortDescriptors = [NSSortDescriptor(keyPath: \Folder.name, ascending: true)]
-        
         do {
-            let folders = try context.fetch(request)
-            print("📁 FETCH: userFolders returned \(folders.count) folders: \(folders.map { $0.name ?? "nil" })")
-            return folders
+            return try context.fetch(request)
         } catch {
-            print("💥 FETCH: userFolders error: \(error.localizedDescription)")
             errorMessage = "Failed to load user folders: \(error.localizedDescription)"
             return []
         }
     }
     
-    @MainActor func content(for folderID: UUID?) -> [ContentType] {
-        guard let context = libraryManager.viewContext,
-              let library = libraryManager.currentLibrary else { return [] }
-        
-        var contentItems: [ContentType] = []
-        
-        if let folderID = folderID {
-            // Load content of specific folder
-            let folderRequest = Folder.fetchRequest()
-            folderRequest.predicate = NSPredicate(format: "library == %@ AND id == %@", library, folderID as CVarArg)
-            
-            do {
-                if let folder = try context.fetch(folderRequest).first {
-                    if folder.isSmartFolder {
-                        // Handle smart folders - show videos based on the folder type
-                        contentItems = getSmartFolderContent(folder: folder, library: library, context: context)
-                    } else {
-                        // Regular folder - show child folders and videos
-                        for childFolder in folder.childFoldersArray {
-                            contentItems.append(.folder(childFolder))
-                        }
-                        
-                        for video in folder.videosArray {
-                            contentItems.append(.video(video))
-                        }
-                    }
-                }
-            } catch {
-                errorMessage = "Failed to load folder content: \(error.localizedDescription)"
-            }
-        } else {
-            // Load top-level content (if any videos are not in folders)
-            let videoRequest = Video.fetchRequest()
-            videoRequest.predicate = NSPredicate(format: "library == %@ AND folder == NULL", library)
-            
-            do {
-                let videos = try context.fetch(videoRequest)
-                for video in videos {
-                    contentItems.append(.video(video))
-                }
-            } catch {
-                errorMessage = "Failed to load videos: \(error.localizedDescription)"
-            }
-        }
-        
-        return applySorting(contentItems)
-    }
-    
-    // MARK: - Hierarchical Content
-    
-    /// Get hierarchical content for the selected top-level folder
-    @MainActor func hierarchicalContent(for folderID: UUID?) -> [HierarchicalContentItem] {
-        guard let context = libraryManager.viewContext,
-              let library = libraryManager.currentLibrary,
-              let folderID = folderID else { return [] }
-        
-        let folderRequest = Folder.fetchRequest()
-        folderRequest.predicate = NSPredicate(format: "library == %@ AND id == %@", library, folderID as CVarArg)
-        
-        do {
-            if let folder = try context.fetch(folderRequest).first {
-                if folder.isSmartFolder {
-                    // Smart folders show flat list of videos as hierarchical items
-                    let contentItems = getSmartFolderContent(folder: folder, library: library, context: context)
-                    return contentItems.compactMap { item in
-                        if case .video(let video) = item {
-                            return HierarchicalContentItem(video: video)
-                        }
-                        return nil
-                    }
-                } else {
-                    // Regular folder - create hierarchical structure
-                    var hierarchicalItems: [HierarchicalContentItem] = []
-                    
-                    // Add child folders (with their own hierarchical content)
-                    for childFolder in folder.childFoldersArray {
-                        hierarchicalItems.append(HierarchicalContentItem(folder: childFolder))
-                    }
-                    
-                    // Add videos as leaf nodes
-                    for video in folder.videosArray {
-                        hierarchicalItems.append(HierarchicalContentItem(video: video))
-                    }
-                    
-                    return hierarchicalItems
-                }
-            }
-        } catch {
-            errorMessage = "Failed to load hierarchical content: \(error.localizedDescription)"
-        }
-        
-        return []
-    }
-    
     // MARK: - Navigation
     func navigateToFolder(_ folderID: UUID) {
         navigationPath.append(folderID)
+        currentFolderID = folderID
     }
     
     func navigateBack() {
         guard !navigationPath.isEmpty else { return }
         navigationPath.removeLast()
         
-        // Update currentFolderID based on remaining path
         if navigationPath.isEmpty {
             currentFolderID = selectedTopLevelFolder?.id
         } else {
-            // For proper navigation, we need to track the parent folder
-            // This is a limitation of NavigationPath - we'll handle it in the destination
+            // Complex navigation could decode the path here
         }
     }
     
@@ -1497,7 +1587,6 @@ class FolderNavigationStore: ObservableObject {
     }
     
     // MARK: - Folder Management
-    @MainActor
     func createFolder(name: String, in parentFolderID: UUID? = nil) async {
         guard let context = libraryManager.viewContext,
               let library = libraryManager.currentLibrary,
@@ -1532,11 +1621,8 @@ class FolderNavigationStore: ObservableObject {
             }
         }
         await libraryManager.save()
-        // Notify UI to refresh after successful folder creation
-        NotificationCenter.default.post(name: .contentUpdated, object: nil)
     }
     
-    @MainActor
     func moveItems(_ itemIDs: Set<UUID>, to destinationFolderID: UUID?) async {
         guard let context = libraryManager.viewContext,
               libraryManager.currentLibrary != nil, !itemIDs.isEmpty else { return }
@@ -1573,10 +1659,7 @@ class FolderNavigationStore: ObservableObject {
             
             if context.hasChanges {
                 await libraryManager.save()
-                // Notify UI to refresh after successful move
-                NotificationCenter.default.post(name: .contentUpdated, object: nil)
             }
-            
         } catch {
             errorMessage = "Failed to move items: \(error.localizedDescription)"
             context.rollback()
@@ -1605,7 +1688,7 @@ class FolderNavigationStore: ObservableObject {
     }
     
     // MARK: - Folder Name
-    @MainActor func folderName(for folderID: UUID?) -> String {
+    func folderName(for folderID: UUID?) -> String {
         guard let folderID = folderID,
               let context = libraryManager.viewContext,
               let library = libraryManager.currentLibrary else {
@@ -1625,14 +1708,13 @@ class FolderNavigationStore: ObservableObject {
     }
     
     // MARK: - Smart Folder Content
-    @MainActor private func getSmartFolderContent(folder: Folder, library: Library, context: NSManagedObjectContext) -> [ContentType] {
+    private func getSmartFolderContent(folder: Folder, library: Library, context: NSManagedObjectContext) -> [ContentType] {
         var contentItems: [ContentType] = []
-        
         let videoRequest = Video.fetchRequest()
-        videoRequest.predicate = NSPredicate(format: "library == %@", library)
         
         switch folder.name {
         case "All Videos":
+            videoRequest.predicate = NSPredicate(format: "library == %@", library)
             videoRequest.sortDescriptors = [NSSortDescriptor(keyPath: \Video.title, ascending: true)]
         case "Recent":
             let thirtyDaysAgo = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
@@ -1640,18 +1722,22 @@ class FolderNavigationStore: ObservableObject {
             videoRequest.sortDescriptors = [NSSortDescriptor(keyPath: \Video.dateAdded, ascending: false)]
             videoRequest.fetchLimit = 50
         case "Favorites":
-            videoRequest.predicate = NSPredicate(format: "library == %@ AND lastPlayed != NULL", library)
-            videoRequest.sortDescriptors = [NSSortDescriptor(keyPath: \Video.lastPlayed, ascending: false)]
-            videoRequest.fetchLimit = 50
+            videoRequest.predicate = NSPredicate(format: "library == %@ AND isFavorite == YES", library)
+            videoRequest.sortDescriptors = [NSSortDescriptor(keyPath: \Video.title, ascending: true)]
+            print("🧠 STORE: Fetching Favorites smart folder content")
         default:
             return []
         }
         
         do {
             let videos = try context.fetch(videoRequest)
-            for video in videos {
-                contentItems.append(.video(video))
+            if folder.name == "Favorites" {
+                print("🧠 STORE: Found \(videos.count) favorite videos")
+                for video in videos {
+                    print("🧠 STORE: Favorite video: '\(video.title ?? "Unknown")' (isFavorite: \(video.isFavorite))")
+                }
             }
+            contentItems = videos.map { .video($0) }
         } catch {
             errorMessage = "Failed to load smart folder content: \(error.localizedDescription)"
         }
@@ -1660,88 +1746,205 @@ class FolderNavigationStore: ObservableObject {
     }
     
     // MARK: - Renaming
-    @MainActor
     func renameItem(id: UUID, to newName: String) async {
-        print("🔄 RENAME: Starting rename of \(id) to '\(newName)'")
-        
-        guard let context = libraryManager.viewContext,
-              let library = libraryManager.currentLibrary else {
-            print("❌ RENAME: No context or library available")
-            return
-        }
-        
-        print("📋 RENAME: Context: \(context), Library: \(library.name ?? "Unknown")")
+        guard let context = libraryManager.viewContext else { return }
         
         let trimmedName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else {
-            print("❌ RENAME: Empty name after trimming")
-            return
-        }
+        guard !trimmedName.isEmpty else { return }
         
-        print("📝 RENAME: Trimmed name: '\(trimmedName)'")
-        
-        // This is a single transaction, so we can wrap the logic in a do-catch
         do {
-            // Try to find a folder with the given ID
-            print("🔍 RENAME: Searching for folder with ID \(id)")
             let folderRequest = Folder.fetchRequest()
             folderRequest.predicate = NSPredicate(format: "id == %@", id as CVarArg)
             
             if let folder = try context.fetch(folderRequest).first {
-                print("📁 RENAME: Found folder '\(folder.name ?? "nil")' -> '\(trimmedName)'")
-                let oldName = folder.name
                 folder.name = trimmedName
                 folder.dateModified = Date()
-                print("💾 RENAME: Set folder.name = '\(folder.name ?? "nil")' (was '\(oldName ?? "nil")')")
-                print("📊 RENAME: Context hasChanges: \(context.hasChanges)")
-                
-                // We've made our change, now we must save it through the manager
-                print("💽 RENAME: Calling libraryManager.save()...")
                 await libraryManager.save()
-                
-                // Verify the change persisted
-                print("✅ RENAME: Save completed. Folder name is now: '\(folder.name ?? "nil")'")
-                
-                // Force a refresh to see if context is up to date
-                context.refresh(folder, mergeChanges: true)
-                print("🔄 RENAME: After refresh, folder name is: '\(folder.name ?? "nil")'")
-                
-                return // Exit after successful operation
+                return
             }
             
-            // If no folder was found, try to find a video
-            print("🔍 RENAME: No folder found, searching for video with ID \(id)")
             let videoRequest = Video.fetchRequest()
             videoRequest.predicate = NSPredicate(format: "id == %@", id as CVarArg)
             
             if let video = try context.fetch(videoRequest).first {
-                print("🎥 RENAME: Found video '\(video.title ?? "nil")' -> '\(trimmedName)'")
-                let oldTitle = video.title
                 video.title = trimmedName
-                print("💾 RENAME: Set video.title = '\(video.title ?? "nil")' (was '\(oldTitle ?? "nil")')")
-                print("📊 RENAME: Context hasChanges: \(context.hasChanges)")
-                
-                // We've made our change, now we must save it through the manager
-                print("💽 RENAME: Calling libraryManager.save()...")
                 await libraryManager.save()
-                
-                // Verify the change persisted
-                print("✅ RENAME: Save completed. Video title is now: '\(video.title ?? "nil")'")
-                
-                return // Exit after successful operation
+                return
+            }
+        } catch {
+            errorMessage = "Failed to find item to rename: \(error.localizedDescription)"
+            context.rollback()
+        }
+    }
+    
+    // MARK: - Deletion
+    func deleteItems(_ itemIDs: Set<UUID>) async -> Bool {
+        guard let context = libraryManager.viewContext,
+              let library = libraryManager.currentLibrary else {
+            errorMessage = "Unable to access library context"
+            return false
+        }
+        
+        do {
+            // Find all folders to delete
+            let folderRequest = Folder.fetchRequest()
+            folderRequest.predicate = NSPredicate(format: "id IN %@", itemIDs)
+            let foldersToDelete = try context.fetch(folderRequest)
+            
+            // Find all videos to delete
+            let videoRequest = Video.fetchRequest()
+            videoRequest.predicate = NSPredicate(format: "id IN %@", itemIDs)
+            let videosToDelete = try context.fetch(videoRequest)
+            
+            // Prevent deletion of system folders
+            for folder in foldersToDelete {
+                if folder.isSmartFolder {
+                    errorMessage = "Cannot delete system folders"
+                    return false
+                }
             }
             
-            print("❌ RENAME: No folder or video found with ID \(id)")
+            // Delete files from file system first
+            var allVideosToDelete: [Video] = []
+            
+            // Collect videos from folders recursively
+            for folder in foldersToDelete {
+                allVideosToDelete.append(contentsOf: collectAllVideos(from: folder))
+            }
+            
+            // Add directly selected videos
+            allVideosToDelete.append(contentsOf: videosToDelete)
+            
+            // Remove duplicates
+            allVideosToDelete = Array(Set(allVideosToDelete))
+            
+            // Delete files from disk
+            await deleteVideoFiles(allVideosToDelete, library: library)
+            
+            // Delete from Core Data (this will cascade to child folders and videos)
+            for folder in foldersToDelete {
+                context.delete(folder)
+            }
+            
+            for video in videosToDelete {
+                context.delete(video)
+            }
+            
+            // Save changes
+            if context.hasChanges {
+                try context.save()
+                print("🗑️ DELETION: Successfully deleted \(itemIDs.count) items")
+                
+                // Update selected video if it was deleted
+                if let selectedVideo = selectedVideo,
+                   itemIDs.contains(selectedVideo.id!) {
+                    self.selectedVideo = nil
+                }
+                
+                return true
+            }
+            
+            return true
             
         } catch {
-            // If any part of the fetch fails, we can handle it here
-            print("💥 RENAME: Fetch error: \(error.localizedDescription)")
-            errorMessage = "Failed to find item to rename: \(error.localizedDescription)"
-            context.rollback() // Rollback any potential bad state
+            errorMessage = "Failed to delete items: \(error.localizedDescription)"
+            context.rollback()
+            return false
+        }
+    }
+    
+    private func collectAllVideos(from folder: Folder) -> [Video] {
+        var videos: [Video] = []
+        
+        // Add videos directly in this folder
+        videos.append(contentsOf: folder.videosArray)
+        
+        // Recursively collect from child folders
+        for childFolder in folder.childFoldersArray {
+            videos.append(contentsOf: collectAllVideos(from: childFolder))
+        }
+        
+        return videos
+    }
+    
+    private func deleteVideoFiles(_ videos: [Video], library: Library) async {
+        guard let libraryURL = library.url else { return }
+        
+        for video in videos {
+            // Delete video file
+            if let videoURL = video.fileURL {
+                do {
+                    try FileManager.default.removeItem(at: videoURL)
+                    print("🗑️ DELETION: Deleted video file: \(videoURL.lastPathComponent)")
+                } catch {
+                    print("⚠️ DELETION: Failed to delete video file \(videoURL.lastPathComponent): \(error)")
+                }
+            }
+            
+            // Delete thumbnail
+            if let thumbnailURL = video.thumbnailURL {
+                do {
+                    try FileManager.default.removeItem(at: thumbnailURL)
+                    print("🗑️ DELETION: Deleted thumbnail: \(thumbnailURL.lastPathComponent)")
+                } catch {
+                    print("⚠️ DELETION: Failed to delete thumbnail \(thumbnailURL.lastPathComponent): \(error)")
+                }
+            }
+            
+            // Delete subtitles
+            if let subtitles = video.subtitles as? Set<Subtitle> {
+                for subtitle in subtitles {
+                    if let subtitleURL = subtitle.fileURL {
+                        do {
+                            try FileManager.default.removeItem(at: subtitleURL)
+                            print("🗑️ DELETION: Deleted subtitle: \(subtitleURL.lastPathComponent)")
+                        } catch {
+                            print("⚠️ DELETION: Failed to delete subtitle \(subtitleURL.lastPathComponent): \(error)")
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Clean up empty directories
+        await cleanupEmptyDirectories(in: libraryURL)
+    }
+    
+    private func cleanupEmptyDirectories(in libraryURL: URL) async {
+        let directories = [
+            libraryURL.appendingPathComponent("Videos"),
+            libraryURL.appendingPathComponent("Thumbnails"),
+            libraryURL.appendingPathComponent("Subtitles")
+        ]
+        
+        for directory in directories {
+            await cleanupEmptyDirectoriesRecursively(at: directory)
+        }
+    }
+    
+    private func cleanupEmptyDirectoriesRecursively(at url: URL) async {
+        do {
+            let contents = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
+            
+            // First, recursively clean subdirectories
+            for item in contents {
+                var isDirectory: ObjCBool = false
+                if FileManager.default.fileExists(atPath: item.path, isDirectory: &isDirectory), isDirectory.boolValue {
+                    await cleanupEmptyDirectoriesRecursively(at: item)
+                }
+            }
+            
+            // Check if directory is now empty and remove it
+            let updatedContents = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
+            if updatedContents.isEmpty {
+                try FileManager.default.removeItem(at: url)
+                print("🗑️ DELETION: Cleaned up empty directory: \(url.lastPathComponent)")
+            }
+        } catch {
+            // Directory doesn't exist or can't be read - that's fine
         }
     }
 }
-
 
 ================================================================================
 
@@ -2358,6 +2561,7 @@ class VideoImporter: ObservableObject {
     @Published var processedFiles = 0
     @Published var errors: [ImportError] = []
     @Published var importedVideos: [Video] = []
+    @Published var skippedFolders: [String] = []
     
     private let fileSystemManager = FileSystemManager.shared
     private let subtitleMatcher = SubtitleMatcher()
@@ -2387,13 +2591,17 @@ class VideoImporter: ObservableObject {
             totalFiles = videoFiles.count
         }
         
-        // Import each file
+        // Import each file  
+        print("🎬 IMPORT: Starting import of \(videoFiles.count) video files")
+        print("📚 IMPORT: Library settings - copyFilesOnImport: \(library.copyFilesOnImport), autoMatchSubtitles: \(library.autoMatchSubtitles)")
         for (index, fileURL) in videoFiles.enumerated() {
             await MainActor.run {
                 currentFile = fileURL.lastPathComponent
                 processedFiles = index
                 progress = Double(index) / Double(videoFiles.count)
             }
+            
+            print("📹 IMPORT: Processing file \(index + 1)/\(videoFiles.count): \(fileURL.lastPathComponent)")
             
             do {
                 // Import video
@@ -2403,6 +2611,7 @@ class VideoImporter: ObservableObject {
                     context: context,
                     copyFile: library.copyFilesOnImport
                 )
+                print("✅ IMPORT: Successfully imported video: \(video.title ?? "Unknown")")
                 
                 // Add video to appropriate folder based on its original folder path
                 assignVideoToFolder(video: video, originalPath: fileURL, createdFolders: createdFolders)
@@ -2413,14 +2622,20 @@ class VideoImporter: ObservableObject {
                         for: fileURL,
                         in: fileURL.deletingLastPathComponent()
                     )
+                    print("📄 IMPORT: Found \(subtitles.count) subtitle files for \(fileURL.lastPathComponent)")
                     
                     for subtitleURL in subtitles {
-                        _ = try? await importSubtitle(
-                            from: subtitleURL,
-                            for: video,
-                            to: library,
-                            context: context
-                        )
+                        do {
+                            let subtitle = try await importSubtitle(
+                                from: subtitleURL,
+                                for: video,
+                                to: library,
+                                context: context
+                            )
+                            print("✅ IMPORT: Successfully imported subtitle: \(subtitle.fileName ?? "Unknown")")
+                        } catch {
+                            print("❌ IMPORT: Failed to import subtitle \(subtitleURL.lastPathComponent): \(error)")
+                        }
                     }
                 }
                 
@@ -2429,6 +2644,7 @@ class VideoImporter: ObservableObject {
                 }
                 
             } catch {
+                print("❌ IMPORT: Failed to import video \(fileURL.lastPathComponent): \(error)")
                 await MainActor.run {
                     errors.append(ImportError(
                         fileName: fileURL.lastPathComponent,
@@ -2457,6 +2673,16 @@ class VideoImporter: ObservableObject {
         }
     }
     
+    func resetImportState() {
+        errors.removeAll()
+        importedVideos.removeAll()
+        skippedFolders.removeAll()
+        progress = 0
+        totalFiles = 0
+        processedFiles = 0
+        currentFile = ""
+    }
+    
     private func gatherVideoFiles(from urls: [URL]) -> [URL] {
         var videoFiles: [URL] = []
         
@@ -2464,30 +2690,53 @@ class VideoImporter: ObservableObject {
             var isDirectory: ObjCBool = false
             if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) {
                 if isDirectory.boolValue {
+                    print("📁 IMPORT: Gathering videos from directory: \(url.lastPathComponent)")
                     // Recursively find video files in directory
-                    videoFiles.append(contentsOf: findVideoFiles(in: url))
+                    let foundFiles = findVideoFiles(in: url)
+                    print("📹 IMPORT: Found \(foundFiles.count) video files in \(url.lastPathComponent)")
+                    videoFiles.append(contentsOf: foundFiles)
                 } else if isVideoFile(url) {
+                    print("📹 IMPORT: Direct video file: \(url.lastPathComponent)")
                     videoFiles.append(url)
                 }
             }
         }
         
+        print("📊 IMPORT: Total video files gathered: \(videoFiles.count)")
         return videoFiles
     }
     
     private func findVideoFiles(in directory: URL) -> [URL] {
         var videoFiles: [URL] = []
         
-        if let enumerator = FileManager.default.enumerator(
-            at: directory,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) {
-            for case let fileURL as URL in enumerator {
-                if isVideoFile(fileURL) {
-                    videoFiles.append(fileURL)
+        // Start accessing security-scoped resource
+        let accessing = directory.startAccessingSecurityScopedResource()
+        defer {
+            if accessing {
+                directory.stopAccessingSecurityScopedResource()
+            }
+        }
+        
+        do {
+            let contents = try FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            )
+            
+            for item in contents {
+                var isDirectory: ObjCBool = false
+                if FileManager.default.fileExists(atPath: item.path, isDirectory: &isDirectory) {
+                    if isDirectory.boolValue {
+                        // Recursively search subdirectories
+                        videoFiles.append(contentsOf: findVideoFiles(in: item))
+                    } else if isVideoFile(item) {
+                        videoFiles.append(item)
+                    }
                 }
             }
+        } catch {
+            print("⚠️ IMPORT: Could not access directory \(directory.lastPathComponent): \(error)")
         }
         
         return videoFiles
@@ -2501,6 +2750,18 @@ class VideoImporter: ObservableObject {
     private func importSubtitle(from url: URL, for video: Video, to library: Library, context: NSManagedObjectContext) async throws -> Subtitle {
         guard let libraryURL = library.url else {
             throw FileSystemError.invalidLibraryPath
+        }
+        
+        // Start accessing security-scoped resources for both source and destination
+        let sourceAccessing = url.startAccessingSecurityScopedResource()
+        let libraryAccessing = libraryURL.startAccessingSecurityScopedResource()
+        defer {
+            if sourceAccessing {
+                url.stopAccessingSecurityScopedResource()
+            }
+            if libraryAccessing {
+                libraryURL.stopAccessingSecurityScopedResource()
+            }
         }
         
         // Create subtitle directory
@@ -2581,6 +2842,14 @@ class VideoImporter: ObservableObject {
         let folderName = folderURL.lastPathComponent
         var node = FolderNode(url: folderURL, name: folderName, isRoot: true)
         
+        // Start accessing security-scoped resource
+        let accessing = folderURL.startAccessingSecurityScopedResource()
+        defer {
+            if accessing {
+                folderURL.stopAccessingSecurityScopedResource()
+            }
+        }
+        
         do {
             let contents = try FileManager.default.contentsOfDirectory(
                 at: folderURL,
@@ -2592,8 +2861,12 @@ class VideoImporter: ObservableObject {
                 var isDirectory: ObjCBool = false
                 if FileManager.default.fileExists(atPath: item.path, isDirectory: &isDirectory) {
                     if isDirectory.boolValue {
-                        // Subfolder - recursively build tree
+                        // Subfolder - recursively build tree with security scope
+                        let childAccessing = item.startAccessingSecurityScopedResource()
                         let childNode = buildFolderTree(from: item)
+                        if childAccessing {
+                            item.stopAccessingSecurityScopedResource()
+                        }
                         if !childNode.videoFiles.isEmpty || !childNode.children.isEmpty {
                             node.children.append(childNode)
                         }
@@ -2604,7 +2877,15 @@ class VideoImporter: ObservableObject {
                 }
             }
         } catch {
-            print("Error reading folder contents: \(error)")
+            let nsError = error as NSError
+            if nsError.domain == NSCocoaErrorDomain && nsError.code == 257 {
+                print("⚠️ IMPORT: Permission denied for folder '\(folderName)' - may need individual selection")
+                Task { @MainActor in
+                    skippedFolders.append(folderName)
+                }
+            } else {
+                print("⚠️ IMPORT: Error reading folder '\(folderName)': \(error)")
+            }
         }
         
         return node
@@ -2918,8 +3199,8 @@ struct DetailView: View {
                         .frame(height: 60)
                         .background(controlsBackgroundColor)
                     
-                    // Bottom area
-                    VideoInfoView(video: video)
+                    // Bottom area with tabs
+                    VideoDetailTabView(video: video)
                         .frame(maxHeight: .infinity)
                         .background(windowBackgroundColor)
                 }
@@ -3002,6 +3283,8 @@ struct SidebarView: View {
     @State private var editingFolder: Folder?
     @State private var renamingFolderID: UUID? = nil
     @FocusState private var focusedField: UUID?
+    @State private var showingDeletionConfirmation = false
+    @State private var folderToDelete: Folder?
     
     // Use @FetchRequest for automatic Core Data change observation
     @FetchRequest(
@@ -3035,8 +3318,8 @@ struct SidebarView: View {
             Section("Pangolin") {
                 ForEach(systemFolders) { folder in
                     FolderRowView(
-                        folder: folder, 
-                        showContextMenu: false, 
+                        folder: folder,
+                        showContextMenu: false,
                         editingFolder: $editingFolder,
                         renamingFolderID: $renamingFolderID,
                         focusedField: $focusedField,
@@ -3050,8 +3333,8 @@ struct SidebarView: View {
             Section("Library") {
                 ForEach(userFolders) { folder in
                     FolderRowView(
-                        folder: folder, 
-                        showContextMenu: true, 
+                        folder: folder,
+                        showContextMenu: true,
                         editingFolder: $editingFolder,
                         renamingFolderID: $renamingFolderID,
                         focusedField: $focusedField,
@@ -3084,6 +3367,21 @@ struct SidebarView: View {
         .sheet(isPresented: $isShowingCreateFolder) {
             CreateFolderView(parentFolderID: nil)
         }
+        .sheet(isPresented: $showingDeletionConfirmation) {
+            if let folder = folderToDelete {
+                DeletionConfirmationView(
+                    items: [DeletionItem(folder: folder)],
+                    onConfirm: {
+                        Task {
+                            await confirmDeletion()
+                        }
+                    },
+                    onCancel: {
+                        cancelDeletion()
+                    }
+                )
+            }
+        }
         .onKeyPress { keyPress in
             if keyPress.key == .return,
                let selected = store.selectedTopLevelFolder,
@@ -3094,21 +3392,46 @@ struct SidebarView: View {
                     focusedField = selected.id
                 }
                 return .handled
+            } else if (keyPress.key == .delete || keyPress.key == .deleteForward),
+                      let selected = store.selectedTopLevelFolder,
+                      !selected.isSmartFolder { // Only allow deletion for user folders
+                deleteFolder(selected)
+                return .handled
             }
             return .ignored
         }
-        // Handle focus loss to end rename mode
-        .onChange(of: focusedField) { _, newValue in
-            if newValue == nil {
-                renamingFolderID = nil
-            }
-        }
-        // @FetchRequest automatically observes Core Data changes, no manual refresh needed
     }
     
     private func deleteFolder(_ folder: Folder) {
-        // TODO: Implement folder deletion with confirmation
-        print("Deleting folder: \(folder.name!)")
+        folderToDelete = folder
+        showingDeletionConfirmation = true
+    }
+    
+    private func confirmDeletion() async {
+        guard let folder = folderToDelete else { return }
+        
+        let success = await store.deleteItems([folder.id!])
+        
+        await MainActor.run {
+            if success {
+                // Clear selection if the deleted folder was selected
+                if store.selectedTopLevelFolder?.id == folder.id {
+                    // Select "All Videos" folder as fallback
+                    let systemFolders = store.systemFolders()
+                    if let allVideosFolder = systemFolders.first(where: { $0.name == "All Videos" }) {
+                        store.selectedTopLevelFolder = allVideosFolder
+                        store.currentFolderID = allVideosFolder.id
+                    }
+                }
+            }
+            
+            cancelDeletion()
+        }
+    }
+    
+    private func cancelDeletion() {
+        folderToDelete = nil
+        showingDeletionConfirmation = false
     }
 }
 
@@ -3190,13 +3513,12 @@ private struct FolderRowView: View {
                     shouldCommitOnDisappear = true
                 }
                 .onSubmit {
-                    // Commit the rename when the user presses Return/Enter
-                    shouldCommitOnDisappear = false // Prevent double commit
-                    commitRename()
+                    shouldCommitOnDisappear = false
+                    // ✅ Call async function from a Task
+                    Task { await commitRename() }
                 }
                 .onKeyPress { keyPress in
                     if keyPress.key == .escape {
-                        // Cancel the rename when the user presses Escape
                         shouldCommitOnDisappear = false
                         cancelRename()
                         return .handled
@@ -3204,10 +3526,9 @@ private struct FolderRowView: View {
                     return .ignored
                 }
                 .onChange(of: focusedField) { oldValue, newValue in
-                    // Detect when THIS TextField loses focus
                     if oldValue == folder.id && newValue != folder.id && shouldCommitOnDisappear {
-                        print("🎯 FOCUS: TextField \(folder.id) lost focus (old: \(oldValue?.uuidString ?? "nil") -> new: \(newValue?.uuidString ?? "nil")), committing rename")
-                        commitRename()
+                        // ✅ Call async function from a Task
+                        Task { await commitRename() }
                     }
                 }
         } else {
@@ -3216,21 +3537,22 @@ private struct FolderRowView: View {
     }
     
     /// Commits the new name to the data store.
-    private func commitRename() {
-        print("🏷️ SIDEBAR: commitRename called for '\(folder.name!)' -> '\(editedName)'")
-        shouldCommitOnDisappear = false // Prevent further commits
+    // ✅ Make the function async
+    private func commitRename() async {
+        shouldCommitOnDisappear = false
+        
         let trimmedName = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedName.isEmpty && trimmedName != folder.name! {
-            print("🚀 SIDEBAR: About to call store.renameItem")
-            Task {
-                await store.renameItem(id: folder.id!, to: trimmedName)
-                await MainActor.run {
-                    renamingFolderID = nil
-                    focusedField = nil
-                }
-            }
-        } else {
+        guard !trimmedName.isEmpty && trimmedName != folder.name! else {
             // Cancel if no change
+            await MainActor.run { cancelRename() }
+            return
+        }
+        
+        // ✅ Await the store operation before updating local state
+        await store.renameItem(id: folder.id!, to: trimmedName)
+        
+        // ✅ Now update local state after the save is complete
+        await MainActor.run {
             renamingFolderID = nil
             focusedField = nil
         }
@@ -3238,7 +3560,7 @@ private struct FolderRowView: View {
 
     /// Cancels the renaming process.
     private func cancelRename() {
-        editedName = folder.name! // Reset to original name
+        editedName = folder.name!
         shouldCommitOnDisappear = false
         renamingFolderID = nil
         focusedField = nil
@@ -3246,19 +3568,17 @@ private struct FolderRowView: View {
     
     /// Handles slow-click rename for user folders only
     private func handleSlowClickRename() {
-        // Only allow renaming for user folders (not system folders) and only if this folder is already selected
-        guard !folder.isSmartFolder, 
-              showContextMenu, 
+        guard !folder.isSmartFolder,
+              showContextMenu,
               store.selectedTopLevelFolder?.id == folder.id,
-              renamingFolderID == nil else { 
-            return 
+              renamingFolderID == nil else {
+            return
         }
         
-        // Start renaming
         editedName = folder.name!
         renamingFolderID = folder.id
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s delay
+            try? await Task.sleep(nanoseconds: 100_000_000)
             focusedField = folder.id
         }
     }
@@ -3272,7 +3592,6 @@ private struct FolderRowView: View {
         }
     }
 }
-
 
 ================================================================================
 
@@ -3314,22 +3633,57 @@ struct ImportProgressView: View {
                 .progressViewStyle(.linear)
                 .frame(width: 300)
             
-            if !importer.errors.isEmpty {
-                VStack(alignment: .leading) {
-                    Text("Errors:")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                    
-                    ScrollView {
+            if !importer.errors.isEmpty || !importer.skippedFolders.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    if !importer.errors.isEmpty {
                         VStack(alignment: .leading) {
-                            ForEach(importer.errors) { error in
-                                Text("• \(error.fileName): \(error.error.localizedDescription)")
-                                    .font(.caption)
-                                    .foregroundColor(.red)
+                            Text("Errors:")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                            
+                            ScrollView {
+                                VStack(alignment: .leading) {
+                                    ForEach(importer.errors) { error in
+                                        Text("• \(error.fileName): \(error.error.localizedDescription)")
+                                            .font(.caption)
+                                            .foregroundColor(.red)
+                                    }
+                                }
                             }
+                            .frame(maxHeight: 80)
                         }
                     }
-                    .frame(maxHeight: 100)
+                    
+                    if !importer.skippedFolders.isEmpty {
+                        VStack(alignment: .leading) {
+                            Text("Skipped folders (permission denied):")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                            
+                            ScrollView {
+                                VStack(alignment: .leading) {
+                                    ForEach(importer.skippedFolders, id: \.self) { folder in
+                                        Text("• \(folder)")
+                                            .font(.caption)
+                                            .foregroundColor(.orange)
+                                    }
+                                }
+                            }
+                            .frame(maxHeight: 80)
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("💡 To access these folders:")
+                                    .font(.caption2)
+                                    .fontWeight(.medium)
+                                
+                                Text("1. Use 'Import Videos' again")
+                                Text("2. Navigate to and select the specific folder")
+                                Text("3. This grants the app permission to access it")
+                            }
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        }
+                    }
                 }
             }
             
@@ -3381,20 +3735,23 @@ struct HierarchicalContentView: View {
     @State private var showingCreateFolder = false
     @State private var isGeneratingThumbnails = false
     @StateObject private var videoImporter = VideoImporter()
+    @State private var showingDeletionConfirmation = false
+    @State private var itemsToDelete: [DeletionItem] = []
     
     // Renaming state
     @State private var renamingItemID: UUID? = nil
     @FocusState private var focusedField: UUID?
     @State private var editedName: String = ""
     
-    private var hierarchicalContent: [HierarchicalContentItem] {
-        let allContent = store.hierarchicalContent(for: store.currentFolderID)
+    // This new property filters the store's reactive data source
+    private var filteredContent: [HierarchicalContentItem] {
+        let sourceContent = store.hierarchicalContent
         
         if searchText.isEmpty {
-            return allContent
+            return sourceContent
         } else {
             // Filter hierarchical content by search text
-            return filterHierarchicalContent(allContent, searchText: searchText)
+            return filterHierarchicalContent(sourceContent, searchText: searchText)
         }
     }
     
@@ -3407,6 +3764,7 @@ struct HierarchicalContentView: View {
             switch result {
             case .success(let urls):
                 if let library = libraryManager.currentLibrary, let context = libraryManager.viewContext {
+                    videoImporter.resetImportState()
                     showingImportProgress = true
                     Task {
                         await videoImporter.importFiles(urls, to: library, context: context)
@@ -3422,43 +3780,60 @@ struct HierarchicalContentView: View {
         .sheet(isPresented: $showingCreateFolder) {
             CreateFolderView(parentFolderID: store.currentFolderID)
         }
-        .onChange(of: videoImporter.isImporting) { _, isImporting in
-            if !isImporting && showingImportProgress {
-                NotificationCenter.default.post(name: .contentUpdated, object: nil)
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .contentUpdated)) { _ in
-            // Core Data change notifications now handled automatically
+        .sheet(isPresented: $showingDeletionConfirmation) {
+            DeletionConfirmationView(
+                items: itemsToDelete,
+                onConfirm: {
+                    Task {
+                        await confirmDeletion()
+                    }
+                },
+                onCancel: {
+                    cancelDeletion()
+                }
+            )
         }
         .onKeyPress { keyPress in
             // Return key triggers rename on single selected item
-            guard keyPress.key == .return, selectedItems.count == 1,
-                  let selectedID = selectedItems.first,
-                  let selectedItem = findItem(withID: selectedID, in: hierarchicalContent) else {
-                return .ignored
+            if keyPress.key == .return, selectedItems.count == 1,
+               let selectedID = selectedItems.first,
+               let selectedItem = findItem(withID: selectedID, in: filteredContent),
+               renamingItemID == nil {
+                startRenaming(selectedItem)
+                return .handled
+            }
+            // Delete key triggers deletion of selected items
+            else if (keyPress.key == .delete || keyPress.key == .deleteForward), !selectedItems.isEmpty {
+                deleteSelectedItems()
+                return .handled
             }
             
-            startRenaming(selectedItem)
-            return .handled
+            return .ignored
         }
     }
     
     @ViewBuilder
     private var contentView: some View {
-        if hierarchicalContent.isEmpty {
-            ContentUnavailableView(
-                "No Content", 
-                systemImage: "folder.badge.questionmark", 
-                description: Text(store.currentFolderID == nil ? "Import videos to get started" : "This folder is empty")
-            )
-        } else {
-            hierarchicalListView
+        VStack(spacing: 0) {
+            FolderNavigationHeader {
+                showingCreateFolder = true
+            }
+            
+            if filteredContent.isEmpty {
+                ContentUnavailableView(
+                    "No Content", 
+                    systemImage: "folder.badge.questionmark", 
+                    description: Text(store.currentFolderID == nil ? "Import videos to get started" : "This folder is empty")
+                )
+            } else {
+                hierarchicalListView
+            }
         }
     }
     
     @ViewBuilder 
     private var hierarchicalListView: some View {
-        List(hierarchicalContent, id: \.id, children: \.children, selection: $selectedItems) { item in
+        List(filteredContent, id: \.id, children: \.children, selection: $selectedItems) { item in
             HierarchicalContentRowView(
                 item: item,
                 renamingItemID: $renamingItemID,
@@ -3497,7 +3872,6 @@ struct HierarchicalContentView: View {
     
     @ViewBuilder
     private var macOSToolbarButtons: some View {
-        Button("Create Folder") { showingCreateFolder = true }
         Button("Import Videos") { showingImportPicker = true }
             .disabled(libraryManager.currentLibrary == nil)
         
@@ -3524,9 +3898,6 @@ struct HierarchicalContentView: View {
                 Label("Import Videos", systemImage: "square.and.arrow.down") 
             }
             .disabled(libraryManager.currentLibrary == nil)
-            Button { showingCreateFolder = true } label: { 
-                Label("New Folder", systemImage: "folder.badge.plus") 
-            }
         } label: {
             Image(systemName: "ellipsis.circle")
         }
@@ -3535,7 +3906,7 @@ struct HierarchicalContentView: View {
     // MARK: - Helper Functions
     
     private var videosWithoutThumbnails: [Video] {
-        return getAllVideos(from: hierarchicalContent).filter { $0.thumbnailPath == nil }
+        return getAllVideos(from: store.hierarchicalContent).filter { $0.thumbnailPath == nil }
     }
     
     private func getAllVideos(from items: [HierarchicalContentItem]) -> [Video] {
@@ -3567,15 +3938,18 @@ struct HierarchicalContentView: View {
     private func filterHierarchicalContent(_ items: [HierarchicalContentItem], searchText: String) -> [HierarchicalContentItem] {
         return items.compactMap { item in
             let nameMatches = item.name.localizedCaseInsensitiveContains(searchText)
-            let filteredChildren = item.children?.compactMap { child in
-                filterHierarchicalContent([child], searchText: searchText).first
-            }
             
+            // Recursively filter children
+            let filteredChildren = item.children.flatMap { filterHierarchicalContent($0, searchText: searchText) }
+            
+            // An item should be included if its name matches OR if it has children that match
             if nameMatches || (filteredChildren?.isEmpty == false) {
                 var filteredItem = item
+                // Assign the filtered children back to the item
                 filteredItem.children = filteredChildren
                 return filteredItem
             }
+            
             return nil
         }
     }
@@ -3585,7 +3959,7 @@ struct HierarchicalContentView: View {
         Task { @MainActor in
             // When a single video is selected, set it for detail view
             if newSelection.count == 1, let selectedID = newSelection.first {
-                if let selectedItem = findItem(withID: selectedID, in: hierarchicalContent),
+                if let selectedItem = findItem(withID: selectedID, in: filteredContent),
                    let video = selectedItem.video {
                     store.selectVideo(video)
                 }
@@ -3613,6 +3987,65 @@ struct HierarchicalContentView: View {
                 isGeneratingThumbnails = false
             }
         }
+    }
+    
+    // MARK: - Deletion Methods
+    
+    private func deleteSelectedItems() {
+        guard let context = libraryManager.viewContext else { return }
+        
+        var deletionItems: [DeletionItem] = []
+        
+        for itemID in selectedItems {
+            if let item = findItem(withID: itemID, in: filteredContent) {
+                switch item.contentType {
+                case .folder(let folder):
+                    deletionItems.append(DeletionItem(folder: folder))
+                case .video(let video):
+                    deletionItems.append(DeletionItem(video: video))
+                }
+            }
+        }
+        
+        // Check if any system folders are selected
+        let hasSystemFolder = deletionItems.contains { item in
+            if item.isFolder {
+                // Find the folder in Core Data and check if it's a system folder
+                let request = Folder.fetchRequest()
+                request.predicate = NSPredicate(format: "id == %@", item.id as CVarArg)
+                if let folder = try? context.fetch(request).first {
+                    return folder.isSmartFolder
+                }
+            }
+            return false
+        }
+        
+        if hasSystemFolder {
+            // Show error - cannot delete system folders
+            store.errorMessage = "Cannot delete system folders"
+            return
+        }
+        
+        itemsToDelete = deletionItems
+        showingDeletionConfirmation = true
+    }
+    
+    private func confirmDeletion() async {
+        let itemIDs = Set(itemsToDelete.map { $0.id })
+        let success = await store.deleteItems(itemIDs)
+        
+        await MainActor.run {
+            if success {
+                // Clear selection
+                selectedItems.removeAll()
+            }
+            cancelDeletion()
+        }
+    }
+    
+    private func cancelDeletion() {
+        itemsToDelete.removeAll()
+        showingDeletionConfirmation = false
     }
 }
 
@@ -3658,497 +4091,6 @@ struct MainView: View {
         }
         .navigationTitle(libraryManager.currentLibrary?.name ?? "Pangolin")
         .pangolinAlert(error: $libraryManager.error)
-    }
-}
-
-
-================================================================================
-
-File: Views/ContentListView.swift
-//
-//  ContentListView.swift
-//  Pangolin
-//
-//  Created by Matt Kevan on 16/08/2025.
-//
-
-import SwiftUI
-import CoreData
-import Combine
-
-// NOTE: The old 'extension Notification.Name' is REMOVED from this file.
-// The new name is now globally available from the 'NotificationNames.swift' file.
-
-struct ContentListView: View {
-    @EnvironmentObject private var store: FolderNavigationStore
-    let searchText: String
-    @AppStorage("contentViewMode") private var viewMode = ViewMode.grid
-    @State private var showingImportPicker = false
-    @State private var showingImportProgress = false
-    @StateObject private var videoImporter = VideoImporter()
-    @EnvironmentObject var libraryManager: LibraryManager
-    @State private var showingCreateFolder = false
-    @State private var isGeneratingThumbnails = false
-    
-    // Renaming state
-    @State private var renamingItemID: UUID? = nil
-    @FocusState private var focusedField: UUID?
-    @State private var editedName: String = ""
-    
-    @State private var selectedItems: Set<UUID> = []
-    #if os(iOS)
-    @Environment(\.editMode) private var editMode
-    #endif
-    
-    private var isSelectionMode: Bool {
-        #if os(iOS)
-        return editMode?.wrappedValue.isEditing ?? false
-        #else
-        return _isSelectionMode
-        #endif
-    }
-    @State private var _isSelectionMode = false
-
-    enum ViewMode: String, CaseIterable {
-        case grid = "Grid"
-        case list = "List"
-    }
-    
-    var content: [ContentType] {        
-        var allContent = store.content(for: store.currentFolderID)
-        if !searchText.isEmpty {
-            allContent = allContent.filter { item in
-                item.name.localizedCaseInsensitiveContains(searchText)
-            }
-        }
-        return allContent
-    }
-    
-    var videosWithoutThumbnails: [Video] {
-        return content.compactMap { item in
-            if case .video(let video) = item, video.thumbnailPath == nil {
-                return video
-            }
-            return nil
-        }
-    }
-    
-    var body: some View {
-        VStack(spacing: 0) {
-            FolderNavigationHeader {
-                showingCreateFolder = true
-            }
-            
-            contentView
-        }
-        .toolbar {
-            toolbarContent
-        }
-        .fileImporter(isPresented: $showingImportPicker, allowedContentTypes: [.movie, .video, .folder], allowsMultipleSelection: true) { result in
-            switch result {
-            case .success(let urls):
-                if let library = libraryManager.currentLibrary, let context = libraryManager.viewContext {
-                    showingImportProgress = true
-                    Task {
-                        await videoImporter.importFiles(urls, to: library, context: context)
-                    }
-                }
-            case .failure(let error):
-                print("Error importing files: \(error)")
-            }
-        }
-        .sheet(isPresented: $showingImportProgress) {
-            ImportProgressView(importer: videoImporter)
-        }
-        .onChange(of: videoImporter.isImporting) { _, isImporting in
-            if !isImporting && showingImportProgress {
-                // CORRECTED: This now uses the globally defined notification name.
-                // Apply this fix to all places where you post this notification.
-                NotificationCenter.default.post(name: .contentUpdated, object: nil)
-            }
-        }
-        .sheet(isPresented: $showingCreateFolder) {
-            CreateFolderView(parentFolderID: store.currentFolderID)
-        }
-        .onChange(of: focusedField) { _, newValue in
-            if newValue == nil {
-                // When focus is lost, clear renaming state if no commit happened
-                if renamingItemID != nil {
-                    renamingItemID = nil
-                }
-            }
-        }
-        .onKeyPress { keyPress in
-            // Trigger rename on Return key for the single selected item on macOS
-            guard keyPress.key == .return, selectedItems.count == 1,
-                  let selectedID = selectedItems.first, renamingItemID == nil,
-                  let selectedItem = content.first(where: { $0.id == selectedID }) else {
-                return .ignored
-            }
-            
-            // Initiate the rename process
-            editedName = selectedItem.name
-            renamingItemID = selectedID
-            
-            // Set focus programmatically
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s delay
-                focusedField = selectedID
-            }
-            return .handled
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .contentUpdated)) { _ in
-            // Core Data change notifications now handled automatically
-        }
-    }
-    
-    @ViewBuilder
-    private var contentView: some View {
-        if content.isEmpty {
-            ContentUnavailableView("No Content", systemImage: "folder.badge.questionmark", description: Text(store.currentFolderID == nil ? "Import videos to get started" : "This folder is empty"))
-        } else {
-            switch viewMode {
-            case .grid: gridView
-            case .list: listView
-            }
-        }
-    }
-    
-    @ViewBuilder
-    private var gridView: some View {
-        ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180))], spacing: 20) {
-                ForEach(content, id: \.id) { item in
-                    ContentRowView(
-                        content: item,
-                        isSelected: selectedItems.contains(item.id),
-                        showCheckbox: isSelectionMode,
-                        viewMode: .grid,
-                        selectedItems: $selectedItems,
-                        renamingItemID: $renamingItemID,
-                        focusedField: $focusedField,
-                        editedName: $editedName
-                    )
-                    .contentShape(Rectangle())
-                    .onTapGesture(count: 2) {
-                        handleGridDoubleClick(on: item)
-                    }
-                    .simultaneousGesture(
-                        TapGesture()
-                            .modifiers(.command)
-                            .onEnded {
-                                handleGridCommandClick(on: item)
-                            }
-                    )
-                    .simultaneousGesture(
-                        TapGesture()
-                            .modifiers(.shift)
-                            .onEnded {
-                                handleGridShiftClick(on: item)
-                            }
-                    )
-                    .onTapGesture { 
-                        handleGridTap(on: item)
-                    }
-                    .contextMenu {
-                        Button("Rename") {
-                            startRenaming(item)
-                        }
-                        Button("Delete", role: .destructive) {
-                            // TODO: Implement deletion
-                        }
-                    }
-                }
-            }
-            .padding()
-        }
-    }
-    
-    @ViewBuilder
-    private var listView: some View {
-        List(selection: $selectedItems) {
-            ForEach(content, id: \.id) { item in
-                ContentRowView(
-                    content: item,
-                    isSelected: selectedItems.contains(item.id),
-                    showCheckbox: isSelectionMode,
-                    viewMode: .list,
-                    selectedItems: $selectedItems,
-                    renamingItemID: $renamingItemID,
-                    focusedField: $focusedField,
-                    editedName: $editedName
-                )
-                .contentShape(Rectangle()) // Ensure entire row is clickable
-                .onTapGesture(count: 2) {
-                    // Handle double-click separately
-                    handleDoubleClick(on: item)
-                }
-                .contextMenu {
-                    Button("Rename") {
-                        startRenaming(item)
-                    }
-                    Button("Delete", role: .destructive) {
-                        // TODO: Implement deletion
-                    }
-                }
-                .tag(item.id)
-            }
-        }
-        .onChange(of: selectedItems) { _, newSelection in
-            handleSelectionChange(newSelection)
-        }
-        #if os(iOS)
-        .environment(\.editMode, editMode)
-        #endif
-    }
-    
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        #if os(macOS)
-        ToolbarItemGroup {
-            if _isSelectionMode {
-                Button("Done") {
-                    _isSelectionMode = false
-                    selectedItems.removeAll()
-                }
-            } else {
-                macOSNormalButtons
-            }
-        }
-        
-        // Show selection count when items are selected (following macOS Finder pattern)
-        ToolbarItem(placement: .status) {
-            if !selectedItems.isEmpty && !isSelectionMode {
-                Text("\(selectedItems.count) selected")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-        }
-        #else
-        ToolbarItem(placement: .navigationBarLeading) {
-            if !content.isEmpty {
-                EditButton()
-            }
-        }
-        ToolbarItemGroup(placement: .navigationBarTrailing) {
-            iOSMenu
-        }
-        #endif
-    }
-    
-    @ViewBuilder
-    private var macOSNormalButtons: some View {
-        Button("Create Folder") { showingCreateFolder = true }
-        Button("Import Videos") { showingImportPicker = true }
-            .disabled(libraryManager.currentLibrary == nil)
-        
-        if !videosWithoutThumbnails.isEmpty {
-            Button(isGeneratingThumbnails ? "Generating..." : "Generate Thumbnails") {
-                generateThumbnailsForVideos()
-            }
-            .disabled(isGeneratingThumbnails)
-        }
-        
-        Button("Select") { _isSelectionMode = true }
-            .disabled(content.isEmpty)
-        
-        Picker("View Mode", selection: $viewMode) {
-            ForEach(ViewMode.allCases, id: \.self) { mode in
-                Label(mode.rawValue, systemImage: mode == .grid ? "square.grid.2x2" : "list.bullet")
-                    .tag(mode)
-            }
-        }
-        .pickerStyle(.segmented)
-        
-        Menu {
-            ForEach(SortOption.allCases, id: \.self) { option in
-                Button(option.rawValue) { store.currentSortOption = option }
-            }
-        } label: {
-            Label("Sort", systemImage: "arrow.up.arrow.down")
-        }
-    }
-    
-    @ViewBuilder
-    private var iOSMenu: some View {
-        Menu {
-            Button { showingImportPicker = true } label: { Label("Import Videos", systemImage: "square.and.arrow.down") }
-                .disabled(libraryManager.currentLibrary == nil)
-            Button { showingCreateFolder = true } label: { Label("New Folder", systemImage: "folder.badge.plus") }
-            Picker("View Mode", selection: $viewMode) {
-                ForEach(ViewMode.allCases, id: \.self) { mode in
-                    Label(mode.rawValue, systemImage: mode == .grid ? "square.grid.2x2" : "list.bullet").tag(mode)
-                }
-            }
-            Menu {
-                ForEach(SortOption.allCases, id: \.self) { option in
-                    Button(option.rawValue) { store.currentSortOption = option }
-                }
-            } label: { Label("Sort", systemImage: "arrow.up.arrow.down") }
-        } label: {
-            Image(systemName: "ellipsis.circle")
-        }
-    }
-    
-    private func handleContentSelection(item: ContentType) {
-        if isSelectionMode {
-            if viewMode == .grid {
-                if selectedItems.contains(item.id) {
-                    selectedItems.remove(item.id)
-                } else {
-                    selectedItems.insert(item.id)
-                }
-            }
-        } else {
-            switch item {
-            case .folder(let folder):
-                store.navigateToFolder(folder.id!)
-            case .video(let video):
-                Task { @MainActor in
-                    store.selectVideo(video)
-                }
-            }
-            selectedItems.removeAll()
-        }
-    }
-    
-    /// Handles changes to SwiftUI List selection
-    private func handleSelectionChange(_ newSelection: Set<UUID>) {
-        guard !isSelectionMode else { return }
-        
-        // Defer the state update to avoid "Publishing changes from within view updates" error
-        Task { @MainActor in
-            // When a single video is selected, set it for detail view
-            if newSelection.count == 1, let selectedID = newSelection.first {
-                if let selectedItem = content.first(where: { $0.id == selectedID }),
-                   case .video(let video) = selectedItem {
-                    store.selectVideo(video)
-                }
-            } else {
-                // Clear selected video if not single selection
-                store.selectedVideo = nil
-            }
-        }
-    }
-    
-    /// Handles double-click for navigation
-    private func handleDoubleClick(on item: ContentType) {
-        guard !isSelectionMode else { return }
-        
-        switch item {
-        case .folder(let folder):
-            store.navigateToFolder(folder.id!)
-        case .video(let video):
-            Task { @MainActor in
-                store.selectVideo(video)
-            }
-        }
-    }
-    
-    /// Starts renaming for the given item
-    private func startRenaming(_ item: ContentType) {
-        editedName = item.name
-        renamingItemID = item.id
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s delay
-            focusedField = item.id
-        }
-    }
-    
-    /// Handles all tap gestures for grid view (which doesn't have built-in selection)
-    private func handleGridTap(on item: ContentType) {
-        if isSelectionMode {
-            if selectedItems.contains(item.id) {
-                selectedItems.remove(item.id)
-            } else {
-                selectedItems.insert(item.id)
-            }
-        } else {
-            // Check for rename on already selected item (slow-click)
-            if selectedItems.count == 1 && selectedItems.first == item.id && renamingItemID == nil {
-                // Delay to distinguish from double-click
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 300_000_000) // 0.3s delay
-                    if selectedItems.count == 1 && selectedItems.first == item.id {
-                        editedName = item.name
-                        renamingItemID = item.id
-                        try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s for focus
-                        focusedField = item.id
-                    }
-                }
-            } else {
-                // Normal selection - need to handle manually for grid view
-                selectedItems = [item.id]
-                renamingItemID = nil // Cancel any ongoing rename
-                
-                // For videos, also set the selected video for detail view
-                if case .video(let video) = item {
-                    Task { @MainActor in
-                        store.selectVideo(video)
-                    }
-                }
-            }
-        }
-    }
-    
-    /// Handles double-click for grid view navigation
-    private func handleGridDoubleClick(on item: ContentType) {
-        guard !isSelectionMode else { return }
-        
-        switch item {
-        case .folder(let folder):
-            store.navigateToFolder(folder.id!)
-        case .video(let video):
-            // Double-click should also select the video
-            Task { @MainActor in
-                store.selectVideo(video)
-            }
-        }
-    }
-    
-    /// Handles Command+Click for multi-selection
-    private func handleGridCommandClick(on item: ContentType) {
-        if selectedItems.contains(item.id) {
-            selectedItems.remove(item.id)
-        } else {
-            selectedItems.insert(item.id)
-        }
-    }
-    
-    /// Handles Shift+Click for range selection
-    private func handleGridShiftClick(on item: ContentType) {
-        // Find the last selected item's index by checking the content array
-        var lastSelectedIndex: Int?
-        for (index, contentItem) in content.enumerated() {
-            if selectedItems.contains(contentItem.id) {
-                lastSelectedIndex = index
-            }
-        }
-        
-        guard let lastIndex = lastSelectedIndex,
-              let currentIndex = content.firstIndex(where: { $0.id == item.id }) else {
-            // If no previous selection or can't find indices, just select this item
-            selectedItems = [item.id]
-            return
-        }
-        
-        let startIndex = min(lastIndex, currentIndex)
-        let endIndex = max(lastIndex, currentIndex)
-        
-        // Select all items in range
-        let rangeItems = content[startIndex...endIndex].map { $0.id }
-        selectedItems.formUnion(rangeItems)
-    }
-    
-    private func generateThumbnailsForVideos() {
-        guard let library = libraryManager.currentLibrary, let context = libraryManager.viewContext else { return }
-        isGeneratingThumbnails = true
-        Task {
-            await FileSystemManager.shared.generateMissingThumbnails(for: library, context: context)
-            await MainActor.run {
-                isGeneratingThumbnails = false
-            }
-        }
     }
 }
 
@@ -4204,6 +4146,123 @@ struct CreateFolderView: View {
     }
 }
 
+
+================================================================================
+
+File: Views/Components/SummaryView.swift
+import SwiftUI
+import NaturalLanguage
+
+struct SummaryView: View {
+    @ObservedObject var video: Video
+    @StateObject private var summaryService = SummaryService()
+    @EnvironmentObject var libraryManager: LibraryManager
+    
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Text("Summary")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    
+                    Spacer()
+                    
+                    if summaryService.isGenerating {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                    } else if video.transcriptSummary == nil {
+                        Button("Generate Summary") {
+                            Task {
+                                await summaryService.generateSummary(for: video, libraryManager: libraryManager)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(video.transcriptText == nil)
+                    } else {
+                        Button("Regenerate") {
+                            Task {
+                                await summaryService.generateSummary(for: video, libraryManager: libraryManager)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+                
+                if video.transcriptText == nil {
+                    ContentUnavailableView(
+                        "Transcript Required",
+                        systemImage: "doc.text.below.ecg",
+                        description: Text("A transcript is required to generate a summary. Go to the Transcript tab and generate one first.")
+                    )
+                } else if summaryService.isGenerating {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Image(systemName: "brain.head.profile")
+                                .foregroundColor(.purple)
+                            Text("Analyzing transcript...")
+                                .font(.headline)
+                        }
+                        
+                        ProgressView()
+                            .progressViewStyle(LinearProgressViewStyle())
+                        
+                        Text("Extracting key points and themes")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding()
+                    .background(Color(NSColor.controlBackgroundColor))
+                    .cornerRadius(8)
+                } else if let errorMessage = summaryService.errorMessage {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundColor(.orange)
+                            Text("Summary Error")
+                                .font(.headline)
+                        }
+                        
+                        Text(errorMessage)
+                            .font(.body)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding()
+                    .background(Color.orange.opacity(0.1))
+                    .cornerRadius(8)
+                } else if let summary = video.transcriptSummary {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Divider()
+                        
+                        ScrollView {
+                            Text(summary)
+                                .font(.body)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(maxHeight: 400)
+                        .padding()
+                        .background(Color(NSColor.textBackgroundColor))
+                        .cornerRadius(8)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                        )
+                    }
+                } else {
+                    ContentUnavailableView(
+                        "No Summary Available",
+                        systemImage: "doc.text.below.ecg",
+                        description: Text("Tap 'Generate Summary' to create a summary of this video's transcript.")
+                    )
+                }
+                
+                Spacer()
+            }
+            .padding()
+        }
+    }
+}
 
 ================================================================================
 
@@ -4300,6 +4359,35 @@ struct VideoControlsBar: View {
         formatter.unitsStyle = .positional
         formatter.zeroFormattingBehavior = .pad
         return formatter.string(from: time) ?? "00:00"
+    }
+}
+
+================================================================================
+
+File: Views/Components/VideoDetailTabView.swift
+import SwiftUI
+
+struct VideoDetailTabView: View {
+    @ObservedObject var video: Video
+    @EnvironmentObject var libraryManager: LibraryManager
+    
+    var body: some View {
+        TabView {
+            VideoInfoView(video: video)
+                .tabItem {
+                    Label("Info", systemImage: "info.circle")
+                }
+            
+            TranscriptionView(video: video)
+                .tabItem {
+                    Label("Transcript", systemImage: "doc.text")
+                }
+            
+            SummaryView(video: video)
+                .tabItem {
+                    Label("Summary", systemImage: "doc.text.below.ecg")
+                }
+        }
     }
 }
 
@@ -4407,313 +4495,361 @@ struct FolderNavigationHeader: View {
 
 ================================================================================
 
-File: Views/Components/FolderContentView.swift
+File: Views/Components/DeletionConfirmationView.swift
 //
-//  FolderContentView.swift
+//  DeletionConfirmationView.swift
 //  Pangolin
 //
-//  Created by Matt Kevan on 16/08/2025.
+//  Created by Claude on 21/08/2025.
 //
 
 import SwiftUI
-import CoreData
 
-struct FolderContentView: View {
-    @EnvironmentObject private var store: FolderNavigationStore
-    let searchText: String
-    @AppStorage("contentViewMode") private var viewMode = ViewMode.grid
-    @State private var showingImportPicker = false
-    @State private var showingImportProgress = false
-    @StateObject private var videoImporter = VideoImporter()
-    @EnvironmentObject var libraryManager: LibraryManager
-    @State private var showingCreateFolder = false
-    @State private var isGeneratingThumbnails = false
-    
-    // State for managing which item is being renamed and which field is focused.
-    @State private var renamingItemID: UUID? = nil
-    @FocusState private var focusedField: UUID?
-    @State private var editedName: String = ""
-
-    @State private var selectedItems: Set<UUID> = []
-    #if os(iOS)
-    @Environment(\.editMode) private var editMode
-    #endif
-    
-    private var isSelectionMode: Bool {
-        #if os(iOS)
-        return editMode?.wrappedValue.isEditing ?? false
-        #else
-        return _isSelectionMode
-        #endif
-    }
-    @State private var _isSelectionMode = false
-
-    enum ViewMode: String, CaseIterable {
-        case grid = "Grid"
-        case list = "List"
-    }
-    
-    var content: [ContentType] {
-        var allContent = store.content(for: store.currentFolderID)
-        if !searchText.isEmpty {
-            allContent = allContent.filter { item in
-                item.name.localizedCaseInsensitiveContains(searchText)
-            }
-        }
-        return allContent
-    }
-    
-    var videosWithoutThumbnails: [Video] {
-        return content.compactMap { item in
-            if case .video(let video) = item, video.thumbnailPath == nil {
-                return video
-            }
-            return nil
-        }
-    }
+struct DeletionConfirmationView: View {
+    let items: [DeletionItem]
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
     
     var body: some View {
-        contentView
-        .toolbar {
-            toolbarContent
+        VStack(alignment: .leading, spacing: 16) {
+            // Header
+            HStack {
+                Image(systemName: "trash")
+                    .foregroundColor(.red)
+                    .font(.title2)
+                
+                Text(title)
+                    .font(.headline)
+                    .fontWeight(.semibold)
+            }
+            
+            // Warning message
+            Text(message)
+                .font(.body)
+                .foregroundColor(.secondary)
+            
+            // Items list (if more than 1 item or if we want to show names)
+            if items.count > 1 || items.count == 1 {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Items to delete:")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(.secondary)
+                    
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 2) {
+                            ForEach(items.prefix(10), id: \.id) { item in
+                                HStack(spacing: 8) {
+                                    Image(systemName: item.isFolder ? "folder" : "play.rectangle")
+                                        .foregroundColor(item.isFolder ? .orange : .primary)
+                                        .font(.caption)
+                                    
+                                    Text(item.name)
+                                        .font(.caption)
+                                        .lineLimit(1)
+                                }
+                            }
+                            
+                            if items.count > 10 {
+                                Text("and \(items.count - 10) more...")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .italic()
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 150)
+                }
+                .padding(12)
+                .background(Color(NSColor.controlBackgroundColor))
+                .cornerRadius(8)
+            }
+            
+            // Buttons
+            HStack {
+                Spacer()
+                
+                Button("Cancel") {
+                    onCancel()
+                }
+                .keyboardShortcut(.escape)
+                
+                Button("Delete", role: .destructive) {
+                    onConfirm()
+                }
+                .keyboardShortcut(.return)
+            }
         }
-        .fileImporter(isPresented: $showingImportPicker, allowedContentTypes: [.movie, .video, .folder], allowsMultipleSelection: true) { result in
-            switch result {
-            case .success(let urls):
-                if let library = libraryManager.currentLibrary, let context = libraryManager.viewContext {
-                    showingImportProgress = true
-                    Task {
-                        await videoImporter.importFiles(urls, to: library, context: context)
+        .padding(20)
+        .frame(width: 400)
+        .background(Color(NSColor.windowBackgroundColor))
+        .cornerRadius(12)
+    }
+    
+    private var title: String {
+        if items.count == 1 {
+            return items.first!.isFolder ? "Delete Folder" : "Delete Video"
+        } else {
+            let folderCount = items.filter { $0.isFolder }.count
+            let videoCount = items.count - folderCount
+            
+            if folderCount > 0 && videoCount > 0 {
+                return "Delete \(items.count) Items"
+            } else if folderCount > 0 {
+                return "Delete \(folderCount) Folder\(folderCount == 1 ? "" : "s")"
+            } else {
+                return "Delete \(videoCount) Video\(videoCount == 1 ? "" : "s")"
+            }
+        }
+    }
+    
+    private var message: String {
+        let hasFolder = items.contains { $0.isFolder }
+        let hasVideo = items.contains { !$0.isFolder }
+        
+        if items.count == 1 {
+            if items.first!.isFolder {
+                return "This folder and all its contents will be permanently deleted from your library and removed from disk. This action cannot be undone."
+            } else {
+                return "This video will be permanently deleted from your library and removed from disk. This action cannot be undone."
+            }
+        } else {
+            var message = "These items will be permanently deleted from your library"
+            if hasFolder && hasVideo {
+                message += ". Folders and their contents will be removed from disk"
+            } else if hasFolder {
+                message += ". All folders and their contents will be removed from disk"
+            } else {
+                message += " and removed from disk"
+            }
+            message += ". This action cannot be undone."
+            return message
+        }
+    }
+}
+
+struct DeletionItem {
+    let id: UUID
+    let name: String
+    let isFolder: Bool
+    
+    init(folder: Folder) {
+        self.id = folder.id!
+        self.name = folder.name!
+        self.isFolder = true
+    }
+    
+    init(video: Video) {
+        self.id = video.id!
+        self.name = video.title!
+        self.isFolder = false
+    }
+    
+    init(id: UUID, name: String, isFolder: Bool) {
+        self.id = id
+        self.name = name
+        self.isFolder = isFolder
+    }
+}
+
+#Preview {
+    DeletionConfirmationView(
+        items: [
+            DeletionItem(id: UUID(), name: "Sample Folder", isFolder: true),
+            DeletionItem(id: UUID(), name: "Sample Video.mp4", isFolder: false)
+        ],
+        onConfirm: {},
+        onCancel: {}
+    )
+}
+
+================================================================================
+
+File: Views/Components/TranscriptionView.swift
+import SwiftUI
+import Speech
+
+struct TranscriptionView: View {
+    @ObservedObject var video: Video
+    @StateObject private var transcriptionService = SpeechTranscriptionService()
+    @EnvironmentObject var libraryManager: LibraryManager
+    
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Text("Transcript")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    
+                    Spacer()
+                    
+                    if transcriptionService.isTranscribing {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                    } else if video.transcriptText == nil {
+                        Button("Generate Transcript") {
+                            Task {
+                                await transcriptionService.transcribeVideo(video, libraryManager: libraryManager)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    } else {
+                        Button("Regenerate") {
+                            Task {
+                                await transcriptionService.transcribeVideo(video, libraryManager: libraryManager)
+                            }
+                        }
+                        .buttonStyle(.bordered)
                     }
                 }
-            case .failure(let error):
-                print("Error importing files: \(error)")
-            }
-        }
-        .sheet(isPresented: $showingImportProgress) {
-            ImportProgressView(importer: videoImporter)
-        }
-        .onChange(of: videoImporter.isImporting) { _, isImporting in
-            if !isImporting && showingImportProgress {
-                NotificationCenter.default.post(name: .contentUpdated, object: nil)
-            }
-        }
-        .sheet(isPresented: $showingCreateFolder) {
-            CreateFolderView(parentFolderID: store.currentFolderID)
-        }
-        // This onChange handles committing a rename when the user clicks away,
-        // causing the TextField to lose focus.
-        .onChange(of: focusedField) { _, newValue in
-            if newValue == nil {
-                // If focus is lost (e.g., user clicked elsewhere), and we were in the middle
-                // of a rename, we should end the rename process. The commit is handled
-                // by the `onSubmit` modifier in the ContentRowView's TextField.
-                renamingItemID = nil
-            }
-        }
-        .onKeyPress { keyPress in
-            // Trigger rename on Return key for the single selected item on macOS
-            guard keyPress.key == .return, selectedItems.count == 1,
-                  let selectedID = selectedItems.first else {
-                return .ignored
-            }
             
-            // Initiate the rename process
-            renamingItemID = selectedID
-            
-            // Programmatically set focus to the TextField
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s delay
-                focusedField = selectedID
-            }
-            return .handled
-        }
-    }
-    
-    @ViewBuilder
-    private var contentView: some View {
-        if content.isEmpty {
-            ContentUnavailableView("No Content", systemImage: "folder.badge.questionmark", description: Text(store.currentFolderID == nil ? "Import videos to get started" : "This folder is empty"))
-        } else {
-            switch viewMode {
-            case .grid: gridView
-            case .list: listView
-            }
-        }
-    }
-    
-    @ViewBuilder
-    private var gridView: some View {
-        ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180))], spacing: 20) {
-                ForEach(content, id: \.id) { item in
-                    ContentRowView(
-                        content: item,
-                        isSelected: selectedItems.contains(item.id),
-                        showCheckbox: isSelectionMode,
-                        viewMode: .grid,
-                        selectedItems: $selectedItems,
-                        renamingItemID: $renamingItemID,
-                        focusedField: $focusedField,
-                        editedName: $editedName
-                    )
-                    .contentShape(Rectangle())
-                    .onTapGesture { handleTap(on: item) }
+                if transcriptionService.isTranscribing {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Image(systemName: "waveform")
+                                .foregroundColor(.blue)
+                            Text("Transcribing audio...")
+                                .font(.headline)
+                        }
+                        
+                        ProgressView(value: transcriptionService.progress)
+                            .progressViewStyle(LinearProgressViewStyle())
+                        
+                        Text(transcriptionService.statusMessage)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding()
+                    .background(Color(NSColor.controlBackgroundColor))
+                    .cornerRadius(8)
                 }
+                
+                if let errorMessage = transcriptionService.errorMessage {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundColor(.orange)
+                            Text("Transcription Error")
+                                .font(.headline)
+                        }
+                        
+                        Text(errorMessage)
+                            .font(.body)
+                            .foregroundColor(.primary)
+                        
+                        // Show recovery suggestion if available
+                        if let error = parseTranscriptionError(from: errorMessage),
+                           let suggestion = error.recoverySuggestion {
+                            Divider()
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("💡 Suggestion:")
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                    .foregroundColor(.blue)
+                                
+                                Text(suggestion)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        
+                        HStack {
+                            Spacer()
+                            Button("Try Again") {
+                                Task {
+                                    await transcriptionService.transcribeVideo(video, libraryManager: libraryManager)
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                        }
+                    }
+                    .padding()
+                    .background(Color.orange.opacity(0.1))
+                    .cornerRadius(8)
+                }
+            
+                if let transcriptText = video.transcriptText {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            if let language = video.transcriptLanguage {
+                                Label(language, systemImage: "globe")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            Spacer()
+                            
+                            if let dateGenerated = video.transcriptDateGenerated {
+                                Text("Generated \(dateGenerated, formatter: DateFormatter.shortDate)")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        
+                        Divider()
+                        
+                        ScrollView {
+                            Text(transcriptText)
+                                .font(.body)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(maxHeight: 400)
+                        .padding()
+                        .background(Color(NSColor.textBackgroundColor))
+                        .cornerRadius(8)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                        )
+                    }
+                } else if !transcriptionService.isTranscribing && transcriptionService.errorMessage == nil {
+                    ContentUnavailableView(
+                        "No Transcript Available",
+                        systemImage: "doc.text",
+                        description: Text("Tap 'Generate Transcript' to create a transcript of this video's audio.")
+                    )
+                }
+                
+                Spacer()
             }
             .padding()
         }
     }
     
-    @ViewBuilder
-    private var listView: some View {
-        List(selection: $selectedItems) {
-            ForEach(content, id: \.id) { item in
-                ContentRowView(
-                    content: item,
-                    isSelected: selectedItems.contains(item.id),
-                    showCheckbox: isSelectionMode,
-                    viewMode: .list,
-                    selectedItems: $selectedItems,
-                    renamingItemID: $renamingItemID,
-                    focusedField: $focusedField,
-                    editedName: $editedName
-                )
-                .contentShape(Rectangle())
-                .onTapGesture { handleTap(on: item) }
-                .tag(item.id)
-            }
+    private func parseTranscriptionError(from message: String) -> TranscriptionError? {
+        // Simple parsing to extract error type from message
+        // In a real implementation, you might want to pass the actual error object
+        if message.contains("permission") {
+            return .permissionDenied
+        } else if message.contains("language") && message.contains("not supported") {
+            return .languageNotSupported(Locale.current)
+        } else if message.contains("SpeechTranscriber") && message.contains("not available") {
+            return .speechTranscriberNotAvailable
+        } else if message.contains("extract audio") {
+            return .audioExtractionFailed
+        } else if message.contains("locate the video file") {
+            return .videoFileNotFound
+        } else if message.contains("No speech was detected") {
+            return .noSpeechDetected
+        } else if message.contains("download") && message.contains("assets") {
+            return .assetInstallationFailed
         }
-        #if os(iOS)
-        .environment(\.editMode, editMode)
-        #endif
-    }
-    
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        #if os(macOS)
-        ToolbarItemGroup {
-            if _isSelectionMode {
-                Button("Done") {
-                    _isSelectionMode = false
-                    selectedItems.removeAll()
-                }
-            } else {
-                macOSNormalButtons
-            }
-        }
-        #else
-        ToolbarItem(placement: .navigationBarLeading) {
-            if !content.isEmpty {
-                EditButton()
-            }
-        }
-        ToolbarItemGroup(placement: .navigationBarTrailing) {
-            iOSMenu
-        }
-        #endif
-    }
-    
-    @ViewBuilder
-    private var macOSNormalButtons: some View {
-        Button("Create Folder") { showingCreateFolder = true }
-        Button("Import Videos") { showingImportPicker = true }
-            .disabled(libraryManager.currentLibrary == nil)
-        
-        if !videosWithoutThumbnails.isEmpty {
-            Button(isGeneratingThumbnails ? "Generating..." : "Generate Thumbnails") {
-                generateThumbnailsForVideos()
-            }
-            .disabled(isGeneratingThumbnails)
-        }
-        
-        Button("Select") { _isSelectionMode = true }
-            .disabled(content.isEmpty)
-        
-        Picker("View Mode", selection: $viewMode) {
-            ForEach(ViewMode.allCases, id: \.self) { mode in
-                Label(mode.rawValue, systemImage: mode == .grid ? "square.grid.2x2" : "list.bullet")
-                    .tag(mode)
-            }
-        }
-        .pickerStyle(.segmented)
-        
-        Menu {
-            ForEach(SortOption.allCases, id: \.self) { option in
-                Button(option.rawValue) { store.currentSortOption = option }
-            }
-        } label: {
-            Label("Sort", systemImage: "arrow.up.arrow.down")
-        }
-    }
-    
-    @ViewBuilder
-    private var iOSMenu: some View {
-        Menu {
-            Button { showingImportPicker = true } label: { Label("Import Videos", systemImage: "square.and.arrow.down") }
-                .disabled(libraryManager.currentLibrary == nil)
-            Button { showingCreateFolder = true } label: { Label("New Folder", systemImage: "folder.badge.plus") }
-            Picker("View Mode", selection: $viewMode) {
-                ForEach(ViewMode.allCases, id: \.self) { mode in
-                    Label(mode.rawValue, systemImage: mode == .grid ? "square.grid.2x2" : "list.bullet").tag(mode)
-                }
-            }
-            Menu {
-                ForEach(SortOption.allCases, id: \.self) { option in
-                    Button(option.rawValue) { store.currentSortOption = option }
-                }
-            } label: { Label("Sort", systemImage: "arrow.up.arrow.down") }
-        } label: {
-            Image(systemName: "ellipsis.circle")
-        }
-    }
-    
-    /// Handles all tap gestures to manage selection and trigger the Finder-style "slow-click" rename.
-    private func handleTap(on item: ContentType) {
-        if isSelectionMode {
-            if viewMode == .grid {
-                if selectedItems.contains(item.id) {
-                    selectedItems.remove(item.id)
-                } else {
-                    selectedItems.insert(item.id)
-                }
-            }
-        } else {
-            // If the item we are tapping is the only one selected, start renaming it.
-            if selectedItems.count == 1 && selectedItems.first == item.id {
-                editedName = item.name
-                renamingItemID = item.id
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s delay
-                    focusedField = item.id
-                }
-            } else {
-                // Otherwise, handle normal navigation/selection.
-                selectedItems = [item.id]
-                switch item {
-                case .folder(let folder):
-                    store.navigateToFolder(folder.id!)
-                case .video(let video):
-                    Task { @MainActor in
-                        store.selectVideo(video)
-                    }
-                }
-            }
-        }
-    }
-    
-    private func generateThumbnailsForVideos() {
-        guard let library = libraryManager.currentLibrary, let context = libraryManager.viewContext else { return }
-        isGeneratingThumbnails = true
-        Task {
-            await FileSystemManager.shared.generateMissingThumbnails(for: library, context: context)
-            await MainActor.run {
-                isGeneratingThumbnails = false
-            }
-        }
+        return nil
     }
 }
 
+extension DateFormatter {
+    static let shortDate: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .short
+        return formatter
+    }()
+}
 
 ================================================================================
 
@@ -4945,6 +5081,11 @@ struct HierarchicalContentRowView: View {
     @Binding var selectedItems: Set<UUID>
     
     @EnvironmentObject private var store: FolderNavigationStore
+    @Environment(\.managedObjectContext) private var viewContext
+    
+    // Add state to prevent double-commits on focus loss
+    @State private var shouldCommitOnDisappear = false
+    @State private var showingDeletionConfirmation = false
     
     var body: some View {
         HStack(spacing: 12) {
@@ -4970,12 +5111,25 @@ struct HierarchicalContentRowView: View {
                 TextField("Name", text: $editedName)
                     .textFieldStyle(.plain)
                     .focused($focusedField, equals: item.id)
+                    .onAppear {
+                        editedName = item.name
+                        shouldCommitOnDisappear = true
+                    }
                     .onSubmit {
-                        commitRename()
+                        shouldCommitOnDisappear = false
+                        // Use a Task to call the new async function
+                        Task { await commitRename() }
                     }
                     .onKeyPress(.escape) {
+                        shouldCommitOnDisappear = false
                         cancelRename()
                         return .handled
+                    }
+                    .onChange(of: focusedField) { oldValue, newValue in
+                        if oldValue == item.id && newValue != item.id && shouldCommitOnDisappear {
+                            // Use a Task here as well
+                            Task { await commitRename() }
+                        }
                     }
             } else {
                 Text(item.name)
@@ -5063,24 +5217,33 @@ struct HierarchicalContentRowView: View {
         }
     }
     
-    private func commitRename() {
+    private func commitRename() async {
+        shouldCommitOnDisappear = false
+
         guard let renamingID = renamingItemID,
-              renamingID == item.id,
-              !editedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            cancelRename()
+              renamingID == item.id else {
+            await MainActor.run { cancelRename() }
             return
         }
         
-        Task {
-            await store.renameItem(id: item.id, to: editedName)
-            await MainActor.run {
-                renamingItemID = nil
-                focusedField = nil
-            }
+        let trimmedName = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty && trimmedName != item.name else {
+            await MainActor.run { cancelRename() }
+            return
+        }
+        
+        // ❗ KEY CHANGE: Await the save operation BEFORE updating the local UI state.
+        await store.renameItem(id: item.id, to: trimmedName)
+        
+        // This now runs only AFTER the save is complete.
+        await MainActor.run {
+            renamingItemID = nil
+            focusedField = nil
         }
     }
     
     private func cancelRename() {
+        shouldCommitOnDisappear = false
         renamingItemID = nil
         focusedField = nil
         editedName = ""
@@ -5102,8 +5265,6 @@ struct HierarchicalContentRowView: View {
         return true
     }
 }
-
-
 
 ================================================================================
 
@@ -5137,8 +5298,6 @@ struct ContentRowView: View {
     }
 
     private var dragPayload: ContentTransfer {
-        // If the dragged item is part of a larger selection, drag all selected items.
-        // Otherwise, just drag the single item.
         if selectedItems.contains(content.id) {
             return ContentTransfer(itemIDs: Array(selectedItems))
         } else {
@@ -5280,7 +5439,6 @@ struct ContentRowView: View {
         )
     }
     
-    /// A view that conditionally shows a `Text` label or a `TextField` for renaming.
     @ViewBuilder
     private var nameEditorView: some View {
         if renamingItemID == content.id {
@@ -5291,8 +5449,9 @@ struct ContentRowView: View {
                     shouldCommitOnDisappear = true
                 }
                 .onSubmit {
-                    shouldCommitOnDisappear = false // Prevent double commit
-                    commitRename()
+                    shouldCommitOnDisappear = false
+                    // ✅ Call async function from a Task
+                    Task { await commitRename() }
                 }
                 .onKeyPress { keyPress in
                     if keyPress.key == .escape {
@@ -5303,17 +5462,15 @@ struct ContentRowView: View {
                     return .ignored
                 }
                 .onChange(of: focusedField) { oldValue, newValue in
-                    // Detect when THIS TextField loses focus
                     if oldValue == content.id && newValue != content.id && shouldCommitOnDisappear {
-                        print("🎯 FOCUS: ContentRow TextField \(content.id) lost focus (old: \(oldValue?.uuidString ?? "nil") -> new: \(newValue?.uuidString ?? "nil")), committing rename")
-                        commitRename()
+                        // ✅ Call async function from a Task
+                        Task { await commitRename() }
                     }
                 }
         } else {
             Text(content.name)
         }
     }
-    
     
     @ViewBuilder
     private var contentIcon: some View {
@@ -5341,57 +5498,47 @@ struct ContentRowView: View {
 
     // MARK: - Renaming Logic
 
-    /// Initiates the renaming process for this item.
     private func startRenaming() {
         editedName = content.name
         renamingItemID = content.id
-        // Set focus after a brief delay to ensure TextField is rendered
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+            try? await Task.sleep(nanoseconds: 100_000_000)
             focusedField = content.id
         }
     }
     
-    /// Commits the rename operation and updates the store.
-    private func commitRename() {
-        print("🔧 UI: commitRename called for '\(content.name)' -> '\(editedName)'")
-        shouldCommitOnDisappear = false // Prevent further commits
-        guard let itemID = renamingItemID, itemID == content.id else { 
-            print("❌ UI: Guard failed - renamingItemID: \(renamingItemID?.uuidString ?? "nil"), content.id: \(content.id)")
-            return 
+    // ✅ Make the function async
+    private func commitRename() async {
+        shouldCommitOnDisappear = false
+        
+        guard let itemID = renamingItemID, itemID == content.id else {
+            await MainActor.run { cancelRename() }
+            return
         }
         
         let trimmedName = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty && trimmedName != content.name else {
-            // Cancel rename if name is empty or unchanged
-            print("❌ UI: Name unchanged or empty - '\(trimmedName)' vs '\(content.name)'")
-            cancelRename()
+            await MainActor.run { cancelRename() }
             return
         }
         
-        print("🚀 UI: About to call store.renameItem")
+        // ✅ Await the store operation before updating local state
+        await store.renameItem(id: itemID, to: trimmedName)
         
-        // Perform rename operation on background queue to avoid publishing changes during view update
-        Task {
-            await store.renameItem(id: itemID, to: trimmedName)
-            await MainActor.run {
-                renamingItemID = nil
-                focusedField = nil
-            }
+        // ✅ Now update local state after the save is complete
+        await MainActor.run {
+            renamingItemID = nil
+            focusedField = nil
         }
     }
     
-    /// Cancels the rename operation without saving.
     private func cancelRename() {
-        editedName = content.name // Reset to original name
+        editedName = content.name
         shouldCommitOnDisappear = false
         renamingItemID = nil
         focusedField = nil
     }
-
-
 }
-
 
 ================================================================================
 
@@ -5488,9 +5635,13 @@ struct VideoInfoView: View {
     }
 
     private func toggleFavorite() {
+        print("🧠 VIDEO: Toggling favorite status for '\(video.title ?? "Unknown")' to \(!video.isFavorite)")
         video.isFavorite.toggle()
+        print("🧠 VIDEO: isFavorite is now \(video.isFavorite)")
+        
         Task {
             await libraryManager.save()
+            print("🧠 VIDEO: Save completed for favorite toggle")
         }
     }
 }
@@ -5661,7 +5812,7 @@ struct LibraryWelcomeView: View {
                         
                         ForEach(libraryManager.recentLibraries.prefix(3)) { library in
                             Button(action: {
-                                Task {
+                                Task { @MainActor in
                                     try? await libraryManager.openLibrary(at: library.path)
                                 }
                             }) {
@@ -5688,6 +5839,673 @@ struct LibraryWelcomeView: View {
     }
 }
 
+
+================================================================================
+
+File: Services/SpeechTranscriptionService.swift
+import Foundation
+import Speech
+import AVFoundation
+import NaturalLanguage
+
+@MainActor
+class SpeechTranscriptionService: ObservableObject {
+    @Published var isTranscribing = false
+    @Published var progress: Double = 0.0
+    @Published var statusMessage = ""
+    @Published var errorMessage: String?
+    
+    // iOS 26.0+ properties
+    private var _currentAnalyzer: Any?
+    
+    func transcribeVideo(_ video: Video, libraryManager: LibraryManager) async {
+        guard !isTranscribing else { return }
+        
+        isTranscribing = true
+        errorMessage = nil
+        progress = 0.0
+        statusMessage = "Preparing transcription..."
+        
+        do {
+            // Step 1: Check permissions
+            statusMessage = "Checking speech recognition permissions..."
+            try await requestSpeechRecognitionPermission()
+            progress = 0.1
+            
+            // Step 2: Extract audio from video
+            statusMessage = "Extracting audio from video..."
+            let audioFile = try await extractAudioFromVideo(video)
+            progress = 0.2
+            
+            // Step 3: Detect language 
+            statusMessage = "Detecting language..."
+            let detectedLocale = await detectLanguage(from: audioFile, video: video)
+            progress = 0.3
+            
+            // Step 4: Perform transcription using available API
+            statusMessage = "Transcribing audio..."
+            let transcriptText: String
+            
+            transcriptText = try await performModernTranscription(audioFile: audioFile, locale: detectedLocale)
+            
+            progress = 0.9
+            
+            // Step 7: Save results
+            statusMessage = "Saving transcript..."
+            await saveTranscriptionResults(
+                video: video,
+                transcriptText: transcriptText,
+                language: detectedLocale.identifier,
+                libraryManager: libraryManager
+            )
+            progress = 1.0
+            statusMessage = "Transcription completed!"
+            
+            // Clean up temporary audio file
+            try? FileManager.default.removeItem(at: audioFile)
+            
+        } catch {
+            errorMessage = "Transcription failed: \(error.localizedDescription)"
+            print("🚨 Transcription error: \(error)")
+        }
+        
+        isTranscribing = false
+    }
+    
+    private func requestSpeechRecognitionPermission() async throws {
+        let authorizationStatus = SFSpeechRecognizer.authorizationStatus()
+        
+        switch authorizationStatus {
+        case .authorized:
+            return
+        case .notDetermined:
+            return try await withCheckedThrowingContinuation { continuation in
+                SFSpeechRecognizer.requestAuthorization { status in
+                    switch status {
+                    case .authorized:
+                        continuation.resume()
+                    case .denied, .restricted, .notDetermined:
+                        continuation.resume(throwing: TranscriptionError.permissionDenied)
+                    @unknown default:
+                        continuation.resume(throwing: TranscriptionError.permissionDenied)
+                    }
+                }
+            }
+        case .denied, .restricted:
+            throw TranscriptionError.permissionDenied
+        @unknown default:
+            throw TranscriptionError.permissionDenied
+        }
+    }
+    
+    private func extractAudioFromVideo(_ video: Video) async throws -> URL {
+        let videoURL = try video.getFileURL()
+        let tempAudioURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(video.id!.uuidString)
+            .appendingPathExtension("m4a")
+        
+        let asset = AVURLAsset(url: videoURL)
+        
+        guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
+            throw TranscriptionError.audioExtractionFailed
+        }
+        
+        exportSession.outputURL = tempAudioURL
+        exportSession.outputFileType = .m4a
+        
+        return try await withCheckedThrowingContinuation { [weak exportSession] continuation in
+            guard let session = exportSession else {
+                continuation.resume(throwing: TranscriptionError.audioExtractionFailed)
+                return
+            }
+            
+            // Use export session
+            session.exportAsynchronously {
+                switch session.status {
+                case .completed:
+                    continuation.resume(returning: tempAudioURL)
+                case .failed, .cancelled:
+                    continuation.resume(throwing: TranscriptionError.audioExtractionFailed)
+                default:
+                    continuation.resume(throwing: TranscriptionError.audioExtractionFailed)
+                }
+            }
+        }
+    }
+    
+    private func detectLanguage(from audioURL: URL, video: Video) async -> Locale {
+        // First, try to detect language from existing subtitles
+        if let subtitles = video.subtitles as? Set<Subtitle>,
+           let firstSubtitle = subtitles.first,
+           let language = firstSubtitle.language {
+            return Locale(identifier: language)
+        }
+        
+        // Try audio-based language detection using Speech Recognition
+        do {
+            let detectedLocale = try await detectLanguageFromAudio(audioURL)
+            if detectedLocale != nil {
+                return detectedLocale!
+            }
+        } catch {
+            print("🚨 Language detection failed: \(error)")
+        }
+        
+        // Fallback to system locale
+        return Locale.current
+    }
+    
+    private func detectLanguageFromAudio(_ audioURL: URL) async throws -> Locale? {
+        // Extract a small sample from the beginning for language detection
+        let sampleURL = try await extractAudioSample(from: audioURL, duration: 10.0)
+        defer { try? FileManager.default.removeItem(at: sampleURL) }
+        
+        // Get list of supported locales for speech recognition
+        let supportedLocales = SpeechRecognizer.supportedLocales()
+        
+        // Try detection with the most common languages first
+        let commonLanguages = ["en-US", "es-ES", "fr-FR", "de-DE", "it-IT", "pt-BR", "ja-JP", "ko-KR", "zh-CN"]
+        
+        for languageCode in commonLanguages {
+            if let locale = supportedLocales.first(where: { $0.identifier.hasPrefix(languageCode.prefix(2)) }) {
+                if let confidence = try await testLanguageConfidence(audioURL: sampleURL, locale: locale) {
+                    if confidence > 0.6 { // High confidence threshold
+                        print("🎯 Detected language: \(locale.identifier) with confidence: \(confidence)")
+                        return locale
+                    }
+                }
+            }
+        }
+        
+        return nil
+    }
+    
+    private func extractAudioSample(from audioURL: URL, duration: TimeInterval) async throws -> URL {
+        let asset = AVURLAsset(url: audioURL)
+        let tempSampleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("m4a")
+        
+        guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
+            throw TranscriptionError.audioExtractionFailed
+        }
+        
+        exportSession.outputURL = tempSampleURL
+        exportSession.outputFileType = .m4a
+        exportSession.timeRange = CMTimeRange(start: .zero, duration: CMTime(seconds: duration, preferredTimescale: 600))
+        
+        return try await withCheckedThrowingContinuation { continuation in
+            exportSession.exportAsynchronously {
+                switch exportSession.status {
+                case .completed:
+                    continuation.resume(returning: tempSampleURL)
+                case .failed:
+                    continuation.resume(throwing: exportSession.error ?? TranscriptionError.audioExtractionFailed)
+                case .cancelled:
+                    continuation.resume(throwing: TranscriptionError.cancelled)
+                default:
+                    continuation.resume(throwing: TranscriptionError.audioExtractionFailed)
+                }
+            }
+        }
+    }
+    
+    private func testLanguageConfidence(audioURL: URL, locale: Locale) async throws -> Double? {
+        guard SpeechRecognizer.authorizationStatus() == .authorized else { return nil }
+        
+        let recognizer = SpeechRecognizer(locale: locale)
+        guard recognizer.isAvailable else { return nil }
+        
+        let request = SFSpeechURLRecognitionRequest(url: audioURL)
+        request.shouldReportPartialResults = false
+        request.taskHint = .dictation
+        
+        return try await withCheckedThrowingContinuation { continuation in
+            recognizer.recognitionTask(with: request) { result, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                
+                if let result = result, result.isFinal {
+                    let confidence = result.bestTranscription.segments.isEmpty ? 0.0 : 
+                        result.bestTranscription.segments.map { $0.confidence }.reduce(0, +) / Double(result.bestTranscription.segments.count)
+                    continuation.resume(returning: confidence)
+                }
+            }
+        }
+    }
+    
+    // MARK: - iOS 26.0+ Modern Implementation
+    private func performModernTranscription(audioFile: URL, locale: Locale) async throws -> String {
+        // iOS 26.0 beta implementation using modern SpeechTranscriber APIs
+        
+        statusMessage = "Setting up modern speech transcriber..."
+        
+        // Step 1: Create transcriber with enhanced configuration for better quality
+        let transcriber = SpeechTranscriber(locale: locale,
+                                           transcriptionOptions: [.enablePunctuation, .enableCapitalization],
+                                           reportingOptions: [.includeWordConfidences, .includeTimestamps],
+                                           attributeOptions: [.includePartialResults])
+        progress = 0.3
+        
+        // Step 2: Ensure model is available
+        statusMessage = "Ensuring speech model availability..."
+        try await ensureModel(transcriber: transcriber, locale: locale)
+        progress = 0.4
+        
+        // Step 3: Get the best available audio format
+        guard let audioFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
+            throw TranscriptionError.audioExtractionFailed
+        }
+        
+        // Step 4: Create the analyzer
+        let analyzer = SpeechAnalyzer(modules: [transcriber])
+        _currentAnalyzer = analyzer
+        progress = 0.5
+        
+        // Step 5: Set up input stream
+        let (inputSequence, inputBuilder) = AsyncStream<AnalyzerInput>.makeStream()
+        
+        // Step 6: Collect results
+        var transcriptParts: [String] = []
+        let resultsTask = Task {
+            do {
+                for try await result in transcriber.results {
+                    let text = String(result.text.characters)
+                    if result.isFinal && !text.isEmpty {
+                        transcriptParts.append(text)
+                        await MainActor.run {
+                            self.progress = min(0.9, 0.5 + Double(transcriptParts.count) * 0.05)
+                        }
+                    }
+                }
+            } catch {
+                throw error
+            }
+        }
+        
+        // Step 7: Start analysis
+        try await analyzer.start(inputSequence: inputSequence)
+        statusMessage = "Transcribing audio..."
+        
+        // Step 8: Process audio file
+        do {
+            let audioFile = try AVAudioFile(forReading: audioFile)
+            
+            // Convert and stream audio data
+            let bufferSize: AVAudioFrameCount = 4096
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: audioFile.processingFormat, frameCapacity: bufferSize) else {
+                throw TranscriptionError.audioExtractionFailed
+            }
+            
+            while audioFile.framePosition < audioFile.length {
+                try audioFile.read(into: buffer)
+                
+                if buffer.frameLength > 0 {
+                    // Convert buffer to analyzer format if needed
+                    let convertedBuffer: AVAudioPCMBuffer
+                    if buffer.format == audioFormat {
+                        convertedBuffer = buffer
+                    } else {
+                        // Create converter if formats don't match
+                        guard let converter = AVAudioConverter(from: buffer.format, to: audioFormat) else {
+                            throw TranscriptionError.audioExtractionFailed
+                        }
+                        
+                        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: audioFormat, frameCapacity: bufferSize) else {
+                            throw TranscriptionError.audioExtractionFailed
+                        }
+                        
+                        var error: NSError?
+                        let status = converter.convert(to: outputBuffer, error: &error) { _, outStatus in
+                            outStatus.pointee = AVAudioConverterInputStatus.haveData
+                            return buffer
+                        }
+                        
+                        if status == .error {
+                            throw TranscriptionError.audioExtractionFailed
+                        }
+                        
+                        convertedBuffer = outputBuffer
+                    }
+                    
+                    let input = AnalyzerInput(buffer: convertedBuffer)
+                    inputBuilder.yield(input)
+                }
+            }
+            
+            // Step 9: Finish processing
+            inputBuilder.finish()
+            try await analyzer.finalizeAndFinishThroughEndOfInput()
+            
+            // Wait for results
+            try await resultsTask.value
+            
+            _currentAnalyzer = nil
+            
+            let rawTranscript = transcriptParts.joined(separator: " ").trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+            
+            if rawTranscript.isEmpty {
+                throw TranscriptionError.noSpeechDetected
+            }
+            
+            // Post-process and validate transcript quality
+            let fullTranscript = try cleanupTranscript(rawTranscript)
+            
+            if !isTranscriptQualityAcceptable(fullTranscript) {
+                throw TranscriptionError.poorQualityTranscription
+            }
+            
+            print("📊 Modern transcription completed successfully with \(transcriptParts.count) parts")
+            return fullTranscript
+            
+        } catch {
+            resultsTask.cancel()
+            _currentAnalyzer = nil
+            throw error
+        }
+    }
+    
+    // MARK: - Model Management
+    private func ensureModel(transcriber: SpeechTranscriber, locale: Locale) async throws {
+        guard await supported(locale: locale) else {
+            throw TranscriptionError.languageNotSupported(locale)
+        }
+        
+        if await installed(locale: locale) {
+            return
+        } else {
+            try await downloadIfNeeded(for: transcriber)
+        }
+    }
+    
+    private func supported(locale: Locale) async -> Bool {
+        let supported = await SpeechTranscriber.supportedLocales
+        return supported.map { $0.identifier(.bcp47) }.contains(locale.identifier(.bcp47))
+    }
+
+    private func installed(locale: Locale) async -> Bool {
+        let installed = await Set(SpeechTranscriber.installedLocales)
+        return installed.map { $0.identifier(.bcp47) }.contains(locale.identifier(.bcp47))
+    }
+
+    private func downloadIfNeeded(for module: SpeechTranscriber) async throws {
+        statusMessage = "Downloading speech models..."
+        if let downloader = try await AssetInventory.assetInstallationRequest(supporting: [module]) {
+            try await downloader.downloadAndInstall()
+        }
+    }
+    
+    
+    private func saveTranscriptionResults(
+        video: Video,
+        transcriptText: String,
+        language: String,
+        libraryManager: LibraryManager
+    ) async {
+        video.transcriptText = transcriptText
+        video.transcriptLanguage = language
+        video.transcriptStatus = "completed"
+        video.transcriptDateGenerated = Date()
+        
+        await libraryManager.save()
+    }
+    
+    func cancelTranscription() {
+        if let analyzer = _currentAnalyzer as? SpeechAnalyzer {
+            Task {
+                await analyzer.cancelAndFinishNow()
+            }
+        }
+        _currentAnalyzer = nil
+        
+        isTranscribing = false
+        statusMessage = "Transcription cancelled"
+    }
+}
+
+// MARK: - Video Extension
+extension Video {
+    func getFileURL() throws -> URL {
+        guard let fileURL = fileURL else {
+            throw TranscriptionError.videoFileNotFound
+        }
+        
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            throw TranscriptionError.videoFileNotFound
+        }
+        
+        return fileURL
+    }
+}
+
+// MARK: - Error Types
+enum TranscriptionError: LocalizedError {
+    case permissionDenied
+    case languageNotSupported(Locale)
+    case speechTranscriberNotAvailable
+    case audioExtractionFailed
+    case videoFileNotFound
+    case noSpeechDetected
+    case assetInstallationFailed
+    case analysisSessionFailed
+    
+    var errorDescription: String? {
+        switch self {
+        case .permissionDenied:
+            return "Speech recognition permission is required to transcribe videos."
+        case .languageNotSupported(let locale):
+            return "The detected language (\(locale.localizedString(forIdentifier: locale.identifier) ?? "Unknown")) is not supported for transcription."
+        case .speechTranscriberNotAvailable:
+            return "SpeechTranscriber is not available on this device. This feature requires iOS 26.0+ with compatible hardware."
+        case .audioExtractionFailed:
+            return "Failed to extract audio from the video file. Please ensure the video format is supported."
+        case .videoFileNotFound:
+            return "Could not locate the video file for transcription. The file may have been moved or deleted."
+        case .noSpeechDetected:
+            return "No speech was detected in the audio. The video may contain only music, ambient sounds, or very quiet speech."
+        case .assetInstallationFailed:
+            return "Failed to download required speech recognition assets. Please check your internet connection and try again."
+        case .analysisSessionFailed:
+            return "Speech analysis session failed unexpectedly. Please try again."
+        }
+    }
+    
+    var recoverySuggestion: String? {
+        switch self {
+        case .permissionDenied:
+            return "Go to Settings > Privacy & Security > Speech Recognition and enable access for Pangolin."
+        case .languageNotSupported:
+            return "Try changing your device language to a supported language, or manually select a different language for transcription."
+        case .speechTranscriberNotAvailable:
+            return "Update to iOS 26.0+ and ensure your device supports advanced speech recognition features."
+        case .audioExtractionFailed:
+            return "Try converting your video to a supported format (MP4, MOV, M4V) and try again."
+        case .videoFileNotFound:
+            return "Re-import the video file to your library and try transcription again."
+        case .noSpeechDetected:
+            return "Ensure the video contains clear speech and increase the device volume to maximum."
+        case .assetInstallationFailed:
+            return "Check your internet connection and ensure you have sufficient storage space for language assets."
+        case .analysisSessionFailed:
+            return "Close other apps to free up memory and try the transcription again."
+        }
+    }
+}
+
+================================================================================
+
+File: Services/SummaryService.swift
+import Foundation
+import NaturalLanguage
+
+@MainActor
+class SummaryService: ObservableObject {
+    @Published var isGenerating = false
+    @Published var errorMessage: String?
+    
+    func generateSummary(for video: Video, libraryManager: LibraryManager) async {
+        guard !isGenerating else { return }
+        guard let transcriptText = video.transcriptText, !transcriptText.isEmpty else {
+            errorMessage = "No transcript available to summarize"
+            return
+        }
+        
+        isGenerating = true
+        errorMessage = nil
+        
+        do {
+            let summary = await generateTextSummary(from: transcriptText)
+            
+            // Save the summary
+            video.transcriptSummary = summary
+            await libraryManager.save()
+            
+        } catch {
+            errorMessage = "Failed to generate summary: \(error.localizedDescription)"
+            print("🚨 Summary generation error: \(error)")
+        }
+        
+        isGenerating = false
+    }
+    
+    private func generateTextSummary(from text: String) async -> String {
+        // Split text into sentences
+        let sentences = extractSentences(from: text)
+        
+        guard !sentences.isEmpty else {
+            return "No content available to summarize."
+        }
+        
+        // If the text is short, return it as-is with basic formatting
+        if sentences.count <= 5 {
+            return formatShortSummary(sentences)
+        }
+        
+        // For longer texts, extract key sentences
+        let keyPoints = extractKeyPoints(from: sentences)
+        let summary = formatSummary(keyPoints)
+        
+        return summary
+    }
+    
+    private func extractSentences(from text: String) -> [String] {
+        let tokenizer = NLTokenizer(unit: .sentence)
+        tokenizer.string = text
+        
+        var sentences: [String] = []
+        tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { tokenRange, _ in
+            let sentence = String(text[tokenRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !sentence.isEmpty && sentence.count > 10 { // Filter out very short fragments
+                sentences.append(sentence)
+            }
+            return true
+        }
+        
+        return sentences
+    }
+    
+    private func extractKeyPoints(from sentences: [String]) -> [String] {
+        // Simple extraction algorithm:
+        // 1. Score sentences based on word frequency and position
+        // 2. Select top sentences up to a reasonable limit
+        
+        let wordFrequency = calculateWordFrequency(from: sentences)
+        let scoredSentences = sentences.enumerated().map { (index, sentence) in
+            let score = scoreSentence(sentence, wordFrequency: wordFrequency, position: index, totalSentences: sentences.count)
+            return (sentence: sentence, score: score)
+        }
+        
+        // Sort by score and take top sentences (up to 30% of original, minimum 3, maximum 10)
+        let targetCount = max(3, min(10, sentences.count / 3))
+        let topSentences = scoredSentences
+            .sorted { $0.score > $1.score }
+            .prefix(targetCount)
+            .sorted { sentences.firstIndex(of: $0.sentence) ?? 0 < sentences.firstIndex(of: $1.sentence) ?? 0 }
+            .map { $0.sentence }
+        
+        return topSentences
+    }
+    
+    private func calculateWordFrequency(from sentences: [String]) -> [String: Int] {
+        var frequency: [String: Int] = [:]
+        let text = sentences.joined(separator: " ")
+        
+        let tokenizer = NLTokenizer(unit: .word)
+        tokenizer.string = text
+        
+        // Common stop words to filter out
+        let stopWords = Set(["the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by", "is", "are", "was", "were", "be", "been", "have", "has", "had", "do", "does", "did", "will", "would", "could", "should", "may", "might", "can", "this", "that", "these", "those", "i", "you", "he", "she", "it", "we", "they", "me", "him", "her", "us", "them"])
+        
+        tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { tokenRange, _ in
+            let word = String(text[tokenRange]).lowercased()
+            if word.count > 2 && !stopWords.contains(word) && word.rangeOfCharacter(from: CharacterSet.letters.inverted) == nil {
+                frequency[word, default: 0] += 1
+            }
+            return true
+        }
+        
+        return frequency
+    }
+    
+    private func scoreSentence(_ sentence: String, wordFrequency: [String: Int], position: Int, totalSentences: Int) -> Double {
+        let tokenizer = NLTokenizer(unit: .word)
+        tokenizer.string = sentence
+        
+        var totalScore = 0.0
+        var wordCount = 0
+        
+        tokenizer.enumerateTokens(in: sentence.startIndex..<sentence.endIndex) { tokenRange, _ in
+            let word = String(sentence[tokenRange]).lowercased()
+            if let freq = wordFrequency[word] {
+                totalScore += Double(freq)
+                wordCount += 1
+            }
+            return true
+        }
+        
+        let averageScore = wordCount > 0 ? totalScore / Double(wordCount) : 0
+        
+        // Boost score for sentences at the beginning (introduction) and end (conclusion)
+        let positionBoost: Double
+        let relativePosition = Double(position) / Double(totalSentences)
+        if relativePosition < 0.2 || relativePosition > 0.8 {
+            positionBoost = 1.2
+        } else {
+            positionBoost = 1.0
+        }
+        
+        // Boost score for sentences of moderate length (not too short or too long)
+        let lengthBoost: Double
+        let sentenceLength = sentence.count
+        if sentenceLength > 50 && sentenceLength < 200 {
+            lengthBoost = 1.1
+        } else {
+            lengthBoost = 0.9
+        }
+        
+        return averageScore * positionBoost * lengthBoost
+    }
+    
+    private func formatShortSummary(_ sentences: [String]) -> String {
+        let summary = sentences.joined(separator: " ")
+        return "**Key Points:**\n\n" + summary
+    }
+    
+    private func formatSummary(_ keyPoints: [String]) -> String {
+        var formatted = "**Summary:**\n\n"
+        
+        for (index, point) in keyPoints.enumerated() {
+            formatted += "• \(point)\n"
+            if index < keyPoints.count - 1 {
+                formatted += "\n"
+            }
+        }
+        
+        return formatted
+    }
+}
 
 ================================================================================
 

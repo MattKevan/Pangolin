@@ -16,17 +16,11 @@ class SummaryService: ObservableObject {
         isGenerating = true
         errorMessage = nil
         
-        do {
-            let summary = await generateTextSummary(from: transcriptText)
-            
-            // Save the summary
-            video.transcriptSummary = summary
-            await libraryManager.save()
-            
-        } catch {
-            errorMessage = "Failed to generate summary: \(error.localizedDescription)"
-            print("🚨 Summary generation error: \(error)")
-        }
+        let summary = await generateTextSummary(from: transcriptText)
+        
+        // Save the summary
+        video.transcriptSummary = summary
+        await libraryManager.save()
         
         isGenerating = false
     }

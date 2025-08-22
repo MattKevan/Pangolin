@@ -60,6 +60,10 @@
         <attribute name="transcriptStatus" optional="YES" attributeType="String"/>
         <attribute name="transcriptSummary" optional="YES" attributeType="String"/>
         <attribute name="transcriptDateGenerated" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="summaryDateGenerated" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="translatedText" optional="YES" attributeType="String"/>
+        <attribute name="translatedLanguage" optional="YES" attributeType="String"/>
+        <attribute name="translationDateGenerated" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <relationship name="folder" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Folder" inverseName="videos" inverseEntity="Folder"/>
         <relationship name="library" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Library" inverseName="videos" inverseEntity="Library"/>
         <relationship name="subtitles" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Subtitle" inverseName="video" inverseEntity="Subtitle"/>
