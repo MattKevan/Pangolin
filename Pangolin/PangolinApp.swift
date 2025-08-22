@@ -1,14 +1,19 @@
 // PangolinApp.swift
 
 import SwiftUI
+import Combine
+import UniformTypeIdentifiers
 
 @main
 struct PangolinApp: App {
     @StateObject private var libraryManager = LibraryManager.shared
+    @StateObject private var processingQueueManager = ProcessingQueueManager.shared
     @State private var showLibrarySelector = false
     @State private var showCreateLibrary = false
     @State private var hasAttemptedAutoOpen = false
     @State private var isAttemptingAutoOpen = false
+    @State private var showingImportPicker = false
+    @State private var showingCreateFolder = false
     
     var body: some Scene {
         WindowGroup {
@@ -83,10 +88,17 @@ struct PangolinApp: App {
                     print("Error creating library: \(error)")
                 }
             }
+            .fileImporter(isPresented: $showingImportPicker, allowedContentTypes: [.movie, .video, .folder], allowsMultipleSelection: true) { result in
+                handleVideoImport(result)
+            }
+            .sheet(isPresented: $showingCreateFolder) {
+                CreateFolderView(parentFolderID: getCurrentFolderForNewFolder())
+            }
         }
         #if os(macOS)
         .commands {
-            CommandGroup(replacing: .newItem) {
+            // New Library menu
+            CommandMenu("Library") {
                 Button("New Library...") {
                     showCreateLibrary = true
                 }
@@ -109,6 +121,30 @@ struct PangolinApp: App {
                         .disabled(!library.isAvailable)
                     }
                 }
+            }
+            
+            // File menu additions
+            CommandGroup(after: .newItem) {
+                Button("Import Videos...") {
+                    showingImportPicker = true
+                }
+                .keyboardShortcut("I", modifiers: .command)
+                .disabled(!libraryManager.isLibraryOpen)
+                
+                Button("New Folder...") {
+                    showingCreateFolder = true
+                }
+                .keyboardShortcut("N", modifiers: [.command, .shift, .option])
+                .disabled(!libraryManager.isLibraryOpen)
+            }
+            
+            // Edit menu additions
+            CommandGroup(after: .undoRedo) {
+                Button("Rename") {
+                    triggerRename()
+                }
+                .keyboardShortcut(.return)
+                .disabled(!libraryManager.isLibraryOpen || !hasRenameableSelection())
             }
             
             CommandMenu("Video") {
@@ -148,5 +184,40 @@ struct PangolinApp: App {
         Task {
             await FileSystemManager.shared.rebuildAllThumbnails(for: library, context: context)
         }
+    }
+    
+    private func handleVideoImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            if let library = libraryManager.currentLibrary, let context = libraryManager.viewContext {
+                // Import videos to the currently selected folder or root
+                Task {
+                    // Use VideoImporter to handle the import process
+                    let importer = VideoImporter()
+                    await importer.importFiles(urls, to: library, context: context)
+                }
+            }
+        case .failure(let error):
+            print("Error importing files: \(error)")
+        }
+    }
+    
+    private func getCurrentFolderForNewFolder() -> UUID? {
+        // This would need to communicate with the current UI state
+        // For now, return nil to create at root level
+        // TODO: Integrate with FolderNavigationStore to get current folder
+        return nil
+    }
+    
+    private func hasRenameableSelection() -> Bool {
+        // Check if there's a renameable selection by checking if a rename notification would work
+        // This is a simple heuristic - in practice, this would be more sophisticated
+        return libraryManager.isLibraryOpen
+    }
+    
+    private func triggerRename() {
+        // This would trigger rename on the selected item
+        // TODO: Implement rename triggering mechanism
+        NotificationCenter.default.post(name: NSNotification.Name("TriggerRename"), object: nil)
     }
 }

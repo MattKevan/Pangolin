@@ -15,9 +15,11 @@ struct HierarchicalContentRowView: View {
     @FocusState.Binding var focusedField: UUID?
     @Binding var editedName: String
     @Binding var selectedItems: Set<UUID>
+    let onDelete: ((UUID) -> Void)?
     
     @EnvironmentObject private var store: FolderNavigationStore
     @Environment(\.managedObjectContext) private var viewContext
+    @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
     
     // Add state to prevent double-commits on focus loss
     @State private var shouldCommitOnDisappear = false
@@ -129,6 +131,70 @@ struct HierarchicalContentRowView: View {
             startRenaming()
         }
         
+        // Processing options for videos
+        if case .video(let video) = item.contentType {
+            Divider()
+            
+            Menu("Add to Processing Queue") {
+                Button("Transcribe") {
+                    processingQueueManager.addTask(for: video, type: .transcribe)
+                }
+                .disabled(video.transcriptText != nil && !video.transcriptText!.isEmpty)
+                
+                Button("Translate") {
+                    processingQueueManager.addTask(for: video, type: .translate)
+                }
+                .disabled(video.translatedText != nil && !video.translatedText!.isEmpty)
+                
+                Button("Summarize") {
+                    processingQueueManager.addTask(for: video, type: .summarize)
+                }
+                .disabled(video.transcriptSummary != nil && !video.transcriptSummary!.isEmpty)
+                
+                Divider()
+                
+                Button("Full Workflow (Transcribe → Translate → Summarize)") {
+                    processingQueueManager.addFullProcessingWorkflow(for: [video])
+                }
+                
+                Button("Transcribe & Summarize") {
+                    processingQueueManager.addTranscriptionAndSummary(for: [video])
+                }
+            }
+        }
+        
+        // Bulk processing for multiple selected videos
+        if selectedItems.count > 1 {
+            let selectedVideos = getSelectedVideos()
+            if !selectedVideos.isEmpty {
+                Divider()
+                
+                Menu("Bulk Processing (\(selectedVideos.count) videos)") {
+                    Button("Transcribe All") {
+                        processingQueueManager.addTranscriptionOnly(for: selectedVideos)
+                    }
+                    
+                    Button("Translate All") {
+                        processingQueueManager.addTranslationOnly(for: selectedVideos)
+                    }
+                    
+                    Button("Summarize All") {
+                        processingQueueManager.addSummaryOnly(for: selectedVideos)
+                    }
+                    
+                    Divider()
+                    
+                    Button("Full Workflow for All") {
+                        processingQueueManager.addFullProcessingWorkflow(for: selectedVideos)
+                    }
+                    
+                    Button("Transcribe & Summarize All") {
+                        processingQueueManager.addTranscriptionAndSummary(for: selectedVideos)
+                    }
+                }
+            }
+        }
+        
         if case .folder = item.contentType {
             Divider()
             Button("Create Subfolder") {
@@ -138,11 +204,23 @@ struct HierarchicalContentRowView: View {
         
         Divider()
         Button("Delete", role: .destructive) {
-            // TODO: Implement deletion
+            triggerDeletion()
         }
     }
     
     // MARK: - Actions
+    
+    private func getSelectedVideos() -> [Video] {
+        // This would need to be implemented to get videos from selected item IDs
+        // For now, return empty array - this should be implemented with access to the content hierarchy
+        return []
+    }
+    
+    private func triggerDeletion() {
+        print("🗑️ ROW: Context menu delete triggered for item: \(item.name) (ID: \(item.id)) - isFolder: \(item.isFolder)")
+        print("🗑️ ROW: onDelete callback exists: \(onDelete != nil)")
+        onDelete?(item.id)
+    }
     
     private func startRenaming() {
         editedName = item.name

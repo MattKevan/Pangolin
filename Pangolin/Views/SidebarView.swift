@@ -7,6 +7,7 @@
 
 import SwiftUI
 import CoreData
+import Combine
 
 struct SidebarView: View {
     @EnvironmentObject private var store: FolderNavigationStore
@@ -18,6 +19,7 @@ struct SidebarView: View {
     @FocusState private var focusedField: UUID?
     @State private var showingDeletionConfirmation = false
     @State private var folderToDelete: Folder?
+    @State private var folderToDeleteSnapshot: DeletionItem?
     
     // Use @FetchRequest for automatic Core Data change observation
     @FetchRequest(
@@ -101,9 +103,9 @@ struct SidebarView: View {
             CreateFolderView(parentFolderID: nil)
         }
         .sheet(isPresented: $showingDeletionConfirmation) {
-            if let folder = folderToDelete {
+            if let folderSnapshot = folderToDeleteSnapshot {
                 DeletionConfirmationView(
-                    items: [DeletionItem(folder: folder)],
+                    items: [folderSnapshot],
                     onConfirm: {
                         Task {
                             await confirmDeletion()
@@ -113,6 +115,16 @@ struct SidebarView: View {
                         cancelDeletion()
                     }
                 )
+                .onAppear {
+                    print("🗑️ SIDEBAR: Sheet rendering DeletionConfirmationView for: \(folderSnapshot.name)")
+                }
+            } else {
+                Text("No folder selected for deletion")
+                    .padding()
+                    .onAppear {
+                        print("⚠️ SIDEBAR: Sheet rendering but folderToDeleteSnapshot is nil!")
+                        showingDeletionConfirmation = false
+                    }
             }
         }
         .onKeyPress { keyPress in
@@ -133,11 +145,20 @@ struct SidebarView: View {
             }
             return .ignored
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("TriggerRename"))) { _ in
+            triggerRenameFromMenu()
+        }
     }
     
     private func deleteFolder(_ folder: Folder) {
+        print("🗑️ SIDEBAR: deleteFolder called for: \(folder.name ?? "nil") (ID: \(folder.id ?? UUID()))")
         folderToDelete = folder
+        // Create a snapshot that won't be affected by Core Data changes
+        folderToDeleteSnapshot = DeletionItem(folder: folder)
+        print("🗑️ SIDEBAR: Set folderToDelete to: \(folderToDelete?.name ?? "nil")")
+        print("🗑️ SIDEBAR: Created folderToDeleteSnapshot: \(folderToDeleteSnapshot?.name ?? "nil")")
         showingDeletionConfirmation = true
+        print("🗑️ SIDEBAR: Set showingDeletionConfirmation to: \(showingDeletionConfirmation)")
     }
     
     private func confirmDeletion() async {
@@ -164,7 +185,20 @@ struct SidebarView: View {
     
     private func cancelDeletion() {
         folderToDelete = nil
+        folderToDeleteSnapshot = nil
         showingDeletionConfirmation = false
+    }
+    
+    private func triggerRenameFromMenu() {
+        // Trigger rename on the selected sidebar folder
+        if let selected = store.selectedTopLevelFolder,
+           !selected.isSmartFolder { // Only allow renaming for user folders
+            renamingFolderID = selected.id
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s delay
+                focusedField = selected.id
+            }
+        }
     }
 }
 

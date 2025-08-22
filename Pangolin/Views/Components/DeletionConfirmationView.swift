@@ -13,7 +13,14 @@ struct DeletionConfirmationView: View {
     let onCancel: () -> Void
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        let _ = print("🔍 DELETION VIEW: Creating body with \(items.count) items: \(items.map { $0.name })")
+        
+        VStack(alignment: .leading, spacing: 20) {
+            // Debug info
+            Text("DEBUG: \(items.count) items to delete")
+                .font(.caption2)
+                .foregroundColor(.red)
+                .opacity(0.7)
             // Header
             HStack {
                 Image(systemName: "trash")
@@ -23,23 +30,26 @@ struct DeletionConfirmationView: View {
                 Text(title)
                     .font(.headline)
                     .fontWeight(.semibold)
+                
+                Spacer()
             }
             
             // Warning message
             Text(message)
                 .font(.body)
                 .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             
-            // Items list (if more than 1 item or if we want to show names)
-            if items.count > 1 || items.count == 1 {
-                VStack(alignment: .leading, spacing: 4) {
+            // Items list (if there are items to show)
+            if !items.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
                     Text("Items to delete:")
                         .font(.caption)
                         .fontWeight(.medium)
                         .foregroundColor(.secondary)
                     
                     ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 2) {
+                        LazyVStack(alignment: .leading, spacing: 4) {
                             ForEach(items.prefix(10), id: \.id) { item in
                                 HStack(spacing: 8) {
                                     Image(systemName: item.isFolder ? "folder" : "play.rectangle")
@@ -49,6 +59,7 @@ struct DeletionConfirmationView: View {
                                     Text(item.name)
                                         .font(.caption)
                                         .lineLimit(1)
+                                        .truncationMode(.middle)
                                 }
                             }
                             
@@ -60,7 +71,7 @@ struct DeletionConfirmationView: View {
                             }
                         }
                     }
-                    .frame(maxHeight: 150)
+                    .frame(maxHeight: 120)
                 }
                 .padding(12)
                 .background(Color(NSColor.controlBackgroundColor))
@@ -82,8 +93,8 @@ struct DeletionConfirmationView: View {
                 .keyboardShortcut(.return)
             }
         }
-        .padding(20)
-        .frame(width: 400)
+        .padding(24)
+        .frame(width: 420)
         .background(Color(NSColor.windowBackgroundColor))
         .cornerRadius(12)
     }
@@ -136,15 +147,17 @@ struct DeletionItem {
     let isFolder: Bool
     
     init(folder: Folder) {
-        self.id = folder.id!
-        self.name = folder.name!
+        self.id = folder.id ?? UUID()
+        self.name = folder.name ?? "Unknown Folder"
         self.isFolder = true
+        print("🗑️ DELETION ITEM: Created folder item - ID: \(self.id), Name: \(self.name)")
     }
     
     init(video: Video) {
-        self.id = video.id!
-        self.name = video.title!
+        self.id = video.id ?? UUID()
+        self.name = video.title ?? "Unknown Video"
         self.isFolder = false
+        print("🗑️ DELETION ITEM: Created video item - ID: \(self.id), Name: \(self.name)")
     }
     
     init(id: UUID, name: String, isFolder: Bool) {

@@ -7,6 +7,7 @@
 
 import SwiftUI
 import CoreData
+import Combine
 
 /// A Finder-like hierarchical content view using SwiftUI's native OutlineGroup/hierarchical List
 struct HierarchicalContentView: View {
@@ -28,6 +29,10 @@ struct HierarchicalContentView: View {
     @FocusState private var focusedField: UUID?
     @State private var editedName: String = ""
     
+    // Processing queue
+    @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
+    @State private var showingProcessingPanel = false
+    
     // This new property filters the store's reactive data source
     private var filteredContent: [HierarchicalContentItem] {
         let sourceContent = store.hierarchicalContent
@@ -44,6 +49,9 @@ struct HierarchicalContentView: View {
         contentView
         .toolbar {
             toolbarContent
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("TriggerRename"))) { _ in
+            triggerRenameFromMenu()
         }
         .fileImporter(isPresented: $showingImportPicker, allowedContentTypes: [.movie, .video, .folder], allowsMultipleSelection: true) { result in
             switch result {
@@ -66,16 +74,32 @@ struct HierarchicalContentView: View {
             CreateFolderView(parentFolderID: store.currentFolderID)
         }
         .sheet(isPresented: $showingDeletionConfirmation) {
-            DeletionConfirmationView(
-                items: itemsToDelete,
-                onConfirm: {
-                    Task {
-                        await confirmDeletion()
+            if !itemsToDelete.isEmpty {
+                DeletionConfirmationView(
+                    items: itemsToDelete,
+                    onConfirm: {
+                        Task {
+                            await confirmDeletion()
+                        }
+                    },
+                    onCancel: {
+                        cancelDeletion()
                     }
-                },
-                onCancel: {
-                    cancelDeletion()
-                }
+                )
+            } else {
+                // Fallback empty view - should not normally show
+                Text("No items to delete")
+                    .padding()
+                    .onAppear {
+                        print("⚠️ SHEET: Empty deletion sheet appeared - this should not happen")
+                        showingDeletionConfirmation = false
+                    }
+            }
+        }
+        .sheet(isPresented: $showingProcessingPanel) {
+            BulkProcessingView(
+                processingManager: processingQueueManager,
+                isPresented: $showingProcessingPanel
             )
         }
         .onKeyPress { keyPress in
@@ -124,9 +148,17 @@ struct HierarchicalContentView: View {
                 renamingItemID: $renamingItemID,
                 focusedField: $focusedField,
                 editedName: $editedName,
-                selectedItems: $selectedItems
+                selectedItems: $selectedItems,
+                onDelete: { itemID in
+                    deleteSpecificItem(itemID)
+                }
             )
             .contentShape(Rectangle()) // Ensure full row is clickable
+        }
+        .contextMenu(forSelectionType: UUID.self) { selection in
+            if !selection.isEmpty {
+                bulkProcessingContextMenu(for: selection)
+            }
         }
         .onChange(of: selectedItems) { _, newSelection in
             handleSelectionChange(newSelection)
@@ -139,15 +171,7 @@ struct HierarchicalContentView: View {
         ToolbarItemGroup {
             macOSToolbarButtons
         }
-        
-        // Show selection count when items are selected
-        ToolbarItem(placement: .status) {
-            if !selectedItems.isEmpty {
-                Text("\(selectedItems.count) selected")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-        }
+                
         #else
         ToolbarItemGroup(placement: .navigationBarTrailing) {
             iOSMenu
@@ -167,12 +191,18 @@ struct HierarchicalContentView: View {
             .disabled(isGeneratingThumbnails)
         }
         
-        Menu {
-            ForEach(SortOption.allCases, id: \.self) { option in
-                Button(option.rawValue) { store.currentSortOption = option }
-            }
-        } label: {
-            Label("Sort", systemImage: "arrow.up.arrow.down")
+        
+        
+        // Processing Queue Button
+        if processingQueueManager.hasActiveTasks || processingQueueManager.totalTasks > 0 {
+            CircularProgressButton(
+                progress: processingQueueManager.overallProgress,
+                activeTaskCount: processingQueueManager.activeTasks,
+                processingManager: processingQueueManager,
+                onViewAllTapped: {
+                    showingProcessingPanel = true
+                }
+            )
         }
     }
     
@@ -186,6 +216,67 @@ struct HierarchicalContentView: View {
         } label: {
             Image(systemName: "ellipsis.circle")
         }
+    }
+    
+    // MARK: - Context Menu Functions
+    
+    @ViewBuilder
+    private func bulkProcessingContextMenu(for selection: Set<UUID>) -> some View {
+        let selectedVideos = getSelectedVideos(from: selection)
+        
+        if !selectedVideos.isEmpty {
+            Menu("Processing Queue") {
+                Button("Transcribe (\(selectedVideos.count) videos)") {
+                    processingQueueManager.addTranscriptionOnly(for: selectedVideos)
+                }
+                
+                Button("Translate (\(selectedVideos.count) videos)") {
+                    processingQueueManager.addTranslationOnly(for: selectedVideos)
+                }
+                
+                Button("Summarize (\(selectedVideos.count) videos)") {
+                    processingQueueManager.addSummaryOnly(for: selectedVideos)
+                }
+                
+                Divider()
+                
+                Button("Full Workflow (\(selectedVideos.count) videos)") {
+                    processingQueueManager.addFullProcessingWorkflow(for: selectedVideos)
+                }
+                
+                Button("Transcribe & Summarize (\(selectedVideos.count) videos)") {
+                    processingQueueManager.addTranscriptionAndSummary(for: selectedVideos)
+                }
+            }
+            
+            Divider()
+        }
+        
+        Button("Delete Selected") {
+            deleteSelectedItems()
+        }
+        .disabled(selection.isEmpty)
+    }
+    
+    private func getSelectedVideos(from selection: Set<UUID>) -> [Video] {
+        var videos: [Video] = []
+        
+        func extractVideos(from items: [HierarchicalContentItem], selectedIDs: Set<UUID>) {
+            for item in items {
+                if selectedIDs.contains(item.id) {
+                    if case .video(let video) = item.contentType {
+                        videos.append(video)
+                    }
+                }
+                
+                if let children = item.children {
+                    extractVideos(from: children, selectedIDs: selectedIDs)
+                }
+            }
+        }
+        
+        extractVideos(from: filteredContent, selectedIDs: selection)
+        return videos
     }
     
     // MARK: - Helper Functions
@@ -277,18 +368,28 @@ struct HierarchicalContentView: View {
     // MARK: - Deletion Methods
     
     private func deleteSelectedItems() {
-        guard let context = libraryManager.viewContext else { return }
+        print("🗑️ CONTENT: deleteSelectedItems called with selectedItems: \(selectedItems)")
+        
+        guard let context = libraryManager.viewContext else { 
+            print("⚠️ CONTENT: No view context available")
+            return 
+        }
         
         var deletionItems: [DeletionItem] = []
         
         for itemID in selectedItems {
             if let item = findItem(withID: itemID, in: filteredContent) {
+                print("🗑️ CONTENT: Found item \(item.name) for deletion - contentType: \(item.contentType)")
                 switch item.contentType {
                 case .folder(let folder):
+                    print("🗑️ CONTENT: Creating deletion item for folder: \(folder.name ?? "nil")")
                     deletionItems.append(DeletionItem(folder: folder))
                 case .video(let video):
+                    print("🗑️ CONTENT: Creating deletion item for video: \(video.title ?? "nil")")
                     deletionItems.append(DeletionItem(video: video))
                 }
+            } else {
+                print("🗑️ CONTENT: ⚠️ Could not find item with ID: \(itemID)")
             }
         }
         
@@ -311,8 +412,19 @@ struct HierarchicalContentView: View {
             return
         }
         
+        guard !deletionItems.isEmpty else {
+            print("⚠️ CONTENT: No items found for deletion from selectedItems: \(selectedItems)")
+            // Don't show the sheet if there are no items
+            return
+        }
+        
+        print("🗑️ CONTENT: Setting itemsToDelete to \(deletionItems.count) items: \(deletionItems.map { $0.name })")
         itemsToDelete = deletionItems
+        
+        print("🗑️ CONTENT: About to set showingDeletionConfirmation = true")
         showingDeletionConfirmation = true
+        print("🗑️ CONTENT: showingDeletionConfirmation is now: \(showingDeletionConfirmation)")
+        print("🗑️ CONTENT: itemsToDelete.count is now: \(itemsToDelete.count)")
     }
     
     private func confirmDeletion() async {
@@ -331,5 +443,29 @@ struct HierarchicalContentView: View {
     private func cancelDeletion() {
         itemsToDelete.removeAll()
         showingDeletionConfirmation = false
+    }
+    
+    private func deleteSpecificItem(_ itemID: UUID) {
+        print("🎯 CONTENT: deleteSpecificItem called for ID: \(itemID)")
+        
+        // Find the item to get more context
+        if let item = findItem(withID: itemID, in: filteredContent) {
+            print("🎯 CONTENT: Found item: \(item.name) - isFolder: \(item.isFolder)")
+        } else {
+            print("🎯 CONTENT: ⚠️ Could not find item with ID: \(itemID)")
+        }
+        
+        // Set the selection to just this item and trigger deletion
+        selectedItems = [itemID]
+        print("🎯 CONTENT: Set selectedItems to: \(selectedItems)")
+        deleteSelectedItems()
+    }
+    
+    private func triggerRenameFromMenu() {
+        // Trigger rename on the first selected item
+        if selectedItems.count == 1, let selectedID = selectedItems.first,
+           let selectedItem = findItem(withID: selectedID, in: filteredContent) {
+            startRenaming(selectedItem)
+        }
     }
 }
