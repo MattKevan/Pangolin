@@ -84,7 +84,68 @@ class SpeechTranscriptionService: ObservableObject {
     private var speechAnalyzer: SpeechAnalyzer?
     private var translationSession: TranslationSession?
 
-    func transcribeVideo(_ video: Video, libraryManager: LibraryManager) async {
+    // MARK: - Summary Presets (parameter-only, no persistence)
+    enum SummaryPreset: String, CaseIterable, Identifiable {
+        case executive
+        case detailed
+        case actionItems
+        case studyNotes
+        case custom
+        
+        var id: String { rawValue }
+        
+        var displayName: String {
+            switch self {
+            case .executive: return "Executive Summary"
+            case .detailed: return "Detailed Overview"
+            case .actionItems: return "Action Items"
+            case .studyNotes: return "Study Notes"
+            case .custom: return "Custom"
+            }
+        }
+        
+        // Base instructions tailored to the preset. Custom prompt can augment this.
+        var baseInstructions: String {
+            switch self {
+            case .executive:
+                return """
+                Create a concise executive summary focused on key insights, decisions, and outcomes. \
+                Use clear headings and bullet points. Keep it brief and high-signal.
+                """
+            case .detailed:
+                return """
+                Produce a comprehensive, well-structured summary with headings and bullet points. \
+                Maintain logical flow, highlight key arguments, tradeoffs, and conclusions.
+                """
+            case .actionItems:
+                return """
+                Extract clear, actionable tasks with owners (if mentioned), due dates (if provided), and status. \
+                Include a brief context section, then list actions as bullet points.
+                """
+            case .studyNotes:
+                return """
+                Create study notes: definitions, key concepts, examples, and takeaways. \
+                Use headings, bullet points, and emphasis for clarity.
+                """
+            case .custom:
+                return ""
+            }
+        }
+        
+        func combinedInstructions(with customPrompt: String?) -> String {
+            let custom = (customPrompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if self == .custom {
+                return custom.isEmpty ? "Summarize the content clearly with headings and bullet points." : custom
+            }
+            if custom.isEmpty {
+                return baseInstructions
+            }
+            return baseInstructions + "\n\nAdditional guidance:\n" + custom
+        }
+    }
+
+    // New signature with backward-compatible default parameter
+    func transcribeVideo(_ video: Video, libraryManager: LibraryManager, preferredLocale: Locale? = nil) async {
         print("🟢 Started transcribeVideo for \(video.title ?? "Unknown")")
         guard !isTranscribing else { return }
         
@@ -102,52 +163,59 @@ class SpeechTranscriptionService: ObservableObject {
             try await requestSpeechRecognitionPermission()
             progress = 0.1
             
-            statusMessage = "Extracting audio sample..."
-            let sampleAudioURL = try await extractAudio(from: videoURL, duration: 15.0)
-            defer { try? FileManager.default.removeItem(at: sampleAudioURL) }
-            progress = 0.2
-            
-            statusMessage = "Detecting language..."
-            let detectedLocale = try await detectLanguage(from: sampleAudioURL)
-            
-            // Diagnostic: Print detected language and supported locales for debugging
-            print("🧠 DETECTED: Language locale is \(detectedLocale.identifier)")
-            let supportedLocales = SFSpeechRecognizer.supportedLocales()
-            print("🧠 SUPPORTED LOCALES:")
-            for locale in supportedLocales.sorted(by: { $0.identifier < $1.identifier }) {
-                print("- \(locale.identifier)")
+            // Determine locale to use
+            let usedLocale: Locale
+            if let preferredLocale {
+                // Validate preferred locale against SpeechTranscriber supported set, mapping to equivalent if needed
+                if let equivalent = await SpeechTranscriber.supportedLocale(equivalentTo: preferredLocale) {
+                    usedLocale = equivalent
+                } else {
+                    // If not supported, surface an error
+                    throw TranscriptionError.languageNotSupported(preferredLocale)
+                }
+                print("🧭 Using preferred locale: \(usedLocale.identifier)")
+                progress = 0.2
+            } else {
+                statusMessage = "Extracting audio sample..."
+                let sampleAudioURL = try await extractAudio(from: videoURL, duration: 15.0)
+                defer { try? FileManager.default.removeItem(at: sampleAudioURL) }
+                progress = 0.2
+                
+                statusMessage = "Detecting language..."
+                usedLocale = try await detectLanguage(from: sampleAudioURL)
+                print("🧠 DETECTED: Language locale is \(usedLocale.identifier)")
+                progress = 0.3
             }
-            
-            progress = 0.3
             
             statusMessage = "Transcribing main audio..."
             let transcriptText = try await performTranscription(
                 fullAudioURL: videoURL,
-                locale: detectedLocale
+                locale: usedLocale
             )
             progress = 0.9
             
             statusMessage = "Saving transcript..."
             video.transcriptText = transcriptText
-            video.transcriptLanguage = detectedLocale.identifier
+            video.transcriptLanguage = usedLocale.identifier
             video.transcriptDateGenerated = Date()
-            // Auto-translate if the detected language is different from system language
-            let systemLanguage = Locale.current.language
-            let detectedLanguage = detectedLocale.language
             
-            if detectedLanguage != systemLanguage {
+            // Auto-translate if the detected/preferred language is different from the system language
+            let systemLanguage = Locale.current.language
+            let sourceLanguage = usedLocale.language
+            
+            if sourceLanguage.languageCode?.identifier != systemLanguage.languageCode?.identifier {
                 statusMessage = "Translating transcript..."
                 progress = 0.95
                 
                 do {
-                    let translatedText = try await translateText(transcriptText, from: detectedLanguage, to: systemLanguage)
+                    let translatedText = try await translateText(transcriptText, from: sourceLanguage, to: systemLanguage)
                     video.translatedText = translatedText
                     video.translatedLanguage = systemLanguage.languageCode?.identifier
                     video.translationDateGenerated = Date()
                     print("🟢 Translation completed successfully")
                 } catch {
-                    print("🟠 Translation failed, but continuing: \\(error)")
-                    // Don't fail the whole process if translation fails
+                    print("🟠 Translation failed, but continuing: \(error)")
+                    // Continue without failing the entire process
                 }
             }
             
@@ -165,8 +233,8 @@ class SpeechTranscriptionService: ObservableObject {
         isTranscribing = false
     }
 
-
-    func translateVideo(_ video: Video, libraryManager: LibraryManager) async {
+    // New signature with backward-compatible default parameter
+    func translateVideo(_ video: Video, libraryManager: LibraryManager, targetLanguage: Locale.Language? = nil) async {
         print("🟢 Started translateVideo for \(video.title ?? "Unknown")")
         guard !isTranscribing, let transcriptText = video.transcriptText else { return }
         
@@ -184,37 +252,57 @@ class SpeechTranscriptionService: ObservableObject {
                 sourceLanguage = sourceLocale.language
                 print("🟡 Parsed source language: \(sourceLanguage)")
                 
-                // Check if the parsed language is valid
-                if sourceLanguage.languageCode?.identifier == nil || sourceLanguage.languageCode?.identifier.isEmpty == true {
-                    print("🟠 Invalid stored language identifier, attempting to detect from transcript...")
-                    // Try to detect language from transcript text
+                // Validate parsed language
+                if let code = sourceLanguage.languageCode {
+                    if code.identifier.isEmpty {
+                        print("🟠 Empty stored language identifier, attempting to detect from transcript...")
+                        let detectedLanguage = detectLanguageFromText(transcriptText)
+                        sourceLanguage = detectedLanguage
+                        video.transcriptLanguage = detectedLanguage.languageCode?.identifier
+                    }
+                } else {
+                    print("🟠 Missing stored language code, attempting to detect from transcript...")
                     let detectedLanguage = detectLanguageFromText(transcriptText)
                     sourceLanguage = detectedLanguage
-                    // Update the stored language with the correct identifier
                     video.transcriptLanguage = detectedLanguage.languageCode?.identifier
                 }
             } else {
                 print("🟠 No transcript language stored, detecting from transcript text...")
-                // Detect language from transcript text
                 let detectedLanguage = detectLanguageFromText(transcriptText)
                 sourceLanguage = detectedLanguage
-                // Store the detected language
                 video.transcriptLanguage = detectedLanguage.languageCode?.identifier
             }
             
-            let targetLanguage = Locale.current.language
+            // Determine target language
+            let chosenTargetLanguage: Locale.Language = targetLanguage ?? Locale.current.language
             
-            // Validate that both languages have valid language codes
-            guard let sourceCode = sourceLanguage.languageCode?.identifier, !sourceCode.isEmpty else {
+            // Validate language codes and derive identifiers
+            guard let sourceLangCode = sourceLanguage.languageCode else {
                 print("🔴 Invalid source language code: \(sourceLanguage)")
                 throw TranscriptionError.translationNotSupported(
                     "Invalid source language",
-                    targetLanguage.languageCode?.identifier ?? "unknown"
+                    chosenTargetLanguage.languageCode?.identifier ?? "unknown"
+                )
+            }
+            let sourceCode = sourceLangCode.identifier
+            guard !sourceCode.isEmpty else {
+                print("🔴 Empty source language identifier")
+                throw TranscriptionError.translationNotSupported(
+                    "Invalid source language",
+                    chosenTargetLanguage.languageCode?.identifier ?? "unknown"
                 )
             }
             
-            guard let targetCode = targetLanguage.languageCode?.identifier, !targetCode.isEmpty else {
-                print("🔴 Invalid target language code: \(targetLanguage)")
+            guard let targetLangCode = chosenTargetLanguage.languageCode else {
+                print("🔴 Invalid target language code: \(chosenTargetLanguage)")
+                throw TranscriptionError.translationNotSupported(
+                    sourceCode,
+                    "Invalid target language"
+                )
+            }
+            let targetCode = targetLangCode.identifier
+            guard !targetCode.isEmpty else {
+                print("🔴 Empty target language identifier")
                 throw TranscriptionError.translationNotSupported(
                     sourceCode,
                     "Invalid target language"
@@ -228,13 +316,13 @@ class SpeechTranscriptionService: ObservableObject {
             }
             
             progress = 0.3
-            let translatedText = try await translateText(transcriptText, from: sourceLanguage, to: targetLanguage)
+            let translatedText = try await translateText(transcriptText, from: sourceLanguage, to: chosenTargetLanguage)
             
             progress = 0.9
             statusMessage = "Saving translation..."
             
             video.translatedText = translatedText
-            video.translatedLanguage = targetLanguage.languageCode?.identifier
+            video.translatedLanguage = chosenTargetLanguage.languageCode?.identifier
             video.translationDateGenerated = Date()
             await libraryManager.save()
             
@@ -250,7 +338,10 @@ class SpeechTranscriptionService: ObservableObject {
         isTranscribing = false
     }
 
-    func summarizeVideo(_ video: Video, libraryManager: LibraryManager) async {
+    // MARK: - Summarization (Chunked map → reduce with presets)
+
+    // Backward-compatible: callers not passing preset/customPrompt will use .detailed by default.
+    func summarizeVideo(_ video: Video, libraryManager: LibraryManager, preset: SummaryPreset = .detailed, customPrompt: String? = nil) async {
         print("🟢 Started summarizeVideo for \(video.title ?? "Unknown")")
         guard !isTranscribing else { return }
         
@@ -266,31 +357,223 @@ class SpeechTranscriptionService: ObservableObject {
         }
         
         isTranscribing = true
+        isSummarizing = true
         errorMessage = nil
         progress = 0.0
-        statusMessage = "Generating summary..."
+        statusMessage = "Preparing Apple Intelligence..."
         
         do {
-            progress = 0.2
-            let summary = try await generateSummary(for: textToSummarize)
+            // Check model availability
+            let model = SystemLanguageModel.default
+            switch model.availability {
+            case .available:
+                break
+            case .unavailable(.deviceNotEligible):
+                throw TranscriptionError.summarizationFailed("This device doesn't support Apple Intelligence.")
+            case .unavailable(.appleIntelligenceNotEnabled):
+                throw TranscriptionError.summarizationFailed("Apple Intelligence is not enabled. Please enable it in System Settings.")
+            case .unavailable(.modelNotReady):
+                throw TranscriptionError.summarizationFailed("Apple Intelligence model is not ready. Please try again later.")
+            case .unavailable(let reason):
+                throw TranscriptionError.summarizationFailed("Apple Intelligence is unavailable: \(reason)")
+            }
             
+            // Chunking strategy
+            statusMessage = "Chunking transcript..."
+            let maxContextTokens = 4096
+            let targetChunkTokens = 3000 // leave headroom for instructions/system prompts
+            let chunks = splitTextIntoChunksByBudget(textToSummarize, targetTokens: targetChunkTokens, hardLimit: maxContextTokens)
+            print("🧩 Summarization chunks: \(chunks.count)")
+            guard !chunks.isEmpty else {
+                throw TranscriptionError.summarizationFailed("No content available after chunking.")
+            }
+            
+            // Map: summarize each chunk
+            var chunkSummaries: [String] = []
+            for (index, chunk) in chunks.enumerated() {
+                statusMessage = "Summarizing chunk \(index + 1) of \(chunks.count)..."
+                progress = 0.1 + (0.6 * Double(index) / Double(max(1, chunks.count)))
+                
+                let chunkSummary = try await summarizeChunk(chunk, preset: preset, customPrompt: customPrompt)
+                chunkSummaries.append(chunkSummary)
+            }
+            
+            // Reduce: combine chunk summaries
+            statusMessage = "Combining summaries..."
             progress = 0.8
-            statusMessage = "Saving summary..."
+            let finalSummary = try await reduceSummaries(chunkSummaries, preset: preset, customPrompt: customPrompt)
             
-            video.transcriptSummary = summary
+            statusMessage = "Saving summary..."
+            progress = 0.95
+            video.transcriptSummary = finalSummary
             video.summaryDateGenerated = Date()
             await libraryManager.save()
             
             progress = 1.0
             statusMessage = "Summary complete!"
-            
         } catch {
             let localizedError = error as? LocalizedError
-            errorMessage = localizedError?.errorDescription ?? "An unknown error occurred."
+            errorMessage = localizedError?.errorDescription ?? error.localizedDescription
             print("🚨 Summarization error: \(error)")
         }
         
+        isSummarizing = false
         isTranscribing = false
+    }
+
+    // MARK: - Chunked Summarization Helpers
+
+    // Heuristic token estimation (approx ~4 chars/token, with floor)
+    private func estimateTokens(for text: String) -> Int {
+        let length = text.utf8.count
+        return max(1, length / 4)
+    }
+    
+    // Split on paragraphs first, then sentences, to respect token budgets
+    private func splitTextIntoChunksByBudget(_ text: String, targetTokens: Int, hardLimit: Int) -> [String] {
+        guard !text.isEmpty else { return [] }
+        
+        // First, split by paragraph boundaries to keep logical structure
+        let paragraphs = text
+            .components(separatedBy: CharacterSet.newlines)
+            .split(whereSeparator: { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+            .map { $0.joined(separator: "\n") }
+        
+        var chunks: [String] = []
+        var current = ""
+        var currentTokens = 0
+        
+        func flushCurrent() {
+            let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                chunks.append(trimmed)
+            }
+            current = ""
+            currentTokens = 0
+        }
+        
+        for para in paragraphs {
+            let paraTokens = estimateTokens(for: para)
+            // If a single paragraph is too big, split by sentences
+            if paraTokens > targetTokens {
+                // Split by sentences using NLTokenizer
+                let sentences = splitIntoSentences(para)
+                var sentenceBuffer = ""
+                var bufferTokens = 0
+                for sentence in sentences {
+                    let t = estimateTokens(for: sentence)
+                    if bufferTokens + t > targetTokens {
+                        if !sentenceBuffer.isEmpty {
+                            chunks.append(sentenceBuffer.trimmingCharacters(in: .whitespacesAndNewlines))
+                            sentenceBuffer = ""
+                            bufferTokens = 0
+                        }
+                    }
+                    if t > hardLimit { // pathological case: sentence too long; hard-split
+                        let mid = sentence.index(sentence.startIndex, offsetBy: sentence.count / 2)
+                        let s1 = String(sentence[sentence.startIndex..<mid])
+                        let s2 = String(sentence[mid..<sentence.endIndex])
+                        for part in [s1, s2] {
+                            let pt = estimateTokens(for: part)
+                            if bufferTokens + pt > targetTokens {
+                                if !sentenceBuffer.isEmpty {
+                                    chunks.append(sentenceBuffer.trimmingCharacters(in: .whitespacesAndNewlines))
+                                    sentenceBuffer = ""
+                                    bufferTokens = 0
+                                }
+                            }
+                            sentenceBuffer += part + " "
+                            bufferTokens += pt
+                        }
+                    } else {
+                        sentenceBuffer += sentence + " "
+                        bufferTokens += t
+                    }
+                }
+                if !sentenceBuffer.isEmpty {
+                    chunks.append(sentenceBuffer.trimmingCharacters(in: .whitespacesAndNewlines))
+                }
+                continue
+            }
+            
+            // Normal paragraph packing into chunks
+            if currentTokens + paraTokens > targetTokens {
+                flushCurrent()
+            }
+            current += para + "\n\n"
+            currentTokens += paraTokens
+        }
+        
+        flushCurrent()
+        
+        // Final safety: if any chunk exceeds hardLimit, split it roughly in half
+        var safeChunks: [String] = []
+        for c in chunks {
+            if estimateTokens(for: c) > hardLimit {
+                let mid = c.index(c.startIndex, offsetBy: c.count / 2)
+                safeChunks.append(String(c[c.startIndex..<mid]))
+                safeChunks.append(String(c[mid..<c.endIndex]))
+            } else {
+                safeChunks.append(c)
+            }
+        }
+        return safeChunks
+    }
+    
+    private func splitIntoSentences(_ text: String) -> [String] {
+        let tokenizer = NLTokenizer(unit: .sentence)
+        tokenizer.string = text
+        var sentences: [String] = []
+        tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
+            let s = String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !s.isEmpty { sentences.append(s) }
+            return true
+        }
+        return sentences
+    }
+    
+    private func summarizeChunk(_ chunk: String, preset: SummaryPreset, customPrompt: String?) async throws -> String {
+        let instructionsText = preset.combinedInstructions(with: customPrompt)
+        let instructions = Instructions("""
+        You are an expert summarizer. Follow these rules:
+        - Use proper Markdown with headings (##) and bullet points
+        - Keep content faithful and concise
+        - Avoid repetition
+        - Preserve important names, dates, figures
+
+        Task:
+        \(instructionsText)
+        """)
+        let session = LanguageModelSession(instructions: instructions)
+        let prompt = """
+        Summarize the following transcript chunk:
+
+        \(chunk)
+        """
+        let response = try await session.respond(to: prompt)
+        return response.content
+    }
+    
+    private func reduceSummaries(_ summaries: [String], preset: SummaryPreset, customPrompt: String?) async throws -> String {
+        let instructionsText = preset.combinedInstructions(with: customPrompt)
+        let instructions = Instructions("""
+        You are an expert at synthesizing multiple summaries into a cohesive, non-redundant final summary.
+        - Use Markdown with clear headings (##) and bullet points
+        - Remove duplicates and merge related points
+        - Maintain logical flow and highlight key insights
+
+        Final summary style:
+        \(instructionsText)
+        """)
+        let session = LanguageModelSession(instructions: instructions)
+        let joined = summaries.enumerated().map { "Chunk \($0 + 1):\n\($1)" }.joined(separator: "\n\n---\n\n")
+        let prompt = """
+        Combine the following chunk summaries into a single, coherent summary:
+
+        \(joined)
+        """
+        let response = try await session.respond(to: prompt)
+        return response.content
     }
 
     func cancelTranscription() {
@@ -355,11 +638,29 @@ class SpeechTranscriptionService: ObservableObject {
 
     private func detectLanguage(from sampleAudioURL: URL) async throws -> Locale {
         print("🟢 Entered detectLanguage")
-        print("🟢 About to call performTranscription with locale: en-US (fallback)")
+        
+        // Choose a fallback locale based on the system locale, mapped to a SpeechTranscriber-supported equivalent
+        let systemLocale = Locale.current
+        let fallbackLocale = await SpeechTranscriber.supportedLocale(equivalentTo: systemLocale) ?? Locale(identifier: "en-US")
+        print("🟢 Using fallback locale for preliminary pass: \(fallbackLocale.identifier)")
+        
+        // Preflight model installation for the fallback locale to avoid nilError due to missing assets
+        do {
+            let transcriber = SpeechTranscriber(locale: fallbackLocale, preset: .transcription)
+            if let installationRequest = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
+                statusMessage = "Preparing language model (\(fallbackLocale.identifier))..."
+                try await installationRequest.downloadAndInstall()
+            }
+        } catch {
+            print("🟠 Failed to pre-install assets for \(fallbackLocale.identifier): \(error)")
+            // Not fatal; proceed and let performTranscription handle further issues
+        }
+        
+        print("🟢 About to call performTranscription with locale: \(fallbackLocale.identifier) (fallback)")
         do {
             let preliminaryTranscript = try await performTranscription(
                 fullAudioURL: sampleAudioURL,
-                locale: Locale(identifier: "en-US") // fallback for language guessing
+                locale: fallbackLocale
             )
             print("🟢 Preliminary transcript: \(preliminaryTranscript.prefix(100))...")
 
@@ -368,7 +669,7 @@ class SpeechTranscriptionService: ObservableObject {
             
             guard let languageCode = languageRecognizer.dominantLanguage?.rawValue,
                   let supportedLocale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: languageCode)) else {
-                return Locale.current
+                return systemLocale
             }
             print("🟢 LanguageRecognizer detected: \(languageCode)")
 
@@ -426,7 +727,6 @@ class SpeechTranscriptionService: ObservableObject {
             do {
                 for try await result in transcriber.results {
                     if result.isFinal {
-                        // Correctly convert from AttributedString.CharacterView to String
                         transcriptParts.append(String(result.text.characters))
                     }
                 }
@@ -476,22 +776,15 @@ class SpeechTranscriptionService: ObservableObject {
         print("🟢 Starting translation from \(sourceLanguage) to \(targetLanguage)")
         
         do {
-            // Check if translation models are available and install if needed
             statusMessage = "Checking translation models..."
             
-            // Create translation session using the beta API
             let session = TranslationSession(installedSource: sourceLanguage, target: targetLanguage)
             self.translationSession = session
             
-            // The Translation framework will handle model downloads automatically
-            // during prepareTranslation() if needed
-            
-            // Prepare the translation session
             try await session.prepareTranslation()
             
             statusMessage = "Translating to \(targetLanguage.languageCode?.identifier ?? "target language")..."
             
-            // Perform the translation
             let response = try await session.translate(text)
             
             print("🟢 Translation successful: \(response.targetText.prefix(100))...")
@@ -500,7 +793,6 @@ class SpeechTranscriptionService: ObservableObject {
         } catch {
             print("🔴 Translation error: \(error)")
             
-            // Check if it's a TranslationError with notInstalled cause
             if let translationError = error as? TranslationError,
                String(describing: translationError).contains("notInstalled") {
                 throw TranscriptionError.translationModelsNotInstalled(
@@ -509,7 +801,6 @@ class SpeechTranscriptionService: ObservableObject {
                 )
             }
             
-            // Map other specific translation errors
             if error.localizedDescription.contains("not supported") {
                 throw TranscriptionError.translationNotSupported(
                     sourceLanguage.languageCode?.identifier ?? "unknown",
@@ -540,6 +831,7 @@ class SpeechTranscriptionService: ObservableObject {
         return Locale(identifier: languageCode).language
     }
     
+    // Retained for direct single-shot summaries if needed elsewhere; map→reduce uses these pieces internally now.
     private func generateSummary(for text: String) async throws -> String {
         print("🟢 Starting summarization with Foundation Models")
         
@@ -560,7 +852,6 @@ class SpeechTranscriptionService: ObservableObject {
             throw TranscriptionError.summarizationFailed("Apple Intelligence is unavailable: \(reason)")
         }
         
-        // Create instructions for summarization
         let instructions = Instructions("""
         You are an expert at creating concise, well-structured summaries of video transcripts. 
         
@@ -580,18 +871,15 @@ class SpeechTranscriptionService: ObservableObject {
         Keep the summary comprehensive but concise, covering all significant topics while being easy to read and well-organized.
         """)
         
-        // Create a session with the summarization-optimized instructions
         let session = LanguageModelSession(instructions: instructions)
-        
-        // Create the summarization prompt
         let prompt = "Please create a well-structured summary of the following transcript using proper Markdown formatting:\n\n\(text)"
         
         statusMessage = "Processing with Apple Intelligence..."
         
-        // Generate the summary
         let response = try await session.respond(to: prompt)
         
         print("🟢 Summarization successful: \(response.content.prefix(100))...")
         return response.content
     }
 }
+

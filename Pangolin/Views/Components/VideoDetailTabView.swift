@@ -6,10 +6,7 @@ struct VideoDetailTabView: View {
     
     var body: some View {
         TabView {
-            VideoInfoView(video: video)
-                .tabItem {
-                    Label("Info", systemImage: "info.circle")
-                }
+            
             
             TranscriptionView(video: video)
                 .tabItem {
@@ -19,6 +16,10 @@ struct VideoDetailTabView: View {
             SummaryView(video: video)
                 .tabItem {
                     Label("Summary", systemImage: "doc.text.below.ecg")
+                }
+            VideoInfoView(video: video)
+                .tabItem {
+                    Label("Info", systemImage: "info.circle")
                 }
         }
     }

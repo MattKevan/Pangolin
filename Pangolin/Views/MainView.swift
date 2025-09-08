@@ -21,7 +21,7 @@ struct MainView: View {
             SidebarView()
                 .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 350)
                 .environmentObject(folderStore)
-                .environment(\.managedObjectContext, libraryManager.viewContext!)
+                .applyManagedObjectContext(libraryManager.viewContext)
         } content: {
             // Hierarchical Content View - shows content of selected top-level sidebar item
             HierarchicalContentView(searchText: searchText)
@@ -29,7 +29,7 @@ struct MainView: View {
                 .navigationSplitViewColumnWidth(min: 300, ideal: 400, max: 600)
                 .searchable(text: $searchText, prompt: "Search videos")
                 .environmentObject(folderStore)
-                .environment(\.managedObjectContext, libraryManager.viewContext!)
+                .applyManagedObjectContext(libraryManager.viewContext)
         } detail: {
             // Detail View
             DetailView(video: folderStore.selectedVideo)
@@ -37,5 +37,19 @@ struct MainView: View {
         }
         .navigationTitle(libraryManager.currentLibrary?.name ?? "Pangolin")
         .pangolinAlert(error: $libraryManager.error)
+    }
+}
+
+// MARK: - View Modifier helper to conditionally inject context
+
+private extension View {
+    @ViewBuilder
+    func applyManagedObjectContext(_ context: NSManagedObjectContext?) -> some View {
+        if let context {
+            self.environment(\.managedObjectContext, context)
+        } else {
+            // No context yet; return self without injecting to avoid crash
+            self
+        }
     }
 }

@@ -34,15 +34,11 @@ struct SidebarView: View {
     
     // Filter by current library - these will update automatically when @FetchRequest data changes
     private var systemFolders: [Folder] {
-        // Use the store's systemFolders method to get the current library filtering
-        // This will trigger when @FetchRequest data changes due to the allSystemFolders dependency
         let _ = allSystemFolders // Create dependency on @FetchRequest
         return store.systemFolders()
     }
     
     private var userFolders: [Folder] {
-        // Use the store's userFolders method to get the current library filtering
-        // This will trigger when @FetchRequest data changes due to the allUserFolders dependency
         let _ = allUserFolders // Create dependency on @FetchRequest
         return store.userFolders()
     }
@@ -60,6 +56,7 @@ struct SidebarView: View {
                         focusedField: $focusedField,
                         onDelete: {}
                     )
+                    .contentShape(Rectangle()) // Make the entire row clickable
                     .tag(folder)
                 }
             }
@@ -75,6 +72,7 @@ struct SidebarView: View {
                         focusedField: $focusedField,
                         onDelete: { deleteFolder(folder) }
                     )
+                    .contentShape(Rectangle()) // Make the entire row clickable
                     .tag(folder)
                 }
             }
@@ -219,13 +217,13 @@ private struct FolderRowView: View {
     var body: some View {
         Label {
             nameEditorView
+                .frame(maxWidth: .infinity, alignment: .leading) // Expand text area
         } icon: {
             Image(systemName: folder.isSmartFolder ? getSmartFolderIcon(folder.name!) : "folder")
                 .foregroundColor(folder.isSmartFolder ? .blue : .orange)
         }
-        .onTapGesture {
-            handleSlowClickRename()
-        }
+        .contentShape(Rectangle()) // Make entire row hit-testable
+        // Removed single-tap rename to allow native selection behavior
         .contextMenu {
             if showContextMenu {
                 Button("Rename") {
@@ -281,7 +279,6 @@ private struct FolderRowView: View {
                 }
                 .onSubmit {
                     shouldCommitOnDisappear = false
-                    // ✅ Call async function from a Task
                     Task { await commitRename() }
                 }
                 .onKeyPress { keyPress in
@@ -294,7 +291,6 @@ private struct FolderRowView: View {
                 }
                 .onChange(of: focusedField) { oldValue, newValue in
                     if oldValue == folder.id && newValue != folder.id && shouldCommitOnDisappear {
-                        // ✅ Call async function from a Task
                         Task { await commitRename() }
                     }
                 }
@@ -303,51 +299,28 @@ private struct FolderRowView: View {
         }
     }
     
-    /// Commits the new name to the data store.
-    // ✅ Make the function async
     private func commitRename() async {
         shouldCommitOnDisappear = false
         
         let trimmedName = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty && trimmedName != folder.name! else {
-            // Cancel if no change
             await MainActor.run { cancelRename() }
             return
         }
         
-        // ✅ Await the store operation before updating local state
         await store.renameItem(id: folder.id!, to: trimmedName)
         
-        // ✅ Now update local state after the save is complete
         await MainActor.run {
             renamingFolderID = nil
             focusedField = nil
         }
     }
 
-    /// Cancels the renaming process.
     private func cancelRename() {
         editedName = folder.name!
         shouldCommitOnDisappear = false
         renamingFolderID = nil
         focusedField = nil
-    }
-    
-    /// Handles slow-click rename for user folders only
-    private func handleSlowClickRename() {
-        guard !folder.isSmartFolder,
-              showContextMenu,
-              store.selectedTopLevelFolder?.id == folder.id,
-              renamingFolderID == nil else {
-            return
-        }
-        
-        editedName = folder.name!
-        renamingFolderID = folder.id
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 100_000_000)
-            focusedField = folder.id
-        }
     }
     
     private func getSmartFolderIcon(_ name: String) -> String {

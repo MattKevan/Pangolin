@@ -60,12 +60,19 @@ struct DetailView: View {
                         .frame(height: max(150, geometry.size.height * (1 - splitRatio) - 38)) // Reserve space for controls and splitter
                         .background(windowBackgroundColor)
                 }
+                // Ensure the whole stack fills the available space
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else {
-                ContentUnavailableView(
-                    "Select a Video",
-                    systemImage: "play.rectangle",
-                    description: Text("Choose a video from the list to start watching")
-                )
+                // Center the placeholder within the available detail area
+                VStack {
+                    ContentUnavailableView(
+                        "Select a Video",
+                        systemImage: "play.rectangle",
+                        description: Text("Choose a video from the list to start watching")
+                    )
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .background(windowBackgroundColor) // optional, to match surrounding background
             }
         }
     }

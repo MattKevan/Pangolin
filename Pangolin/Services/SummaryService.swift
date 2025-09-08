@@ -144,20 +144,23 @@ class SummaryService: ObservableObject {
     }
     
     private func formatShortSummary(_ sentences: [String]) -> String {
-        let summary = sentences.joined(separator: " ")
-        return "**Key Points:**\n\n" + summary
+        // Use proper Markdown: heading, blank lines, and bullet list
+        var out = "## Key Points\n\n"
+        for sentence in sentences {
+            out += "- \(sentence)\n"
+        }
+        // Ensure trailing newline
+        if !out.hasSuffix("\n") { out.append("\n") }
+        return out
     }
     
     private func formatSummary(_ keyPoints: [String]) -> String {
-        var formatted = "**Summary:**\n\n"
-        
-        for (index, point) in keyPoints.enumerated() {
-            formatted += "• \(point)\n"
-            if index < keyPoints.count - 1 {
-                formatted += "\n"
-            }
+        // Proper Markdown with heading and a list, with blank lines
+        var formatted = "## Summary\n\n"
+        for point in keyPoints {
+            formatted += "- \(point)\n"
         }
-        
+        if !formatted.hasSuffix("\n") { formatted.append("\n") }
         return formatted
     }
 }

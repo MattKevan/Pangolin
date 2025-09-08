@@ -3,28 +3,123 @@ import Speech
 #if os(macOS)
 import AppKit
 #endif
+import CoreData
 
 struct TranscriptionView: View {
     @ObservedObject var video: Video
     @StateObject private var transcriptionService = SpeechTranscriptionService()
-    // Use system current locale as the initial selection for speech recognition language
+    
+    // Source (input) language selection: nil means Auto Detect
+    @State private var inputSelection: Locale? = nil
+    // Target (output) language selection
+    @State private var outputSelection: Locale? = nil
+    
+    // Back-compat: keep the existing single selectedLocale for now (not used anymore for control)
     @State var selectedLocale: Locale = Locale.current
+    
     @State private var supportedLocales: [Locale] = []
     @State private var showTranslation = false
     @EnvironmentObject var libraryManager: LibraryManager
     
+    // Cache the system-equivalent supported locale once loaded
+    @State private var systemSupportedLocale: Locale? = nil
+    
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Picker("Language", selection: $selectedLocale) {
-                    // Use the beta SpeechTranscriber.supportedLocales
-                    ForEach(supportedLocales.sorted(by: { Locale.current.localizedString(forIdentifier: $0.identifier) ?? $0.identifier < Locale.current.localizedString(forIdentifier: $1.identifier) ?? $1.identifier }), id: \.self) { locale in
-                        Text(Locale.current.localizedString(forIdentifier: locale.identifier) ?? locale.identifier).tag(locale as Locale)
+                
+                // Language Controls
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 12) {
+                        // Input picker (Auto Detect + supported locales)
+                        Menu {
+                            // Auto Detect option
+                            Button {
+                                inputSelection = nil // Auto Detect
+                            } label: {
+                                HStack {
+                                    Label("Auto Detect", systemImage: "sparkles")
+                                    Spacer()
+                                    if inputSelection == nil {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                            Divider()
+                            ForEach(sortedSupportedLocales, id: \.identifier) { locale in
+                                Button {
+                                    inputSelection = locale
+                                } label: {
+                                    HStack {
+                                        Text(displayName(for: locale))
+                                        Spacer()
+                                        if inputSelection?.identifier == locale.identifier {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Text("Input")
+                                    .foregroundStyle(.secondary)
+                                Text(inputSelectionLabel)
+                                    .fontWeight(.medium)
+                            }
+                            .padding(.vertical, 6)
+                            .padding(.horizontal, 10)
+                            .background(Color.secondary.opacity(0.08))
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                        .disabled(supportedLocales.isEmpty)
+                        .help("Choose the source language. Auto Detect uses a short sample to detect it.")
+                        
+                        // Output picker (System + supported locales)
+                        Menu {
+                            if let systemLocale = systemSupportedLocale {
+                                Button {
+                                    outputSelection = systemLocale
+                                } label: {
+                                    HStack {
+                                        Text("System")
+                                        Spacer()
+                                        if outputSelection?.identifier == systemLocale.identifier {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                                Divider()
+                            }
+                            ForEach(sortedSupportedLocales, id: \.identifier) { locale in
+                                Button {
+                                    outputSelection = locale
+                                } label: {
+                                    HStack {
+                                        Text(displayName(for: locale))
+                                        Spacer()
+                                        if outputSelection?.identifier == locale.identifier {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Text("Output")
+                                    .foregroundStyle(.secondary)
+                                Text(outputSelectionLabel)
+                                    .fontWeight(.medium)
+                            }
+                            .padding(.vertical, 6)
+                            .padding(.horizontal, 10)
+                            .background(Color.secondary.opacity(0.08))
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                        .disabled(supportedLocales.isEmpty)
+                        .help("Choose the translation target language.")
                     }
                 }
-                .pickerStyle(.menu)
                 .padding(.bottom, 4)
-                .labelsHidden()
                 
                 HStack {
                     Text("Transcript")
@@ -37,16 +132,20 @@ struct TranscriptionView: View {
                         ProgressView()
                             .scaleEffect(0.8)
                     } else if video.transcriptText == nil {
-                        Button("Generate Transcript") {
+                        Button("Transcribe") {
                             Task {
-                                await transcriptionService.transcribeVideo(video, libraryManager: libraryManager)
+                                await transcriptionService.transcribeVideo(video, libraryManager: libraryManager, preferredLocale: inputSelection)
+                                // After transcription, reflect detected language into the input picker
+                                syncInputPickerToDetectedLanguage()
                             }
                         }
                         .buttonStyle(.borderedProminent)
+                        .disabled(supportedLocales.isEmpty)
                     } else {
                         Button("Regenerate") {
                             Task {
-                                await transcriptionService.transcribeVideo(video, libraryManager: libraryManager)
+                                await transcriptionService.transcribeVideo(video, libraryManager: libraryManager, preferredLocale: inputSelection)
+                                syncInputPickerToDetectedLanguage()
                             }
                         }
                         .buttonStyle(.bordered)
@@ -54,10 +153,12 @@ struct TranscriptionView: View {
                         if video.translatedText == nil {
                             Button("Translate") {
                                 Task {
-                                    await transcriptionService.translateVideo(video, libraryManager: libraryManager)
+                                    let targetLanguage = outputSelection?.language
+                                    await transcriptionService.translateVideo(video, libraryManager: libraryManager, targetLanguage: targetLanguage)
                                 }
                             }
                             .buttonStyle(.bordered)
+                            .disabled(outputSelection == nil)
                         }
                     }
                 }
@@ -96,17 +197,14 @@ struct TranscriptionView: View {
                             .font(.body)
                             .foregroundColor(.primary)
                         
-                        // Show recovery suggestion if available
                         if let error = parseTranscriptionError(from: errorMessage),
                            let suggestion = error.recoverySuggestion {
                             Divider()
-                            
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("💡 Suggestion:")
                                     .font(.caption)
                                     .fontWeight(.medium)
                                     .foregroundColor(.blue)
-                                
                                 Text(suggestion)
                                     .font(.caption)
                                     .foregroundColor(.secondary)
@@ -114,7 +212,6 @@ struct TranscriptionView: View {
                         }
                         
                         HStack {
-                            // Show "Open Settings" button for translation model errors
                             if let error = parseTranscriptionError(from: errorMessage),
                                case .translationModelsNotInstalled = error {
                                 Button("Open System Settings") {
@@ -127,7 +224,8 @@ struct TranscriptionView: View {
                             Spacer()
                             Button("Try Again") {
                                 Task {
-                                    await transcriptionService.transcribeVideo(video, libraryManager: libraryManager)
+                                    await transcriptionService.transcribeVideo(video, libraryManager: libraryManager, preferredLocale: inputSelection)
+                                    syncInputPickerToDetectedLanguage()
                                 }
                             }
                             .buttonStyle(.borderedProminent)
@@ -150,7 +248,6 @@ struct TranscriptionView: View {
                             
                             Spacer()
                             
-                            // Translation toggle if both transcript and translation exist
                             if video.transcriptText != nil && video.translatedText != nil {
                                 Picker("View", selection: $showTranslation) {
                                     Text("Original").tag(false)
@@ -171,25 +268,24 @@ struct TranscriptionView: View {
                         
                         ScrollView {
                             Text(showTranslation && video.translatedText != nil ? video.translatedText! : transcriptText)
+                                .id(showTranslation ? "translation" : "original")
                                 .font(.body)
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .frame(maxHeight: 400)
-                        .padding()
-                        .background(Color(NSColor.textBackgroundColor))
-                        .cornerRadius(8)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-                        )
                     }
                 } else if !transcriptionService.isTranscribing && transcriptionService.errorMessage == nil {
-                    ContentUnavailableView(
-                        "No Transcript Available",
-                        systemImage: "doc.text",
-                        description: Text("Tap 'Generate Transcript' to create a transcript of this video's audio.")
-                    )
+                    // Center the empty state and make the title smaller
+                    VStack {
+                        ContentUnavailableView(
+                            "No transcript available",
+                            systemImage: "doc.text",
+                            description: Text("Tap 'Generate Transcript' to create a transcript of this video's audio.")
+                        )
+                        .font(.title3) // smaller than default title
+                        .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 }
                 
                 Spacer()
@@ -198,7 +294,73 @@ struct TranscriptionView: View {
         }
         .task {
             // Load supported locales using the beta API
-            supportedLocales = await Array(SpeechTranscriber.supportedLocales)
+            let locales = await Array(SpeechTranscriber.supportedLocales)
+            await MainActor.run {
+                supportedLocales = locales
+            }
+            // Initialize Input picker:
+            // If this video already has a detected language, map it to a supported Locale; else Auto Detect (nil)
+            if let langID = video.transcriptLanguage {
+                if let matched = locales.first(where: { $0.identifier == langID }) {
+                    inputSelection = matched
+                } else if let equivalent = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: langID)),
+                          locales.contains(where: { $0.identifier == equivalent.identifier }) {
+                    inputSelection = equivalent
+                } else {
+                    inputSelection = nil // Auto
+                }
+            } else {
+                inputSelection = nil // Auto
+            }
+            // Initialize Output picker to a supported equivalent of the system locale
+            if let systemEquivalent = await SpeechTranscriber.supportedLocale(equivalentTo: Locale.current),
+               locales.contains(where: { $0.identifier == systemEquivalent.identifier }) {
+                await MainActor.run {
+                    systemSupportedLocale = systemEquivalent
+                    outputSelection = systemEquivalent
+                }
+            } else {
+                await MainActor.run {
+                    systemSupportedLocale = nil
+                    outputSelection = locales.first
+                }
+            }
+        }
+    }
+    
+    // MARK: - Helpers
+    
+    private var sortedSupportedLocales: [Locale] {
+        supportedLocales.sorted { lhs, rhs in
+            let ln = displayName(for: lhs)
+            let rn = displayName(for: rhs)
+            return ln < rn
+        }
+    }
+    
+    private func displayName(for locale: Locale) -> String {
+        Locale.current.localizedString(forIdentifier: locale.identifier) ?? locale.identifier
+    }
+    
+    private var inputSelectionLabel: String {
+        if let inputSelection {
+            return displayName(for: inputSelection)
+        } else {
+            return "Auto Detect"
+        }
+    }
+    
+    private var outputSelectionLabel: String {
+        if let outputSelection {
+            if let systemLocale = systemSupportedLocale,
+               outputSelection.identifier == systemLocale.identifier {
+                return "System"
+            }
+            return displayName(for: outputSelection)
+        } else if systemSupportedLocale != nil {
+            return "System"
+        } else {
+            return "—"
         }
     }
     
@@ -208,19 +370,15 @@ struct TranscriptionView: View {
     
     private func openTranslationSettings() {
         #if os(macOS)
-        // Open System Settings to Language & Region section
         if let settingsURL = URL(string: "x-apple.systempreferences:com.apple.Localization-Settings.extension") {
             NSWorkspace.shared.open(settingsURL)
         } else {
-            // Fallback to general System Settings
             NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
         }
         #endif
     }
     
     private func parseTranscriptionError(from message: String) -> TranscriptionError? {
-        // Simple parsing to extract error type from message
-        // In a real implementation, you might want to pass the actual error object
         if message.contains("permission") {
             return .permissionDenied
         } else if message.contains("language") && message.contains("not supported") {
@@ -240,6 +398,14 @@ struct TranscriptionView: View {
         }
         return nil
     }
+    
+    private func syncInputPickerToDetectedLanguage() {
+        // After a successful transcription, align the input picker with the detected language
+        guard let langID = video.transcriptLanguage, !langID.isEmpty else { return }
+        if let matched = supportedLocales.first(where: { $0.identifier == langID }) {
+            inputSelection = matched
+        }
+    }
 }
 
 extension DateFormatter {
@@ -249,4 +415,70 @@ extension DateFormatter {
         formatter.timeStyle = .short
         return formatter
     }()
+}
+
+// MARK: - Previews (PreviewProvider fallback for older toolchains)
+
+#if DEBUG
+private extension LibraryManager {
+    // Debug-only helper to set the current library for previews
+    func setPreviewCurrentLibrary(_ library: Library) {
+        self.currentLibrary = library
+        self.isLibraryOpen = true
+    }
+}
+#endif
+
+struct TranscriptionView_Previews: PreviewProvider {
+    static var previews: some View {
+        // In-memory Core Data stack for preview
+        let model = NSManagedObjectModel.mergedModel(from: [Bundle.main]) ?? NSManagedObjectModel()
+        let container = NSPersistentContainer(name: "Library", managedObjectModel: model)
+        let description = NSPersistentStoreDescription()
+        description.type = NSInMemoryStoreType
+        container.persistentStoreDescriptions = [description]
+        container.loadPersistentStores(completionHandler: { _, error in
+            if let error = error {
+                print("Preview store load error: \(error)")
+            }
+        })
+        let context = container.viewContext
+        
+        // Minimal Library + Video
+        let libraryEntity = NSEntityDescription.entity(forEntityName: "Library", in: context)!
+        let videoEntity = NSEntityDescription.entity(forEntityName: "Video", in: context)!
+        
+        let library = Library(entity: libraryEntity, insertInto: context)
+        library.id = UUID()
+        library.name = "Preview Library"
+        library.libraryPath = FileManager.default.temporaryDirectory.path
+        library.createdDate = Date()
+        library.lastOpenedDate = Date()
+        library.version = "1.0.0"
+        
+        let video = Video(entity: videoEntity, insertInto: context)
+        video.id = UUID()
+        video.title = "Sample Talk: Swift Concurrency Deep Dive"
+        video.relativePath = "sample.mov"
+        video.dateAdded = Date()
+        video.duration = 3605
+        video.fileSize = 123_456_789
+        video.transcriptText = """
+        Welcome to the Swift Concurrency deep dive. In this session, we’ll explore async/await, actors, \
+        and structured concurrency. We’ll start with the basics and move to advanced patterns...
+        """
+        video.transcriptLanguage = "en-US"
+        video.transcriptDateGenerated = Date()
+        
+        // LibraryManager environment
+        let libraryManager = LibraryManager.shared
+        #if DEBUG
+        libraryManager.setPreviewCurrentLibrary(library)
+        #endif
+        
+        return TranscriptionView(video: video)
+            .environmentObject(libraryManager)
+            .frame(minWidth: 600, minHeight: 500)
+            .previewDisplayName("TranscriptionView")
+    }
 }

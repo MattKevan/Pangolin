@@ -129,15 +129,22 @@ struct HierarchicalContentView: View {
             }
             
             if filteredContent.isEmpty {
-                ContentUnavailableView(
-                    "No Content", 
-                    systemImage: "folder.badge.questionmark", 
-                    description: Text(store.currentFolderID == nil ? "Import videos to get started" : "This folder is empty")
-                )
+                // Keep the header at the top; show empty state under it
+                VStack(alignment: .center, spacing: 12) {
+                    ContentUnavailableView(
+                        "No Content",
+                        systemImage: "folder.badge.questionmark",
+                        description: Text(store.currentFolderID == nil ? "Import videos to get started" : "This folder is empty")
+                    )
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else {
                 hierarchicalListView
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
         }
+        // Ensure the whole content fills the available space and pins to the top
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
     
     @ViewBuilder 
