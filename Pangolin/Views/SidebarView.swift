@@ -90,16 +90,8 @@ struct SidebarView: View {
         #else
         .listStyle(InsetGroupedListStyle())
         #endif
-        .toolbar {
-            ToolbarItem(placement: .automatic) {
-                Button(action: { isShowingCreateFolder = true }) {
-                    Label("Add Folder", systemImage: "plus")
-                }
-            }
-        }
-        .sheet(isPresented: $isShowingCreateFolder) {
-            CreateFolderView(parentFolderID: nil)
-        }
+        // Removed Sidebar toolbar to avoid duplicates and overflow.
+        // Add-folder is now owned by MainView's toolbar.
         .sheet(isPresented: $showingDeletionConfirmation) {
             if let folderSnapshot = folderToDeleteSnapshot {
                 DeletionConfirmationView(
@@ -217,19 +209,18 @@ private struct FolderRowView: View {
     var body: some View {
         Label {
             nameEditorView
-                .frame(maxWidth: .infinity, alignment: .leading) // Expand text area
+                .frame(maxWidth: .infinity, alignment: .leading)
         } icon: {
             Image(systemName: folder.isSmartFolder ? getSmartFolderIcon(folder.name!) : "folder")
                 .foregroundColor(folder.isSmartFolder ? .blue : .orange)
         }
-        .contentShape(Rectangle()) // Make entire row hit-testable
-        // Removed single-tap rename to allow native selection behavior
+        .contentShape(Rectangle())
         .contextMenu {
             if showContextMenu {
                 Button("Rename") {
                     renamingFolderID = folder.id
                     Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s delay
+                        try? await Task.sleep(nanoseconds: 100_000_000)
                         focusedField = folder.id
                     }
                 }
@@ -255,7 +246,6 @@ private struct FolderRowView: View {
             return false
         }
         .overlay {
-            // Provide visual feedback when a drop is targeted
             if isDropTargeted && !folder.isSmartFolder {
                 RoundedRectangle(cornerRadius: 6)
                     .stroke(Color.accentColor, lineWidth: 2)
@@ -266,7 +256,6 @@ private struct FolderRowView: View {
         }
     }
     
-    /// A view that conditionally shows a `Text` label or a `TextField` for renaming.
     @ViewBuilder
     private var nameEditorView: some View {
         if renamingFolderID == folder.id {
