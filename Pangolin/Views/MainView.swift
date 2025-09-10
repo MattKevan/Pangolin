@@ -11,12 +11,13 @@ private struct ToggleSidebarButton: View {
     var body: some View {
         Button {
             #if os(macOS)
+            // Toggles the sidebar in the current window
             NSApp.keyWindow?.firstResponder?.tryToPerform(#selector(NSSplitViewController.toggleSidebar(_:)), with: nil)
             #endif
         } label: {
             Image(systemName: "sidebar.leading")
         }
-        .help("Show Sidebar")
+        .help("Toggle Sidebar")
     }
 }
 
@@ -28,7 +29,8 @@ struct MainView: View {
     @State private var showingImportPicker = false
     
     @State private var searchText = ""
-    
+    @State private var selectedInspectorTab: InspectorTab = .transcript
+
     init(libraryManager: LibraryManager) {
         self._folderStore = StateObject(wrappedValue: FolderNavigationStore(libraryManager: libraryManager))
     }
@@ -43,76 +45,83 @@ struct MainView: View {
             DetailView(video: folderStore.selectedVideo)
                 .environmentObject(folderStore)
                 .navigationSplitViewColumnWidth(min: 700, ideal: 900)
+                .toolbar {
+                   
+                    // Your primary actions, grouped together.
+                    ToolbarItemGroup(placement: .navigation) {
+                        Button {
+                            showingImportPicker = true
+                        } label: {
+                            Image(systemName: "square.and.arrow.down")
+                        }
+                        .help("Import Videos")
+                        .disabled(libraryManager.currentLibrary == nil)
+                        
+                        Button {
+                            showingCreateFolder = true
+                        } label: {
+                            Image(systemName: "folder.badge.plus")
+                        }
+                        .help("Add Folder")
+                        .disabled(libraryManager.currentLibrary == nil)
+                    }
+                    ToolbarItemGroup(placement: .primaryAction) {
+                        Button {
+                            showInspector.toggle()
+                        } label: {
+                            Image(systemName: "sidebar.right")
+                        }
+                        .keyboardShortcut("i", modifiers: [.command, .option])
+                        .help("Show Inspector")
+                    }
+                }
+                .inspector(isPresented: $showInspector) {
+                    // Call the new InspectorContainer with two trailing closures
+                    InspectorContainer {
+                        // This is the first closure: toolbarContent
+                        Picker("Inspector Section", selection: $selectedInspectorTab) {
+                            ForEach(InspectorTab.allCases, id: \.self) { tab in
+                                Label(tab.title, systemImage: tab.systemImage).tag(tab)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .controlSize(.regular)
+                        .frame(maxWidth: .infinity)
+
+                        .labelsHidden()
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                        
+                    } content: {
+                        // This is the second closure: content
+                        if let selected = folderStore.selectedVideo {
+                            switch selectedInspectorTab {
+                            case .transcript:
+                                TranscriptionView(video: selected)
+                                    .environmentObject(libraryManager)
+                                    .background(.clear)
+                            case .summary:
+                                SummaryView(video: selected)
+                                    .environmentObject(libraryManager)
+                                    .background(.clear)
+                            case .info:
+                                VideoInfoView(video: selected)
+                                    .environmentObject(libraryManager)
+                                    .background(.clear)
+                            }
+                        } else {
+                            ContentUnavailableView(
+                                "No Video Selected",
+                                systemImage: "sidebar.right",
+                                description: Text("Select a video to view transcript, summary and info")
+                            )
+                            .background(.clear)
+                        }
+                    }
+                    .inspectorColumnWidth(min: 280, ideal: 400, max: 600)
+                }
         }
-        .toolbar {
-            #if os(macOS)
-            ToolbarItem(placement: .navigation) {
-                ToggleSidebarButton()
-            }
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    showingImportPicker = true
-                } label: {
-                    Image(systemName: "square.and.arrow.down")
-                }
-                .help("Import Videos")
-                .disabled(libraryManager.currentLibrary == nil)
-
-                Button {
-                    showingCreateFolder = true
-                } label: {
-                    Image(systemName: "folder.badge.plus")
-                }
-                .help("Add Folder")
-                .disabled(libraryManager.currentLibrary == nil)
-
-                Button {
-                    showInspector.toggle()
-                } label: {
-                    Image(systemName: "sidebar.right")
-                }
-                .keyboardShortcut("i", modifiers: [.command, .option])
-                .help("Show Inspector")
-            }
-            #else
-            ToolbarItemGroup(placement: .navigationBarTrailing) {
-                Button {
-                    showingImportPicker = true
-                } label: {
-                    Label("Import", systemImage: "square.and.arrow.down")
-                }
-                .disabled(libraryManager.currentLibrary == nil)
-
-                Button {
-                    showingCreateFolder = true
-                } label: {
-                    Label("Add Folder", systemImage: "folder.badge.plus")
-                }
-
-                Button {
-                    showInspector.toggle()
-                } label: {
-                    Label("Inspector", systemImage: "info.circle")
-                }
-            }
-            #endif
-        }
-        .inspector(isPresented: $showInspector) {
-            // Bound inspector width to avoid recursive constraint updates
-            InspectorContainer {
-                if let selected = folderStore.selectedVideo {
-                    VideoDetailTabView(video: selected)
-                        .environmentObject(libraryManager)
-                } else {
-                    ContentUnavailableView(
-                        "No Video Selected",
-                        systemImage: "sidebar.right",
-                        description: Text("Select a video to view transcript, summary and info")
-                    )
-                }
-            }
-            .frame(minWidth: 280, idealWidth: 360, maxWidth: 480)
-        }
+        // Modifiers that apply to the whole view, like fileImporter and sheet, can remain here.
         .fileImporter(
             isPresented: $showingImportPicker,
             allowedContentTypes: [.movie, .video, .folder],
@@ -142,26 +151,39 @@ struct MainView: View {
     }
 }
 
-// MARK: - Inspector Container
+// MARK: - Inspector Container and other helpers
 
-private struct InspectorContainer<Content: View>: View {
+private struct InspectorContainer<ToolbarContent: View, Content: View>: View {
+    @ViewBuilder var toolbarContent: ToolbarContent
     @ViewBuilder var content: Content
     
     var body: some View {
-        // Keep a simple container; avoid forcing infinite size
+        // Main VStack for the entire inspector
         VStack(spacing: 0) {
+            // A dedicated area for the toolbar content (the Picker)
+            VStack(spacing: 0) {
+                toolbarContent
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                
+                // A subtle divider line below the toolbar
+                //Divider()
+            }
+            
+            // The main content area
             content
                 .padding(.horizontal, 8)
                 .padding(.top, 8)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+            
+            Spacer()
         }
-        .background {
-            #if os(macOS)
-            Color(NSColor.underPageBackgroundColor)
-            #else
-            Color(.tertiarySystemBackground)
-            #endif
-        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        #if os(macOS)
+        .background(.regularMaterial)
+        #else
+        .background(Color(.tertiarySystemBackground))
+        #endif
+        // The side overlay remains the same
         .overlay(alignment: .leading) {
             Rectangle()
                 .fill(Color.secondary.opacity(0.25))
