@@ -21,15 +21,15 @@ struct SummaryView: View {
     @State private var didCopyMarkdown = false
     
     var body: some View {
+        // Single scroll view only; avoid nested ScrollViews
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 header
                 content
-                Spacer()
             }
             .padding()
         }
-        .overlay(shareSheetPresenter) // attaches iOS presenter on top (macOS uses direct picker)
+        .overlay(shareSheetPresenter)
     }
     
     // MARK: - Header
@@ -142,21 +142,18 @@ struct SummaryView: View {
                 
                 Divider()
                 
-                ScrollView {
-                    // Render with MarkdownUI for robust Markdown support
-                    Markdown(summary)
-                        .markdownTheme(.gitHub) // Choose a built-in theme; customize as needed
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding()
-                }
-                .frame(maxHeight: 400)
-                .background(Color(nsColorCompatible: .textBackgroundColor))
-                .cornerRadius(8)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-                )
+                // Let the outer scroll view handle scrolling; do not nest another ScrollView
+                Markdown(summary)
+                    .markdownTheme(.gitHub)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+                    .background(Color(nsColorCompatible: .textBackgroundColor))
+                    .cornerRadius(8)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                    )
             }
         } else {
             ContentUnavailableView(
@@ -172,7 +169,6 @@ struct SummaryView: View {
     @ViewBuilder
     private func toolbarControls(summary: String) -> some View {
         HStack(spacing: 10) {
-            // Share
             #if os(macOS)
             ShareButtonMac(itemsProvider: { [summary] })
             #else
@@ -187,10 +183,8 @@ struct SummaryView: View {
             .help("Share")
             #endif
             
-            // Separator dot
             Text("•").foregroundColor(.secondary)
             
-            // Copy rendered text (flatten Markdown to plain text)
             Button {
                 let plain = renderedPlainText(fromMarkdown: summary)
                 copyToPasteboard(plain)
@@ -203,7 +197,6 @@ struct SummaryView: View {
             .controlSize(.small)
             .help("Copy rendered text")
             
-            // Copy raw markdown
             Button {
                 copyToPasteboard(summary)
                 flashCopiedMarkdown()
@@ -215,36 +208,17 @@ struct SummaryView: View {
             .controlSize(.small)
             .help("Copy as Markdown")
             
-            // Feedback badges
             if didCopyRendered {
                 Text("Copied")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .transition(.opacity.combined(with: .move(edge: .trailing)))
             } else if didCopyMarkdown {
                 Text("Copied Markdown")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .transition(.opacity.combined(with: .move(edge: .trailing)))
             }
         }
         .padding(.leading, 6)
-    }
-    
-    private func flashCopiedRendered() {
-        didCopyRendered = true
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
-            didCopyRendered = false
-        }
-    }
-    
-    private func flashCopiedMarkdown() {
-        didCopyMarkdown = true
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
-            didCopyMarkdown = false
-        }
     }
     
     // MARK: - Settings Button (macOS)
@@ -277,7 +251,7 @@ struct SummaryView: View {
     @ViewBuilder
     private var shareSheetPresenter: some View {
         #if os(macOS)
-        EmptyView() // macOS presents picker directly via ShareButtonMac
+        EmptyView()
         #else
         ShareSheetHostIOS(items: shareItems, isPresented: $isPresentingShare)
             .allowsHitTesting(false)
@@ -296,11 +270,7 @@ struct SummaryView: View {
         #endif
     }
     
-    // MARK: - Plain text flattening for Copy
-    
     private func renderedPlainText(fromMarkdown markdown: String) -> String {
-        // Keep a lightweight fallback using AttributedString to flatten
-        // MarkdownUI doesn't provide a public plain-text renderer
         let normalized = markdown
         if let attributed = try? AttributedString(markdown: normalized, options: .init(interpretedSyntax: .full)) {
             return String(attributed.characters)
@@ -308,9 +278,27 @@ struct SummaryView: View {
             return normalized
         }
     }
+    
+    // MARK: - Copy feedback timers
+    
+    private func flashCopiedRendered() {
+        didCopyRendered = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            didCopyRendered = false
+        }
+    }
+    
+    private func flashCopiedMarkdown() {
+        didCopyMarkdown = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            didCopyMarkdown = false
+        }
+    }
 }
 
-// MARK: - macOS Share Button Host (anchors picker to actual view)
+// MARK: - macOS Share Button Host (unchanged)
 
 #if os(macOS)
 private struct ShareButtonMac: NSViewRepresentable {
@@ -354,8 +342,6 @@ private struct ShareButtonMac: NSViewRepresentable {
 }
 #endif
 
-// MARK: - iOS Share Host
-
 #if !os(macOS)
 private struct ShareSheetHostIOS: UIViewControllerRepresentable {
     let items: [Any]
@@ -382,8 +368,6 @@ private struct ShareSheetHostIOS: UIViewControllerRepresentable {
     }
 }
 #endif
-
-// MARK: - Color Compatibility
 
 private extension Color {
     init(nsColorCompatible: NSColorCompatible) {

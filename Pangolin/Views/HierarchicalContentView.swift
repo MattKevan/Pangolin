@@ -16,11 +16,6 @@ struct HierarchicalContentView: View {
     let searchText: String
     
     @State private var selectedItems: Set<UUID> = []
-    @State private var showingImportPicker = false
-    @State private var showingImportProgress = false
-    @State private var showingCreateFolder = false
-    @State private var isGeneratingThumbnails = false
-    @StateObject private var videoImporter = VideoImporter()
     @State private var showingDeletionConfirmation = false
     @State private var itemsToDelete: [DeletionItem] = []
     
@@ -33,7 +28,7 @@ struct HierarchicalContentView: View {
     @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
     @State private var showingProcessingPanel = false
     
-    // This new property filters the store's reactive data source
+    // This property filters the store's reactive data source
     private var filteredContent: [HierarchicalContentItem] {
         let sourceContent = store.hierarchicalContent
         
@@ -47,85 +42,67 @@ struct HierarchicalContentView: View {
     
     var body: some View {
         contentView
-        .toolbar {
-            toolbarContent
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("TriggerRename"))) { _ in
-            triggerRenameFromMenu()
-        }
-        .fileImporter(isPresented: $showingImportPicker, allowedContentTypes: [.movie, .video, .folder], allowsMultipleSelection: true) { result in
-            switch result {
-            case .success(let urls):
-                if let library = libraryManager.currentLibrary, let context = libraryManager.viewContext {
-                    videoImporter.resetImportState()
-                    showingImportProgress = true
-                    Task {
-                        await videoImporter.importFiles(urls, to: library, context: context)
-                    }
-                }
-            case .failure(let error):
-                print("Error importing files: \(error)")
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("TriggerRename"))) { _ in
+                triggerRenameFromMenu()
             }
-        }
-        .sheet(isPresented: $showingImportProgress) {
-            ImportProgressView(importer: videoImporter)
-        }
-        .sheet(isPresented: $showingCreateFolder) {
-            CreateFolderView(parentFolderID: store.currentFolderID)
-        }
-        .sheet(isPresented: $showingDeletionConfirmation) {
-            if !itemsToDelete.isEmpty {
-                DeletionConfirmationView(
-                    items: itemsToDelete,
-                    onConfirm: {
-                        Task {
-                            await confirmDeletion()
-                        }
-                    },
-                    onCancel: {
-                        cancelDeletion()
-                    }
+            // Processing panel remains available if something external presents it
+            .sheet(isPresented: $showingProcessingPanel) {
+                BulkProcessingView(
+                    processingManager: processingQueueManager,
+                    isPresented: $showingProcessingPanel
                 )
-            } else {
-                // Fallback empty view - should not normally show
-                Text("No items to delete")
-                    .padding()
-                    .onAppear {
-                        print("⚠️ SHEET: Empty deletion sheet appeared - this should not happen")
-                        showingDeletionConfirmation = false
-                    }
             }
-        }
-        .sheet(isPresented: $showingProcessingPanel) {
-            BulkProcessingView(
-                processingManager: processingQueueManager,
-                isPresented: $showingProcessingPanel
-            )
-        }
-        .onKeyPress { keyPress in
-            // Return key triggers rename on single selected item
-            if keyPress.key == .return, selectedItems.count == 1,
-               let selectedID = selectedItems.first,
-               let selectedItem = findItem(withID: selectedID, in: filteredContent),
-               renamingItemID == nil {
-                startRenaming(selectedItem)
-                return .handled
+            .onKeyPress { keyPress in
+                // Return key triggers rename on single selected item
+                if keyPress.key == .return, selectedItems.count == 1,
+                   let selectedID = selectedItems.first,
+                   let selectedItem = findItem(withID: selectedID, in: filteredContent),
+                   renamingItemID == nil {
+                    startRenaming(selectedItem)
+                    return .handled
+                }
+                // Delete key triggers deletion of selected items
+                else if (keyPress.key == .delete || keyPress.key == .deleteForward), !selectedItems.isEmpty {
+                    deleteSelectedItems()
+                    return .handled
+                }
+                
+                return .ignored
             }
-            // Delete key triggers deletion of selected items
-            else if (keyPress.key == .delete || keyPress.key == .deleteForward), !selectedItems.isEmpty {
-                deleteSelectedItems()
-                return .handled
+            // Deletion confirmation sheet (still owned here because it's tightly coupled to selection)
+            .sheet(isPresented: $showingDeletionConfirmation) {
+                if !itemsToDelete.isEmpty {
+                    DeletionConfirmationView(
+                        items: itemsToDelete,
+                        onConfirm: {
+                            Task {
+                                await confirmDeletion()
+                            }
+                        },
+                        onCancel: {
+                            cancelDeletion()
+                        }
+                    )
+                } else {
+                    // Fallback empty view - should not normally show
+                    Text("No items to delete")
+                        .padding()
+                        .onAppear {
+                            print("⚠️ SHEET: Empty deletion sheet appeared - this should not happen")
+                            showingDeletionConfirmation = false
+                        }
+                }
             }
-            
-            return .ignored
-        }
     }
     
     @ViewBuilder
     private var contentView: some View {
         VStack(spacing: 0) {
+            // Header remains for navigation affordance (if you still want to keep it)
             FolderNavigationHeader {
-                showingCreateFolder = true
+                // The "Add Folder" button was moved to MainView's toolbar.
+                // If you still want the header's plus action to do something here, you can:
+                // showingCreateFolder = true
             }
             
             if filteredContent.isEmpty {
@@ -169,59 +146,6 @@ struct HierarchicalContentView: View {
         }
         .onChange(of: selectedItems) { _, newSelection in
             handleSelectionChange(newSelection)
-        }
-    }
-    
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        #if os(macOS)
-        ToolbarItemGroup {
-            macOSToolbarButtons
-        }
-                
-        #else
-        ToolbarItemGroup(placement: .navigationBarTrailing) {
-            iOSMenu
-        }
-        #endif
-    }
-    
-    @ViewBuilder
-    private var macOSToolbarButtons: some View {
-        Button("Import Videos") { showingImportPicker = true }
-            .disabled(libraryManager.currentLibrary == nil)
-        
-        if !videosWithoutThumbnails.isEmpty {
-            Button(isGeneratingThumbnails ? "Generating..." : "Generate Thumbnails") {
-                generateThumbnailsForVideos()
-            }
-            .disabled(isGeneratingThumbnails)
-        }
-        
-        
-        
-        // Processing Queue Button
-        if processingQueueManager.hasActiveTasks || processingQueueManager.totalTasks > 0 {
-            CircularProgressButton(
-                progress: processingQueueManager.overallProgress,
-                activeTaskCount: processingQueueManager.activeTasks,
-                processingManager: processingQueueManager,
-                onViewAllTapped: {
-                    showingProcessingPanel = true
-                }
-            )
-        }
-    }
-    
-    @ViewBuilder
-    private var iOSMenu: some View {
-        Menu {
-            Button { showingImportPicker = true } label: { 
-                Label("Import Videos", systemImage: "square.and.arrow.down") 
-            }
-            .disabled(libraryManager.currentLibrary == nil)
-        } label: {
-            Image(systemName: "ellipsis.circle")
         }
     }
     
@@ -325,14 +249,13 @@ struct HierarchicalContentView: View {
             // Recursively filter children
             let filteredChildren = item.children.flatMap { filterHierarchicalContent($0, searchText: searchText) }
             
-            // An item should be included if its name matches OR if it has children that match
+            // Include if name matches OR if it has children that match
             if nameMatches || (filteredChildren?.isEmpty == false) {
                 var filteredItem = item
                 // Assign the filtered children back to the item
                 filteredItem.children = filteredChildren
                 return filteredItem
             }
-            
             return nil
         }
     }
@@ -361,25 +284,14 @@ struct HierarchicalContentView: View {
         }
     }
     
-    private func generateThumbnailsForVideos() {
-        guard let library = libraryManager.currentLibrary, let context = libraryManager.viewContext else { return }
-        isGeneratingThumbnails = true
-        Task {
-            await FileSystemManager.shared.generateMissingThumbnails(for: library, context: context)
-            await MainActor.run {
-                isGeneratingThumbnails = false
-            }
-        }
-    }
-    
     // MARK: - Deletion Methods
     
     private func deleteSelectedItems() {
         print("🗑️ CONTENT: deleteSelectedItems called with selectedItems: \(selectedItems)")
         
-        guard let context = libraryManager.viewContext else { 
+        guard let context = libraryManager.viewContext else {
             print("⚠️ CONTENT: No view context available")
-            return 
+            return
         }
         
         var deletionItems: [DeletionItem] = []
