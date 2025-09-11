@@ -74,10 +74,7 @@ struct TranscriptionView: View {
                     
                     Spacer()
                     
-                    if transcriptionService.isTranscribing {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                    } else if video.transcriptText == nil {
+                     if video.transcriptText == nil {
                         Button("Transcribe") {
                             Task {
                                 await transcriptionService.transcribeVideo(video, libraryManager: libraryManager, preferredLocale: inputSelection)
@@ -98,70 +95,9 @@ struct TranscriptionView: View {
                     }
                 }
             
-                if transcriptionService.isTranscribing {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Image(systemName: "waveform")
-                                .foregroundColor(.blue)
-                            Text("Transcribing audio...")
-                                .font(.headline)
-                        }
-                        
-                        ProgressView(value: transcriptionService.progress)
-                            .progressViewStyle(LinearProgressViewStyle())
-                        
-                        Text(transcriptionService.statusMessage)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding()
-                    .background(Color(NSColor.controlBackgroundColor))
-                    .cornerRadius(8)
-                }
                 
-                if let errorMessage = transcriptionService.errorMessage {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Image(systemName: "exclamationmark.triangle")
-                                .foregroundColor(.orange)
-                            Text("Transcription Error")
-                                .font(.headline)
-                        }
-                        
-                        Text(errorMessage)
-                            .font(.body)
-                            .foregroundColor(.primary)
-                        
-                        if let error = parseTranscriptionError(from: errorMessage),
-                           let suggestion = error.recoverySuggestion {
-                            Divider()
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("💡 Suggestion:")
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                                    .foregroundColor(.blue)
-                                Text(suggestion)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        
-                        HStack {
-                            Spacer()
-                            Button("Try Again") {
-                                Task {
-                                    await transcriptionService.transcribeVideo(video, libraryManager: libraryManager, preferredLocale: inputSelection)
-                                    syncInputPickerToDetectedLanguage()
-                                }
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
-                        }
-                    }
-                    .padding()
-                    .background(Color.orange.opacity(0.1))
-                    .cornerRadius(8)
-                }
+                
+            
             
                 if let transcriptText = video.transcriptText {
                     VStack(alignment: .leading, spacing: 12) {

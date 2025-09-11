@@ -215,38 +215,8 @@ class SpeechTranscriptionService: ObservableObject {
                 print("⚠️ Failed to write transcript to disk: \(error)")
             }
             
-            // Auto-translate if detected/preferred language differs from system
-            let systemLanguage = Locale.current.language
-            let sourceLanguage = usedLocale.language
-            
-            if sourceLanguage.languageCode?.identifier != systemLanguage.languageCode?.identifier {
-                statusMessage = "Translating transcript..."
-                progress = 0.95
-                
-                do {
-                    let translatedText = try await translateText(transcriptText, from: sourceLanguage, to: systemLanguage)
-                    video.translatedText = translatedText
-                    video.translatedLanguage = systemLanguage.languageCode?.identifier
-                    video.translationDateGenerated = Date()
-                    
-                    // Persist translation to disk (best effort)
-                    if let lang = video.translatedLanguage {
-                        do {
-                            try libraryManager.ensureTextArtifactDirectories()
-                            if let url = libraryManager.translationURL(for: video, languageCode: lang) {
-                                try libraryManager.writeTextAtomically(translatedText, to: url)
-                            }
-                        } catch {
-                            print("⚠️ Failed to write translation to disk: \(error)")
-                        }
-                    }
-                    
-                    print("🟢 Translation completed successfully")
-                } catch {
-                    print("🟠 Translation failed, but continuing: \(error)")
-                    // Continue without failing the entire process
-                }
-            }
+            // NOTE: Removed automatic translation. Translation must be initiated manually
+            // via translateVideo(_:libraryManager:targetLanguage:).
             
             await libraryManager.save()
             

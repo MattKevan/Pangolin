@@ -63,12 +63,9 @@ struct MainView: View {
     // Prevent duplicate auto-triggers during rapid selection changes
     @State private var isAutoTranscribing = false
     
-    // Processing UI
-    @State private var showingProcessingPanel = false
+    // Popover state for task indicator
+    @State private var showTaskPopover = false
     
-    // Observe the global processing queue
-    @StateObject private var processingQueueManager = ProcessingQueueManager.shared
-
     init(libraryManager: LibraryManager) {
         self._folderStore = StateObject(wrappedValue: FolderNavigationStore(libraryManager: libraryManager))
     }
@@ -105,19 +102,38 @@ struct MainView: View {
                     
                     // Trailing actions
                     ToolbarItemGroup(placement: .primaryAction) {
-                        // Show when queue has active tasks OR service is doing ad-hoc work; hide when complete.
-                        if showProcessingIndicator {
-                            CircularProgressButton(
-                                progress: indicatorProgress,
-                                activeTaskCount: indicatorActiveCount,
-                                processingManager: processingQueueManager,
-                                onViewAllTapped: {
-                                    showingProcessingPanel = true
+                        // Native circular ProgressView indicator (service-only), hidden when idle
+                        if isAnyTaskActive {
+                            Button {
+                                showTaskPopover.toggle()
+                            } label: {
+                                ZStack {
+                                    if currentProgress > 0 && currentProgress < 1 {
+                                        ProgressView(value: currentProgress)
+                                            .progressViewStyle(.circular)
+                                            .controlSize(.small)
+                                            .frame(width: 14, height: 14)
+                                    } else {
+                                        ProgressView()
+                                            .progressViewStyle(.circular)
+                                            .controlSize(.small)
+                                            .frame(width: 14, height: 14)
+                                    }
                                 }
-                            )
-                            .frame(width: 24, height: 24)
-                            .accessibilityLabel("Processing")
-                            .accessibilityValue("\(Int(indicatorProgress * 100)) percent")
+                                .frame(width: 20, height: 20) // hit target
+                                .accessibilityLabel(currentTaskTitle)
+                                .accessibilityValue("\(Int(currentProgress * 100)) percent")
+                            }
+                            .buttonStyle(.plain)
+                            .popover(isPresented: $showTaskPopover, arrowEdge: .top) {
+                                TaskPopoverView(
+                                    title: currentTaskTitle,
+                                    message: transcriptionService.statusMessage,
+                                    progress: currentProgress
+                                )
+                                .padding()
+                                .frame(minWidth: 240)
+                            }
                         }
                         
                         Button {
@@ -175,17 +191,7 @@ struct MainView: View {
                     }
                     .inspectorColumnWidth(min: 280, ideal: 400, max: 600)
                 }
-                .onChange(of: folderStore.selectedVideo) { _, newVideo in
-                    guard let video = newVideo else { return }
-                    // Only auto-trigger if there's no transcript yet and we're not already busy
-                    if video.transcriptText == nil && !transcriptionService.isTranscribing && !isAutoTranscribing {
-                        isAutoTranscribing = true
-                        Task {
-                            await transcriptionService.transcribeVideo(video, libraryManager: libraryManager)
-                            await MainActor.run { isAutoTranscribing = false }
-                        }
-                    }
-                }
+                // Removed auto-transcribe on selection change. Transcription must be user-initiated.
         }
         .fileImporter(
             isPresented: $showingImportPicker,
@@ -197,40 +203,37 @@ struct MainView: View {
         .sheet(isPresented: $showingCreateFolder) {
             CreateFolderView(parentFolderID: folderStore.currentFolderID)
         }
-        .sheet(isPresented: $showingProcessingPanel) {
-            BulkProcessingView(
-                processingManager: processingQueueManager,
-                isPresented: $showingProcessingPanel
-            )
-        }
         .navigationTitle(libraryManager.currentLibrary?.name ?? "Pangolin")
         .pangolinAlert(error: $libraryManager.error)
     }
     
-    // MARK: - Indicator logic (queue + ad-hoc service)
+    // MARK: - Indicator logic (service-only)
     
-    private var showProcessingIndicator: Bool {
-        (processingQueueManager.activeTasks > 0) ||
-        transcriptionService.isTranscribing ||
-        transcriptionService.isSummarizing
+    private var isAnyTaskActive: Bool {
+        transcriptionService.isTranscribing || transcriptionService.isSummarizing
     }
     
-    private var indicatorProgress: Double {
-        if processingQueueManager.activeTasks > 0 {
-            return processingQueueManager.overallProgress
+    private var currentProgress: Double {
+        min(max(transcriptionService.progress, 0.0), 1.0)
+    }
+    
+    private var currentTaskTitle: String {
+        if transcriptionService.isSummarizing {
+            return "Summary"
         } else {
-            return min(max(transcriptionService.progress, 0.0), 1.0)
+            let lower = transcriptionService.statusMessage.lowercased()
+            if lower.contains("translat") {
+                return "Translation"
+            }
+            return "Transcription"
         }
     }
     
-    private var indicatorActiveCount: Int {
-        if processingQueueManager.activeTasks > 0 {
-            return processingQueueManager.activeTasks
-        } else if transcriptionService.isTranscribing || transcriptionService.isSummarizing {
-            return 1
-        } else {
-            return 0
+    private func hasTranscript(_ video: Video) -> Bool {
+        if let t = video.transcriptText {
+            return !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
+        return false
     }
     
     // MARK: - Helpers
@@ -246,6 +249,55 @@ struct MainView: View {
             }
         case .failure(let error):
             print("Error importing files: \(error)")
+        }
+    }
+}
+
+// MARK: - Task Popover
+
+private struct TaskPopoverView: View {
+    let title: String
+    let message: String
+    let progress: Double
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: iconName)
+                    .foregroundStyle(iconColor)
+                Text(title)
+                    .font(.headline)
+            }
+            if !message.isEmpty {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ProgressView(value: progress)
+                .progressViewStyle(.linear)
+            HStack {
+                Spacer()
+                Text("\(Int(progress * 100))%")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+    
+    private var iconName: String {
+        switch title {
+        case "Summary": return "doc.text.below.ecg"
+        case "Translation": return "globe.badge.chevron.backward"
+        default: return "waveform"
+        }
+    }
+    
+    private var iconColor: Color {
+        switch title {
+        case "Summary": return .purple
+        case "Translation": return .green
+        default: return .blue
         }
     }
 }
