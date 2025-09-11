@@ -223,8 +223,9 @@ class VideoImporter: ObservableObject {
             }
         }
         
-        // Create subtitle directory
-        let videoDir = URL(fileURLWithPath: video.relativePath!).deletingLastPathComponent().path
+        // Create subtitle directory using relative path properly
+        let videoRelativePath = video.relativePath!
+        let videoDir = (videoRelativePath as NSString).deletingLastPathComponent
         let subtitlesDir = libraryURL.appendingPathComponent("Subtitles")
             .appendingPathComponent(videoDir)
         
@@ -233,8 +234,20 @@ class VideoImporter: ObservableObject {
             withIntermediateDirectories: true
         )
         
-        // Copy subtitle file
-        let destinationURL = subtitlesDir.appendingPathComponent(url.lastPathComponent)
+        // Copy subtitle file with duplicate handling
+        let fileName = url.lastPathComponent
+        var destinationURL = subtitlesDir.appendingPathComponent(fileName)
+        
+        // Handle duplicates like we do for videos
+        var counter = 1
+        while FileManager.default.fileExists(atPath: destinationURL.path) {
+            let name = url.deletingPathExtension().lastPathComponent
+            let ext = url.pathExtension
+            let newFileName = "\(name)_\(counter).\(ext)"
+            destinationURL = subtitlesDir.appendingPathComponent(newFileName)
+            counter += 1
+        }
+        
         try FileManager.default.copyItem(at: url, to: destinationURL)
         
         // Create subtitle entity in Core Data context using entity description
@@ -244,7 +257,7 @@ class VideoImporter: ObservableObject {
         
         let subtitle = Subtitle(entity: subtitleEntityDescription, insertInto: context)
         subtitle.id = UUID()
-        subtitle.fileName = url.lastPathComponent
+        subtitle.fileName = destinationURL.lastPathComponent // Use the actual copied filename
         subtitle.relativePath = destinationURL.path
             .replacingOccurrences(of: libraryURL.path + "/Subtitles/", with: "")
         subtitle.format = url.pathExtension

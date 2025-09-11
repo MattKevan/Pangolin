@@ -158,7 +158,14 @@ class SpeechTranscriptionService: ObservableObject {
         statusMessage = "Starting transcription..."
         
         do {
-            guard let videoURL = video.fileURL, FileManager.default.fileExists(atPath: videoURL.path) else {
+            // Use the async method to get accessible video file URL, downloading if needed
+            statusMessage = "Accessing video file..."
+            let videoURL: URL
+            do {
+                videoURL = try await video.getAccessibleFileURL(downloadIfNeeded: true)
+                print("🎬 Transcription: Got accessible video URL: \(videoURL)")
+            } catch {
+                print("🚨 Transcription: Failed to get accessible video URL: \(error)")
                 throw TranscriptionError.videoFileNotFound
             }
             

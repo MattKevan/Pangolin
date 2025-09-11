@@ -3,10 +3,10 @@
     <entity name="Folder" representedClassName="Folder" syncable="YES" codeGenerationType="class">
         <attribute name="dateCreated" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="dateModified" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
-        <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="isSmartFolder" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
         <attribute name="isTopLevel" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
-        <attribute name="name" attributeType="String"/>
+        <attribute name="name" optional="YES" attributeType="String"/>
         <relationship name="childFolders" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Folder" inverseName="parentFolder" inverseEntity="Folder"/>
         <relationship name="library" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Library" inverseName="folders" inverseEntity="Library"/>
         <relationship name="parentFolder" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Folder" inverseName="childFolders" inverseEntity="Folder"/>
@@ -17,43 +17,46 @@
         <attribute name="copyFilesOnImport" attributeType="Boolean" defaultValueString="YES" usesScalarValueType="YES"/>
         <attribute name="createdDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="defaultPlaybackSpeed" attributeType="Float" defaultValueString="1" usesScalarValueType="YES"/>
-        <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="lastOpenedDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
-        <attribute name="libraryPath" attributeType="String"/>
-        <attribute name="name" attributeType="String"/>
+        <attribute name="libraryPath" optional="YES" attributeType="String"/>
+        <attribute name="name" optional="YES" attributeType="String"/>
         <attribute name="organizeByDate" attributeType="Boolean" defaultValueString="YES" usesScalarValueType="YES"/>
         <attribute name="rememberPlaybackPosition" attributeType="Boolean" defaultValueString="YES" usesScalarValueType="YES"/>
         <attribute name="version" attributeType="String" defaultValueString="1.0.0"/>
+        <attribute name="videoStorageType" optional="YES" attributeType="String" defaultValueString="icloud_drive"/>
+        <attribute name="customVideoStoragePath" optional="YES" attributeType="String"/>
+        <attribute name="videoStorageBookmarkData" optional="YES" attributeType="Binary" usesScalarValueType="NO" allowsExternalBinaryDataStorage="YES"/>
         <relationship name="folders" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Folder" inverseName="library" inverseEntity="Folder"/>
         <relationship name="videos" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Video" inverseName="library" inverseEntity="Video"/>
     </entity>
     <entity name="Subtitle" representedClassName="Subtitle" syncable="YES" codeGenerationType="class">
         <attribute name="encoding" optional="YES" attributeType="String" defaultValueString="UTF-8"/>
-        <attribute name="fileName" attributeType="String"/>
+        <attribute name="fileName" optional="YES" attributeType="String"/>
         <attribute name="format" optional="YES" attributeType="String" defaultValueString="srt"/>
-        <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="isDefault" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
         <attribute name="isForced" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
         <attribute name="language" optional="YES" attributeType="String"/>
         <attribute name="languageName" optional="YES" attributeType="String"/>
-        <attribute name="relativePath" attributeType="String"/>
+        <attribute name="relativePath" optional="YES" attributeType="String"/>
         <relationship name="video" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Video" inverseName="subtitles" inverseEntity="Video"/>
     </entity>
     <entity name="Video" representedClassName="Video" syncable="YES" codeGenerationType="class">
         <attribute name="dateAdded" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="duration" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
-        <attribute name="fileName" attributeType="String"/>
+        <attribute name="fileName" optional="YES" attributeType="String"/>
         <attribute name="fileSize" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="frameRate" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
-        <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="isFavorite" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
         <attribute name="lastPlayed" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="playbackPosition" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
         <attribute name="playCount" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
-        <attribute name="relativePath" attributeType="String"/>
+        <attribute name="relativePath" optional="YES" attributeType="String"/>
         <attribute name="resolution" optional="YES" attributeType="String"/>
         <attribute name="thumbnailPath" optional="YES" attributeType="String"/>
-        <attribute name="title" attributeType="String"/>
+        <attribute name="title" optional="YES" attributeType="String"/>
         <attribute name="videoFormat" optional="YES" attributeType="String"/>
         <attribute name="transcriptText" optional="YES" attributeType="String"/>
         <attribute name="transcriptLanguage" optional="YES" attributeType="String"/>

@@ -50,10 +50,15 @@ class FileSystemManager {
             }
         }
         
+        // Get the configured video storage location
+        let videoStorageURL = try await MainActor.run {
+            return try VideoStorageManager.shared.resolveVideoStorageURL(for: library)
+        }
+        
         // Create date-based subdirectory
         let importDate = Date()
         let dateString = dateFormatter.string(from: importDate)
-        let videosDir = libraryURL.appendingPathComponent("Videos").appendingPathComponent(dateString)
+        let videosDir = videoStorageURL.appendingPathComponent(dateString)
         
         // Ensure directory exists
         try fileManager.createDirectory(at: videosDir, withIntermediateDirectories: true)
@@ -73,7 +78,7 @@ class FileSystemManager {
         }
         
         // Get relative path
-        let relativePath = destinationURL.path.replacingOccurrences(of: libraryURL.path + "/Videos/", with: "")
+        let relativePath = destinationURL.path.replacingOccurrences(of: videoStorageURL.path + "/", with: "")
         
         // Get video metadata
         let metadata = try await getVideoMetadata(from: destinationURL)
@@ -294,7 +299,8 @@ class FileSystemManager {
         
         do {
             let videosWithoutThumbnails = try context.fetch(request)
-            print("Found \(videosWithoutThumbnails.count) videos without thumbnails")
+            let videoCount = videosWithoutThumbnails.count
+            print("Found \(videoCount) videos without thumbnails")
             
             for video in videosWithoutThumbnails {
                 guard let videoURL = video.fileURL else { continue }
@@ -313,7 +319,7 @@ class FileSystemManager {
             await MainActor.run {
                 do {
                     try context.save()
-                    print("Successfully saved thumbnails for \(videosWithoutThumbnails.count) videos")
+                    print("Successfully saved thumbnails for \(videoCount) videos")
                 } catch {
                     print("Failed to save thumbnail paths: \(error)")
                 }
@@ -332,7 +338,8 @@ class FileSystemManager {
         
         do {
             let allVideos = try context.fetch(request)
-            print("Rebuilding thumbnails for \(allVideos.count) videos")
+            let videoCount = allVideos.count
+            print("Rebuilding thumbnails for \(videoCount) videos")
             
             for video in allVideos {
                 guard let videoURL = video.fileURL else { continue }
@@ -351,7 +358,7 @@ class FileSystemManager {
             await MainActor.run {
                 do {
                     try context.save()
-                    print("Successfully rebuilt thumbnails for \(allVideos.count) videos")
+                    print("Successfully rebuilt thumbnails for \(videoCount) videos")
                 } catch {
                     print("Failed to save rebuilt thumbnail paths: \(error)")
                 }

@@ -165,6 +165,9 @@ class LibraryManager: ObservableObject {
         library.defaultPlaybackSpeed = 1.0
         library.rememberPlaybackPosition = true
         
+        // Set default video storage to iCloud Drive
+        library.videoStorageType = "icloud_drive"
+        
         print("All properties set successfully")
         
         // Create default smart folders
@@ -288,6 +291,28 @@ class LibraryManager: ObservableObject {
         _ = try await openLibrary(at: lastLibraryPath)
     }
     
+    /// Get or create iCloud library automatically
+    func getOrCreateiCloudLibrary() async throws -> Library {
+        // Check if iCloud is available
+        guard let iCloudURL = FileManager.default.url(forUbiquityContainerIdentifier: nil) else {
+            throw LibraryError.iCloudUnavailable
+        }
+        
+        let pangolinDirectory = iCloudURL.appendingPathComponent("Pangolin")
+        let defaultLibraryName = "My Video Library"
+        let libraryURL = pangolinDirectory.appendingPathComponent("\(defaultLibraryName).\(libraryExtension)")
+        
+        // Check if library already exists
+        if fileManager.fileExists(atPath: libraryURL.path) {
+            print("📚 LIBRARY: Found existing iCloud library at \(libraryURL.path)")
+            return try await openLibrary(at: libraryURL)
+        } else {
+            // Create new library in iCloud
+            print("📚 LIBRARY: Creating new iCloud library at \(libraryURL.path)")
+            return try await createLibrary(at: pangolinDirectory, name: defaultLibraryName)
+        }
+    }
+    
     // MARK: - Library Validation
     
     struct LibraryValidation {
@@ -306,25 +331,59 @@ class LibraryManager: ObservableObject {
                                     isRepairable: false)
         }
         
-        // Check for required subdirectories
+        // Check if this is an iCloud library
+        let isICloudLibrary = url.path.contains("Mobile Documents/iCloud~pangolin~video-library")
+        
+        // Check for required subdirectories (create them if missing for iCloud libraries)
         let requiredDirs = ["Videos", "Subtitles", "Thumbnails", "Backups"]
         for dir in requiredDirs {
             let dirPath = url.appendingPathComponent(dir)
             if !fileManager.fileExists(atPath: dirPath.path) {
-                errors.append("Missing directory: \(dir)")
+                if isICloudLibrary {
+                    // Try to create missing directories for iCloud libraries
+                    do {
+                        try fileManager.createDirectory(at: dirPath, withIntermediateDirectories: true)
+                        print("📁 Created missing directory: \(dir)")
+                    } catch {
+                        errors.append("Missing directory: \(dir)")
+                    }
+                } else {
+                    errors.append("Missing directory: \(dir)")
+                }
             }
         }
         
-        // Check for database
-        let dbPath = url.appendingPathComponent("Library.sqlite")
-        if !fileManager.fileExists(atPath: dbPath.path) {
-            errors.append("Database file not found")
+        // Check for database (only for local libraries - CloudKit libraries don't need local SQLite files)
+        if !isICloudLibrary {
+            let dbPath = url.appendingPathComponent("Library.sqlite")
+            if !fileManager.fileExists(atPath: dbPath.path) {
+                errors.append("Database file not found")
+            }
         }
         
-        // Check Info.plist
+        // Check Info.plist (create if missing for iCloud libraries)
         let infoPlistPath = url.appendingPathComponent("Info.plist")
         if !fileManager.fileExists(atPath: infoPlistPath.path) {
-            errors.append("Info.plist not found")
+            if isICloudLibrary {
+                // Try to create Info.plist for iCloud libraries
+                do {
+                    let info: [String: Any] = [
+                        "Version": currentVersion,
+                        "CreatedDate": Date(),
+                        "BundleIdentifier": "com.pangolin.library",
+                        "LibraryType": "VideoLibrary"
+                    ]
+                    let plistData = try PropertyListSerialization.data(fromPropertyList: info,
+                                                                      format: .xml,
+                                                                      options: 0)
+                    try plistData.write(to: infoPlistPath)
+                    print("📄 Created missing Info.plist")
+                } catch {
+                    errors.append("Info.plist not found")
+                }
+            } else {
+                errors.append("Info.plist not found")
+            }
         }
         
         let isValid = errors.isEmpty
@@ -486,6 +545,7 @@ enum LibraryError: LocalizedError {
     case insufficientPermissions
     case diskSpaceInsufficient
     case saveFailed(Error)
+    case iCloudUnavailable
     
     var errorDescription: String? {
         switch self {
@@ -507,6 +567,8 @@ enum LibraryError: LocalizedError {
             return "Not enough disk space available"
         case .saveFailed(let error):
             return "Failed to save the library. \(error.localizedDescription)"
+        case .iCloudUnavailable:
+            return "iCloud Drive is not available"
         }
     }
     
@@ -526,6 +588,8 @@ enum LibraryError: LocalizedError {
             return "Check file permissions and try again"
         case .diskSpaceInsufficient:
             return "Free up disk space and try again"
+        case .iCloudUnavailable:
+            return "Enable iCloud Drive in System Settings and sign in to iCloud"
         }
     }
 }

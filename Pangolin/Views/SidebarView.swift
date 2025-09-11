@@ -11,6 +11,7 @@ import Combine
 
 struct SidebarView: View {
     @EnvironmentObject private var store: FolderNavigationStore
+    @EnvironmentObject private var libraryManager: LibraryManager
     @Environment(\.managedObjectContext) private var viewContext
     
     @State private var isShowingCreateFolder = false
@@ -21,27 +22,8 @@ struct SidebarView: View {
     @State private var folderToDelete: Folder?
     @State private var folderToDeleteSnapshot: DeletionItem?
     
-    // Use @FetchRequest for automatic Core Data change observation
-    @FetchRequest(
-        sortDescriptors: [NSSortDescriptor(keyPath: \Folder.name, ascending: true)],
-        predicate: NSPredicate(format: "isTopLevel == YES AND isSmartFolder == YES")
-    ) private var allSystemFolders: FetchedResults<Folder>
-    
-    @FetchRequest(
-        sortDescriptors: [NSSortDescriptor(keyPath: \Folder.name, ascending: true)],
-        predicate: NSPredicate(format: "isTopLevel == YES AND isSmartFolder == NO")
-    ) private var allUserFolders: FetchedResults<Folder>
-    
-    // Filter by current library - these will update automatically when @FetchRequest data changes
-    private var systemFolders: [Folder] {
-        let _ = allSystemFolders // Create dependency on @FetchRequest
-        return store.systemFolders()
-    }
-    
-    private var userFolders: [Folder] {
-        let _ = allUserFolders // Create dependency on @FetchRequest
-        return store.userFolders()
-    }
+    @State private var systemFolders: [Folder] = []
+    @State private var userFolders: [Folder] = []
     
     var body: some View {
         List(selection: $store.selectedTopLevelFolder) {
@@ -93,9 +75,10 @@ struct SidebarView: View {
         // Removed Sidebar toolbar to avoid duplicates and overflow.
         // Add-folder is now owned by MainView's toolbar.
         .sheet(isPresented: $showingDeletionConfirmation) {
-            if let folderSnapshot = folderToDeleteSnapshot {
+            if let folder = folderToDelete {
+                let deletionItem = DeletionItem(folder: folder)
                 DeletionConfirmationView(
-                    items: [folderSnapshot],
+                    items: [deletionItem],
                     onConfirm: {
                         Task {
                             await confirmDeletion()
@@ -106,13 +89,13 @@ struct SidebarView: View {
                     }
                 )
                 .onAppear {
-                    print("🗑️ SIDEBAR: Sheet rendering DeletionConfirmationView for: \(folderSnapshot.name)")
+                    print("🗑️ SIDEBAR: Sheet rendering DeletionConfirmationView for: \(deletionItem.name)")
                 }
             } else {
                 Text("No folder selected for deletion")
                     .padding()
                     .onAppear {
-                        print("⚠️ SIDEBAR: Sheet rendering but folderToDeleteSnapshot is nil!")
+                        print("⚠️ SIDEBAR: Sheet rendering but folderToDelete is nil!")
                         showingDeletionConfirmation = false
                     }
             }
@@ -138,6 +121,20 @@ struct SidebarView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("TriggerRename"))) { _ in
             triggerRenameFromMenu()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .NSManagedObjectContextDidSave)) { _ in
+            refreshFolders()
+        }
+        .onReceive(libraryManager.$currentLibrary) { _ in
+            refreshFolders()
+        }
+        .onAppear {
+            refreshFolders()
+        }
+    }
+    
+    private func refreshFolders() {
+        systemFolders = store.systemFolders()
+        userFolders = store.userFolders()
     }
     
     private func deleteFolder(_ folder: Folder) {

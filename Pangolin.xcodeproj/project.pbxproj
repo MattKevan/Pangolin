@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		29778CD62E732073000983C2 /* CloudKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 29778CD52E732073000983C2 /* CloudKit.framework */; };
 		C95D99B02E6EE5DB0041D37D /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = C95D99AF2E6EE5DB0041D37D /* MarkdownUI */; };
 /* End PBXBuildFile section */
 
@@ -28,6 +29,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		29778CD52E732073000983C2 /* CloudKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CloudKit.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/CloudKit.framework; sourceTree = DEVELOPER_DIR; };
 		29CDD63C2E5119C700E0B663 /* Pangolin.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Pangolin.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		29CDD64F2E5119C800E0B663 /* PangolinTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PangolinTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		29CDD6592E5119C800E0B663 /* PangolinUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PangolinUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -70,6 +72,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C95D99B02E6EE5DB0041D37D /* MarkdownUI in Frameworks */,
+				29778CD62E732073000983C2 /* CloudKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -90,12 +93,21 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		29778CD42E732073000983C2 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				29778CD52E732073000983C2 /* CloudKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		29CDD6332E5119C700E0B663 = {
 			isa = PBXGroup;
 			children = (
 				29CDD63E2E5119C700E0B663 /* Pangolin */,
 				29CDD6522E5119C800E0B663 /* PangolinTests */,
 				29CDD65C2E5119C800E0B663 /* PangolinUITests */,
+				29778CD42E732073000983C2 /* Frameworks */,
 				29CDD63D2E5119C700E0B663 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -430,6 +442,7 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Pangolin/Info.plist;
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Pangolin uses speech recognition to generate transcripts of your video content, making it searchable and accessible.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -476,6 +489,7 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Pangolin/Info.plist;
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Pangolin uses speech recognition to generate transcripts of your video content, making it searchable and accessible.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;

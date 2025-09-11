@@ -39,9 +39,14 @@ struct CreateFolderView: View {
     
     private func createFolder() async {
         let trimmedName = folderName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else { return }
+        guard !trimmedName.isEmpty else { 
+            print("📁 CREATE: Empty folder name, aborting")
+            return 
+        }
         
+        print("📁 CREATE: Creating folder '\(trimmedName)' with parentID: \(parentFolderID?.uuidString ?? "nil")")
         await store.createFolder(name: trimmedName, in: parentFolderID)
+        print("📁 CREATE: Folder creation completed, dismissing sheet")
         dismiss()
     }
 }

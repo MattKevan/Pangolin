@@ -1,14 +1,15 @@
 // CoreData/CoreDataStack.swift
 import Foundation
 import CoreData
+import CloudKit
 import AVFoundation
 
 class CoreDataStack {
     private let modelName = "Pangolin"
     private let libraryURL: URL
     
-    lazy var persistentContainer: NSPersistentContainer = {
-        let container = NSPersistentContainer(name: "Pangolin")
+    lazy var persistentContainer: NSPersistentCloudKitContainer = {
+        let container = NSPersistentCloudKitContainer(name: "Pangolin")
         
         // Configure for library-specific storage
         let storeURL = libraryURL.appendingPathComponent("Library.sqlite")
@@ -16,9 +17,14 @@ class CoreDataStack {
         storeDescription.shouldMigrateStoreAutomatically = true
         storeDescription.shouldInferMappingModelAutomatically = true
         
-        // Performance optimizations
+        // CloudKit Configuration
         storeDescription.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
         storeDescription.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
+        
+        // Configure CloudKit container
+        storeDescription.cloudKitContainerOptions = NSPersistentCloudKitContainerOptions(
+            containerIdentifier: "iCloud.com.pangolin.video-library"
+        )
         
         container.persistentStoreDescriptions = [storeDescription]
         

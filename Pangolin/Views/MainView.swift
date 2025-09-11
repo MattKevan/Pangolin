@@ -75,6 +75,7 @@ struct MainView: View {
             SidebarView()
                 .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 350)
                 .environmentObject(folderStore)
+                .environmentObject(libraryManager)
                 .applyManagedObjectContext(libraryManager.viewContext)
         } detail: {
             DetailView(video: folderStore.selectedVideo)
@@ -201,7 +202,8 @@ struct MainView: View {
             handleVideoImport(result)
         }
         .sheet(isPresented: $showingCreateFolder) {
-            CreateFolderView(parentFolderID: folderStore.currentFolderID)
+            CreateFolderView(parentFolderID: nil) // Always create top-level user folders
+                .environmentObject(folderStore)
         }
         .navigationTitle(libraryManager.currentLibrary?.name ?? "Pangolin")
         .pangolinAlert(error: $libraryManager.error)

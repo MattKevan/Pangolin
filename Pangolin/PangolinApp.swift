@@ -8,12 +8,8 @@ import UniformTypeIdentifiers
 struct PangolinApp: App {
     @StateObject private var libraryManager = LibraryManager.shared
     @StateObject private var processingQueueManager = ProcessingQueueManager.shared
-    @State private var showLibrarySelector = false
-    @State private var showCreateLibrary = false
+    @StateObject private var videoFileManager = VideoFileManager.shared
     @State private var hasAttemptedAutoOpen = false
-    @State private var isAttemptingAutoOpen = false
-    @State private var showingImportPicker = false
-    @State private var showingCreateFolder = false
     
     var body: some Scene {
         WindowGroup {
@@ -24,118 +20,74 @@ struct PangolinApp: App {
                     // uses the correct, active Core Data context.
                     MainView(libraryManager: libraryManager)
                         .environmentObject(libraryManager)
-                } else if isAttemptingAutoOpen {
-                    // Show loading state while attempting to auto-open
+                        .environmentObject(videoFileManager)
+                } else {
+                    // Show loading state while opening iCloud library
                     VStack(spacing: 20) {
                         ProgressView()
                             .scaleEffect(1.5)
-                        Text("Opening last library...")
-                            .font(.headline)
+                        
+                        if libraryManager.isLoading {
+                            Text("Initializing iCloud library...")
+                                .font(.headline)
+                            
+                            if libraryManager.loadingProgress > 0 {
+                                ProgressView(value: libraryManager.loadingProgress)
+                                    .frame(maxWidth: 300)
+                                Text("\(Int(libraryManager.loadingProgress * 100))%")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        } else {
+                            Text("Opening iCloud library...")
+                                .font(.headline)
+                        }
+                        
+                        if let error = libraryManager.error {
+                            VStack(spacing: 10) {
+                                Text("Error")
+                                    .font(.headline)
+                                    .foregroundColor(.red)
+                                Text(error.localizedDescription)
+                                    .multilineTextAlignment(.center)
+                                if let recovery = error.recoverySuggestion {
+                                    Text(recovery)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .multilineTextAlignment(.center)
+                                }
+                                
+                                Button("Retry") {
+                                    retryLibraryOpen()
+                                }
+                                .buttonStyle(.borderedProminent)
+                            }
+                            .padding()
+                        }
                     }
                     .frame(minWidth: 600, minHeight: 500)
-                } else {
-                    LibraryWelcomeView(
-                        showLibrarySelector: $showLibrarySelector,
-                        showCreateLibrary: $showCreateLibrary
-                    )
-                    .environmentObject(libraryManager)
                 }
             }
             .onAppear {
                 if !hasAttemptedAutoOpen {
-                    attemptAutoOpenLastLibrary()
+                    attemptAutoOpeniCloudLibrary()
                 }
-            }
-            .fileImporter(
-                isPresented: $showLibrarySelector,
-                allowedContentTypes: [.folder],
-                allowsMultipleSelection: false
-            ) { result in
-                switch result {
-                case .success(let urls):
-                    if let url = urls.first {
-                        Task {
-                            do {
-                                let _ = try await libraryManager.openLibrary(at: url)
-                            } catch {
-                                print("Failed to open library: \(error)")
-                                // In a real app, show an error alert to the user
-                            }
-                        }
-                    }
-                case .failure(let error):
-                    print("Error selecting library: \(error)")
-                }
-            }
-            .fileImporter(
-                isPresented: $showCreateLibrary,
-                allowedContentTypes: [.folder],
-                allowsMultipleSelection: false
-            ) { result in
-                switch result {
-                case .success(let urls):
-                    if let url = urls.first {
-                        Task {
-                            do {
-                                let _ = try await libraryManager.createLibrary(at: url, name: "My Library")
-                            } catch {
-                                print("Failed to create library: \(error)")
-                                // In a real app, show an error alert to the user
-                            }
-                        }
-                    }
-                case .failure(let error):
-                    print("Error creating library: \(error)")
-                }
-            }
-            .fileImporter(isPresented: $showingImportPicker, allowedContentTypes: [.movie, .video, .folder], allowsMultipleSelection: true) { result in
-                handleVideoImport(result)
-            }
-            .sheet(isPresented: $showingCreateFolder) {
-                CreateFolderView(parentFolderID: getCurrentFolderForNewFolder())
             }
         }
         #if os(macOS)
         .commands {
-            // New Library menu
+            // iCloud Library menu
             CommandMenu("Library") {
-                Button("New Library...") {
-                    showCreateLibrary = true
+                Button("Refresh Library") {
+                    retryLibraryOpen()
                 }
-                .keyboardShortcut("N", modifiers: [.command, .shift])
-                
-                Button("Open Library...") {
-                    showLibrarySelector = true
-                }
-                .keyboardShortcut("O", modifiers: .command)
-                
-                Divider()
-                
-                Menu("Recent Libraries") {
-                    ForEach(libraryManager.recentLibraries) { library in
-                        Button(library.name) {
-                            Task { @MainActor in
-                                try? await libraryManager.openLibrary(at: library.path)
-                            }
-                        }
-                        .disabled(!library.isAvailable)
-                    }
-                }
+                .keyboardShortcut("R", modifiers: .command)
+                .disabled(libraryManager.isLoading)
             }
             
             // File menu additions
             CommandGroup(after: .newItem) {
-                Button("Import Videos...") {
-                    showingImportPicker = true
-                }
-                .keyboardShortcut("I", modifiers: .command)
-                .disabled(!libraryManager.isLibraryOpen)
-                
-                Button("New Folder...") {
-                    showingCreateFolder = true
-                }
-                .keyboardShortcut("N", modifiers: [.command, .shift, .option])
-                .disabled(!libraryManager.isLibraryOpen)
+                // Import and folder creation now handled in MainView toolbar
             }
             
             // Edit menu additions
@@ -157,24 +109,26 @@ struct PangolinApp: App {
         #endif
     }
     
-    private func attemptAutoOpenLastLibrary() {
+    private func attemptAutoOpeniCloudLibrary() {
         hasAttemptedAutoOpen = true
-        isAttemptingAutoOpen = true
         
         Task {
             do {
-                try await libraryManager.openLastLibrary()
-                await MainActor.run {
-                    isAttemptingAutoOpen = false
-                }
+                // Always try to get or create iCloud library
+                _ = try await libraryManager.getOrCreateiCloudLibrary()
+                print("✅ Successfully opened iCloud library")
             } catch {
-                // Failed to auto-open, show welcome screen
-                print("Failed to auto-open last library: \(error)")
-                await MainActor.run {
-                    isAttemptingAutoOpen = false
-                }
+                print("❌ Failed to get/create iCloud library: \(error)")
+                // Error will be shown in the UI via libraryManager.error
             }
         }
+    }
+    
+    private func retryLibraryOpen() {
+        // Clear the error and try again
+        libraryManager.error = nil
+        hasAttemptedAutoOpen = false
+        attemptAutoOpeniCloudLibrary()
     }
     
     private func generateThumbnails() {
@@ -186,28 +140,7 @@ struct PangolinApp: App {
         }
     }
     
-    private func handleVideoImport(_ result: Result<[URL], Error>) {
-        switch result {
-        case .success(let urls):
-            if let library = libraryManager.currentLibrary, let context = libraryManager.viewContext {
-                // Import videos to the currently selected folder or root
-                Task {
-                    // Use VideoImporter to handle the import process
-                    let importer = VideoImporter()
-                    await importer.importFiles(urls, to: library, context: context)
-                }
-            }
-        case .failure(let error):
-            print("Error importing files: \(error)")
-        }
-    }
     
-    private func getCurrentFolderForNewFolder() -> UUID? {
-        // This would need to communicate with the current UI state
-        // For now, return nil to create at root level
-        // TODO: Integrate with FolderNavigationStore to get current folder
-        return nil
-    }
     
     private func hasRenameableSelection() -> Bool {
         // Check if there's a renameable selection by checking if a rename notification would work

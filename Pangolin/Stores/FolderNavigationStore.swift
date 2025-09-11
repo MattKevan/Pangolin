@@ -206,15 +206,33 @@ class FolderNavigationStore: ObservableObject {
     
     // MARK: - Folder Management
     func createFolder(name: String, in parentFolderID: UUID? = nil) async {
-        guard let context = libraryManager.viewContext,
-              let library = libraryManager.currentLibrary,
-              let folderEntityDescription = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Folder"] else {
-            errorMessage = "Could not create folder"
+        print("📁 STORE: createFolder called with name '\(name)' and parentID: \(parentFolderID?.uuidString ?? "nil")")
+        
+        guard let context = libraryManager.viewContext else {
+            print("📁 STORE: No view context available")
+            errorMessage = "Could not create folder - no context"
+            return
+        }
+        
+        guard let library = libraryManager.currentLibrary else {
+            print("📁 STORE: No current library available")
+            errorMessage = "Could not create folder - no library"
+            return
+        }
+        
+        guard let folderEntityDescription = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Folder"] else {
+            print("📁 STORE: Could not get Folder entity description")
+            errorMessage = "Could not create folder - no entity"
             return
         }
         
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else { return }
+        guard !trimmedName.isEmpty else { 
+            print("📁 STORE: Empty trimmed name")
+            return 
+        }
+        
+        print("📁 STORE: Creating folder with library: \(library.name ?? "Unknown")")
         
         let folder = Folder(entity: folderEntityDescription, insertInto: context)
         folder.id = UUID()
@@ -224,13 +242,22 @@ class FolderNavigationStore: ObservableObject {
         folder.dateModified = Date()
         folder.library = library
         
+        print("📁 STORE: Created folder object with ID: \(folder.id?.uuidString ?? "nil"), name: '\(folder.name ?? "nil")'")
+        
         if let parentFolderID = parentFolderID {
             let parentRequest = Folder.fetchRequest()
             parentRequest.predicate = NSPredicate(format: "library == %@ AND id == %@", library, parentFolderID as CVarArg)
             do {
                 if let parentFolder = try context.fetch(parentRequest).first {
-                    folder.parentFolder = parentFolder
-                    folder.isTopLevel = false
+                    // Don't allow smart folders to have children
+                    if !parentFolder.isSmartFolder {
+                        folder.parentFolder = parentFolder
+                        folder.isTopLevel = false
+                        print("📁 STORE: Set parent folder to: \(parentFolder.name ?? "nil")")
+                    } else {
+                        print("📁 STORE: Parent is a smart folder, creating as top-level instead")
+                        folder.isTopLevel = true
+                    }
                 }
             } catch {
                 errorMessage = "Failed to find parent folder: \(error.localizedDescription)"
@@ -238,7 +265,10 @@ class FolderNavigationStore: ObservableObject {
                 return
             }
         }
+        
+        print("📁 STORE: Saving context...")
         await libraryManager.save()
+        print("📁 STORE: Context saved successfully")
     }
     
     func moveItems(_ itemIDs: Set<UUID>, to destinationFolderID: UUID?) async {

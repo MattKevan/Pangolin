@@ -6,7 +6,11 @@
 	<array>
 		<dict/>
 	</array>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Pangolin uses speech recognition to generate transcripts of your video content, making it searchable and accessible.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+		<string>processing</string>
+		<string>fetch</string>
+	</array>
 </dict>
 </plist>
