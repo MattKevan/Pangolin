@@ -9,7 +9,7 @@ import MarkdownUI
 
 struct SummaryView: View {
     @ObservedObject var video: Video
-    @StateObject private var transcriptionService = SpeechTranscriptionService()
+    @EnvironmentObject var transcriptionService: SpeechTranscriptionService
     @EnvironmentObject var libraryManager: LibraryManager
     
     // Share sheet presentation (iOS/iPadOS)

@@ -7,6 +7,33 @@ import CoreData
 import AppKit
 #endif
 
+// MARK: - Inspector Tab Definition
+
+private enum InspectorTab: CaseIterable, Hashable {
+    case transcript
+    case translation
+    case summary
+    case info
+    
+    var title: String {
+        switch self {
+        case .transcript: return "Transcript"
+        case .translation: return "Translation"
+        case .summary: return "Summary"
+        case .info: return "Info"
+        }
+    }
+    
+    var systemImage: String {
+        switch self {
+        case .transcript: return "doc.text"
+        case .translation: return "globe.badge.chevron.backward"
+        case .summary: return "doc.text.below.ecg"
+        case .info: return "info.circle"
+        }
+    }
+}
+
 private struct ToggleSidebarButton: View {
     var body: some View {
         Button {
@@ -24,12 +51,23 @@ private struct ToggleSidebarButton: View {
 struct MainView: View {
     @EnvironmentObject var libraryManager: LibraryManager
     @StateObject private var folderStore: FolderNavigationStore
+    @StateObject private var transcriptionService = SpeechTranscriptionService()
+    
     @State private var showInspector = false
     @State private var showingCreateFolder = false
     @State private var showingImportPicker = false
     
     @State private var searchText = ""
     @State private var selectedInspectorTab: InspectorTab = .transcript
+    
+    // Prevent duplicate auto-triggers during rapid selection changes
+    @State private var isAutoTranscribing = false
+    
+    // Processing UI
+    @State private var showingProcessingPanel = false
+    
+    // Observe the global processing queue
+    @StateObject private var processingQueueManager = ProcessingQueueManager.shared
 
     init(libraryManager: LibraryManager) {
         self._folderStore = StateObject(wrappedValue: FolderNavigationStore(libraryManager: libraryManager))
@@ -46,8 +84,7 @@ struct MainView: View {
                 .environmentObject(folderStore)
                 .navigationSplitViewColumnWidth(min: 700, ideal: 900)
                 .toolbar {
-                   
-                    // Your primary actions, grouped together.
+                    // Leading actions
                     ToolbarItemGroup(placement: .navigation) {
                         Button {
                             showingImportPicker = true
@@ -65,7 +102,24 @@ struct MainView: View {
                         .help("Add Folder")
                         .disabled(libraryManager.currentLibrary == nil)
                     }
+                    
+                    // Trailing actions
                     ToolbarItemGroup(placement: .primaryAction) {
+                        // Show when queue has active tasks OR service is doing ad-hoc work; hide when complete.
+                        if showProcessingIndicator {
+                            CircularProgressButton(
+                                progress: indicatorProgress,
+                                activeTaskCount: indicatorActiveCount,
+                                processingManager: processingQueueManager,
+                                onViewAllTapped: {
+                                    showingProcessingPanel = true
+                                }
+                            )
+                            .frame(width: 24, height: 24)
+                            .accessibilityLabel("Processing")
+                            .accessibilityValue("\(Int(indicatorProgress * 100)) percent")
+                        }
+                        
                         Button {
                             showInspector.toggle()
                         } label: {
@@ -76,33 +130,34 @@ struct MainView: View {
                     }
                 }
                 .inspector(isPresented: $showInspector) {
-                    // Call the new InspectorContainer with two trailing closures
                     InspectorContainer {
-                        // This is the first closure: toolbarContent
                         Picker("Inspector Section", selection: $selectedInspectorTab) {
                             ForEach(InspectorTab.allCases, id: \.self) { tab in
                                 Label(tab.title, systemImage: tab.systemImage).tag(tab)
                             }
                         }
                         .pickerStyle(.segmented)
-                        .controlSize(.regular)
-                        .frame(maxWidth: .infinity)
-
+                        .controlSize(.large)
+                        .frame(maxWidth: .infinity, minHeight: 28)
+                        .padding(.horizontal, 8)
                         .labelsHidden()
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-
-                        
                     } content: {
-                        // This is the second closure: content
                         if let selected = folderStore.selectedVideo {
                             switch selectedInspectorTab {
                             case .transcript:
                                 TranscriptionView(video: selected)
                                     .environmentObject(libraryManager)
+                                    .environmentObject(transcriptionService)
+                                    .background(.clear)
+                            case .translation:
+                                TranslationView(video: selected)
+                                    .environmentObject(libraryManager)
+                                    .environmentObject(transcriptionService)
                                     .background(.clear)
                             case .summary:
                                 SummaryView(video: selected)
                                     .environmentObject(libraryManager)
+                                    .environmentObject(transcriptionService)
                                     .background(.clear)
                             case .info:
                                 VideoInfoView(video: selected)
@@ -120,8 +175,18 @@ struct MainView: View {
                     }
                     .inspectorColumnWidth(min: 280, ideal: 400, max: 600)
                 }
+                .onChange(of: folderStore.selectedVideo) { _, newVideo in
+                    guard let video = newVideo else { return }
+                    // Only auto-trigger if there's no transcript yet and we're not already busy
+                    if video.transcriptText == nil && !transcriptionService.isTranscribing && !isAutoTranscribing {
+                        isAutoTranscribing = true
+                        Task {
+                            await transcriptionService.transcribeVideo(video, libraryManager: libraryManager)
+                            await MainActor.run { isAutoTranscribing = false }
+                        }
+                    }
+                }
         }
-        // Modifiers that apply to the whole view, like fileImporter and sheet, can remain here.
         .fileImporter(
             isPresented: $showingImportPicker,
             allowedContentTypes: [.movie, .video, .folder],
@@ -132,9 +197,43 @@ struct MainView: View {
         .sheet(isPresented: $showingCreateFolder) {
             CreateFolderView(parentFolderID: folderStore.currentFolderID)
         }
+        .sheet(isPresented: $showingProcessingPanel) {
+            BulkProcessingView(
+                processingManager: processingQueueManager,
+                isPresented: $showingProcessingPanel
+            )
+        }
         .navigationTitle(libraryManager.currentLibrary?.name ?? "Pangolin")
         .pangolinAlert(error: $libraryManager.error)
     }
+    
+    // MARK: - Indicator logic (queue + ad-hoc service)
+    
+    private var showProcessingIndicator: Bool {
+        (processingQueueManager.activeTasks > 0) ||
+        transcriptionService.isTranscribing ||
+        transcriptionService.isSummarizing
+    }
+    
+    private var indicatorProgress: Double {
+        if processingQueueManager.activeTasks > 0 {
+            return processingQueueManager.overallProgress
+        } else {
+            return min(max(transcriptionService.progress, 0.0), 1.0)
+        }
+    }
+    
+    private var indicatorActiveCount: Int {
+        if processingQueueManager.activeTasks > 0 {
+            return processingQueueManager.activeTasks
+        } else if transcriptionService.isTranscribing || transcriptionService.isSummarizing {
+            return 1
+        } else {
+            return 0
+        }
+    }
+    
+    // MARK: - Helpers
     
     private func handleVideoImport(_ result: Result<[URL], Error>) {
         switch result {
@@ -158,19 +257,14 @@ private struct InspectorContainer<ToolbarContent: View, Content: View>: View {
     @ViewBuilder var content: Content
     
     var body: some View {
-        // Main VStack for the entire inspector
         VStack(spacing: 0) {
-            // A dedicated area for the toolbar content (the Picker)
+            // Full-width toolbar area
             VStack(spacing: 0) {
                 toolbarContent
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                
-                // A subtle divider line below the toolbar
-                //Divider()
+                    .padding(.vertical, 8)
             }
             
-            // The main content area
+            // Content area with padding
             content
                 .padding(.horizontal, 8)
                 .padding(.top, 8)
@@ -183,7 +277,6 @@ private struct InspectorContainer<ToolbarContent: View, Content: View>: View {
         #else
         .background(Color(.tertiarySystemBackground))
         #endif
-        // The side overlay remains the same
         .overlay(alignment: .leading) {
             Rectangle()
                 .fill(Color.secondary.opacity(0.25))

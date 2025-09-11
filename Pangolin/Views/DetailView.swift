@@ -35,14 +35,36 @@ struct DetailView: View {
         #endif
     }
     
+    // Subtle, platform-appropriate background for the framed player box
+    private var framedPlayerBackground: some ShapeStyle {
+        #if os(macOS)
+        return .regularMaterial
+        #else
+        return Color(.secondarySystemBackground)
+        #endif
+    }
+    
     var body: some View {
         GeometryReader { geometry in
             // Main content column only: video + controls on top, hierarchical content below.
             VStack(spacing: 0) {
-                // Top: Video Player (fills available space proportionally)
-                VideoPlayerWithPosterView(video: effectiveSelectedVideo, viewModel: playerViewModel)
-                    .frame(height: max(200, geometry.size.height * 0.6)) // adaptive split without a draggable control
-                    .background(Color.black)
+                // Top: Framed Video Player
+                VStack(spacing: 0) {
+                    VideoPlayerWithPosterView(video: effectiveSelectedVideo, viewModel: playerViewModel)
+                        .frame(height: max(200, geometry.size.height * 0.6)) // adaptive split without a draggable control
+                        // Remove the solid black background so it doesn't bleed under the sidebar
+                        .background(Color.clear)
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(framedPlayerBackground)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(12) // space around the framed player box
                 
                 // Controls Bar (fixed height)
                 VideoControlsBar(viewModel: playerViewModel)

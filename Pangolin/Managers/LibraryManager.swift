@@ -529,3 +529,50 @@ enum LibraryError: LocalizedError {
         }
     }
 }
+
+// MARK: - Text Artifact Directories & I/O
+
+extension LibraryManager {
+    private var textArtifactsDirectories: (transcripts: URL, translations: URL, summaries: URL)? {
+        guard let base = currentLibrary?.url else { return nil }
+        return (base.appendingPathComponent("Transcripts"),
+                base.appendingPathComponent("Translations"),
+                base.appendingPathComponent("Summaries"))
+    }
+    
+    func ensureTextArtifactDirectories() throws {
+        guard let dirs = textArtifactsDirectories else { return }
+        try FileManager.default.createDirectory(at: dirs.transcripts, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: dirs.translations, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: dirs.summaries, withIntermediateDirectories: true)
+    }
+    
+    func transcriptURL(for video: Video) -> URL? {
+        guard let id = video.id, let dirs = textArtifactsDirectories else { return nil }
+        return dirs.transcripts.appendingPathComponent("\(id.uuidString).txt")
+    }
+    
+    func translationURL(for video: Video, languageCode: String) -> URL? {
+        guard let id = video.id, let dirs = textArtifactsDirectories else { return nil }
+        let safeLang = languageCode.replacingOccurrences(of: "/", with: "-")
+        return dirs.translations.appendingPathComponent("\(id.uuidString)_\(safeLang).txt")
+    }
+    
+    func summaryURL(for video: Video) -> URL? {
+        guard let id = video.id, let dirs = textArtifactsDirectories else { return nil }
+        return dirs.summaries.appendingPathComponent("\(id.uuidString).md")
+    }
+    
+    func writeTextAtomically(_ text: String, to url: URL) throws {
+        let fm = FileManager.default
+        let dir = url.deletingLastPathComponent()
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let tmp = dir.appendingPathComponent(UUID().uuidString)
+        try text.data(using: .utf8)?.write(to: tmp, options: .atomic)
+        // Remove existing file if present to avoid replaceItem oddities across volumes
+        if fm.fileExists(atPath: url.path) {
+            try fm.removeItem(at: url)
+        }
+        try fm.moveItem(at: tmp, to: url)
+    }
+}

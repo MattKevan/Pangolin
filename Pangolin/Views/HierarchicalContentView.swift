@@ -28,6 +28,9 @@ struct HierarchicalContentView: View {
     @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
     @State private var showingProcessingPanel = false
     
+    // Track last explicitly selected video ID to preserve selection across refreshes
+    @State private var lastSelectedVideoID: UUID?
+    
     // This property filters the store's reactive data source
     private var filteredContent: [HierarchicalContentItem] {
         let sourceContent = store.hierarchicalContent
@@ -92,6 +95,10 @@ struct HierarchicalContentView: View {
                             showingDeletionConfirmation = false
                         }
                 }
+            }
+            // When content refreshes (store.hierarchicalContent changes), try to restore selection
+            .onChange(of: store.hierarchicalContent) { _, _ in
+                restoreSelectionIfPossible()
             }
     }
     
@@ -267,10 +274,49 @@ struct HierarchicalContentView: View {
             if newSelection.count == 1, let selectedID = newSelection.first {
                 if let selectedItem = findItem(withID: selectedID, in: filteredContent),
                    let video = selectedItem.video {
+                    lastSelectedVideoID = video.id
                     store.selectVideo(video)
+                } else {
+                    // ID exists but no longer maps to a video (e.g., filtered out)
+                    // Keep previous selection if possible
+                    restoreSelectionIfPossible()
                 }
             } else {
-                store.selectedVideo = nil
+                // Selection became empty or multi-selected. Do not clear the currently selected video immediately.
+                // Try to preserve the last selected video if it still exists.
+                restoreSelectionIfPossible()
+            }
+        }
+    }
+    
+    private func restoreSelectionIfPossible() {
+        // If we already have a selected video in the store and it still exists, keep it.
+        if let current = store.selectedVideo,
+           findItem(withID: current.id!, in: filteredContent) != nil {
+            lastSelectedVideoID = current.id
+            // Optionally re-assert the list selection to match the detail selection.
+            if selectedItems != [current.id!] {
+                selectedItems = [current.id!]
+            }
+            return
+        }
+        
+        // If we have a remembered last selected video ID, reselect it if still present
+        if let lastID = lastSelectedVideoID,
+           let item = findItem(withID: lastID, in: filteredContent),
+           let video = item.video {
+            store.selectVideo(video)
+            if selectedItems != [lastID] {
+                selectedItems = [lastID]
+            }
+            return
+        }
+        
+        // Otherwise, fall back to the store's auto-selection logic (it selects first video if needed)
+        // Sync the list selection to match store.selectedVideo if set
+        if let fallback = store.selectedVideo?.id {
+            if selectedItems != [fallback] {
+                selectedItems = [fallback]
             }
         }
     }
@@ -354,6 +400,7 @@ struct HierarchicalContentView: View {
             if success {
                 // Clear selection
                 selectedItems.removeAll()
+                lastSelectedVideoID = nil
             }
             cancelDeletion()
         }
@@ -388,3 +435,4 @@ struct HierarchicalContentView: View {
         }
     }
 }
+

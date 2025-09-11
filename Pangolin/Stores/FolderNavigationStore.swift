@@ -14,7 +14,15 @@ class FolderNavigationStore: ObservableObject {
     // MARK: - Core State
     @Published var navigationPath = NavigationPath()
     @Published var currentFolderID: UUID?
-    @Published var selectedTopLevelFolder: Folder?
+    @Published var selectedTopLevelFolder: Folder? {
+        didSet {
+            // When the top-level folder changes, ensure a video is selected
+            // Defer to next runloop to avoid publishing during view updates
+            Task { @MainActor in
+                self.selectFirstVideoInCurrentFolderIfNeeded()
+            }
+        }
+    }
     @Published var selectedVideo: Video?
     
     // Reactive data sources for the UI
@@ -132,6 +140,9 @@ class FolderNavigationStore: ObservableObject {
         // Populate the publishers
         self.hierarchicalContent = newHierarchicalContent
         self.flatContent = applySorting(newFlatContent)
+        
+        // Ensure a video is selected after content refresh
+        self.selectFirstVideoInCurrentFolderIfNeeded()
     }
     
     // MARK: - Content Access (for Sidebar)
@@ -166,7 +177,6 @@ class FolderNavigationStore: ObservableObject {
         navigationPath.append(folderID)
         currentFolderID = folderID
     }
-    
     func navigateBack() {
         guard !navigationPath.isEmpty else { return }
         navigationPath.removeLast()
@@ -177,7 +187,6 @@ class FolderNavigationStore: ObservableObject {
             // Complex navigation could decode the path here
         }
     }
-    
     func navigateToRoot() {
         navigationPath = NavigationPath()
         currentFolderID = selectedTopLevelFolder?.id
@@ -185,6 +194,14 @@ class FolderNavigationStore: ObservableObject {
     
     func selectVideo(_ video: Video) {
         selectedVideo = video
+    }
+    func selectVideo(by id: UUID) {
+        guard let context = libraryManager.viewContext else { return }
+        let request = Video.fetchRequest()
+        request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
+        if let v = try? context.fetch(request).first {
+            selectedVideo = v
+        }
     }
     
     // MARK: - Folder Management
@@ -344,6 +361,36 @@ class FolderNavigationStore: ObservableObject {
         }
         
         return contentItems
+    }
+    
+    // MARK: - Auto-select first video
+    
+    private func selectFirstVideoInCurrentFolderIfNeeded() {
+        // Build a list of videos in the current folder from the freshly refreshed flatContent
+        let videosInFolder: [Video] = flatContent.compactMap {
+            if case .video(let v) = $0 { return v }
+            return nil
+        }
+        
+        guard let firstVideo = videosInFolder.first else {
+            // No videos in this folder; clear selection
+            selectedVideo = nil
+            return
+        }
+        
+        // If nothing selected, select the first
+        guard let currentSelected = selectedVideo else {
+            selectedVideo = firstVideo
+            return
+        }
+        
+        // If a video is selected but it's not in the current folder's content, select the first
+        let containsCurrent = videosInFolder.contains(where: { $0.objectID == currentSelected.objectID })
+        if !containsCurrent {
+            selectedVideo = firstVideo
+        }
+        
+        // If containsCurrent is true, keep current selection (do not override)
     }
     
     // MARK: - Renaming
@@ -546,3 +593,4 @@ class FolderNavigationStore: ObservableObject {
         }
     }
 }
+

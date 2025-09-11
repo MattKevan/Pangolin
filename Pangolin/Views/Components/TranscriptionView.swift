@@ -7,22 +7,12 @@ import CoreData
 
 struct TranscriptionView: View {
     @ObservedObject var video: Video
-    @StateObject private var transcriptionService = SpeechTranscriptionService()
+    @EnvironmentObject var transcriptionService: SpeechTranscriptionService
+    @EnvironmentObject var libraryManager: LibraryManager
     
     // Source (input) language selection: nil means Auto Detect
     @State private var inputSelection: Locale? = nil
-    // Target (output) language selection
-    @State private var outputSelection: Locale? = nil
-    
-    // Back-compat: keep the existing single selectedLocale for now (not used anymore for control)
-    @State var selectedLocale: Locale = Locale.current
-    
     @State private var supportedLocales: [Locale] = []
-    @State private var showTranslation = false
-    @EnvironmentObject var libraryManager: LibraryManager
-    
-    // Cache the system-equivalent supported locale once loaded
-    @State private var systemSupportedLocale: Locale? = nil
     
     var body: some View {
         ScrollView {
@@ -61,7 +51,7 @@ struct TranscriptionView: View {
                             }
                         } label: {
                             HStack(spacing: 6) {
-                                Text("Input")
+                                Text("Language")
                                     .foregroundStyle(.secondary)
                                 Text(inputSelectionLabel)
                                     .fontWeight(.medium)
@@ -73,50 +63,6 @@ struct TranscriptionView: View {
                         }
                         .disabled(supportedLocales.isEmpty)
                         .help("Choose the source language. Auto Detect uses a short sample to detect it.")
-                        
-                        // Output picker (System + supported locales)
-                        Menu {
-                            if let systemLocale = systemSupportedLocale {
-                                Button {
-                                    outputSelection = systemLocale
-                                } label: {
-                                    HStack {
-                                        Text("System")
-                                        Spacer()
-                                        if outputSelection?.identifier == systemLocale.identifier {
-                                            Image(systemName: "checkmark")
-                                        }
-                                    }
-                                }
-                                Divider()
-                            }
-                            ForEach(sortedSupportedLocales, id: \.identifier) { locale in
-                                Button {
-                                    outputSelection = locale
-                                } label: {
-                                    HStack {
-                                        Text(displayName(for: locale))
-                                        Spacer()
-                                        if outputSelection?.identifier == locale.identifier {
-                                            Image(systemName: "checkmark")
-                                        }
-                                    }
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 6) {
-                                Text("Output")
-                                    .foregroundStyle(.secondary)
-                                Text(outputSelectionLabel)
-                                    .fontWeight(.medium)
-                            }
-                            .padding(.vertical, 6)
-                            .padding(.horizontal, 10)
-                            .background(Color.secondary.opacity(0.08))
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                        }
-                        .disabled(supportedLocales.isEmpty)
-                        .help("Choose the translation target language.")
                     }
                 }
                 .padding(.bottom, 4)
@@ -149,17 +95,6 @@ struct TranscriptionView: View {
                             }
                         }
                         .buttonStyle(.bordered)
-                        
-                        if video.translatedText == nil {
-                            Button("Translate") {
-                                Task {
-                                    let targetLanguage = outputSelection?.language
-                                    await transcriptionService.translateVideo(video, libraryManager: libraryManager, targetLanguage: targetLanguage)
-                                }
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(outputSelection == nil)
-                        }
                     }
                 }
             
@@ -212,15 +147,6 @@ struct TranscriptionView: View {
                         }
                         
                         HStack {
-                            if let error = parseTranscriptionError(from: errorMessage),
-                               case .translationModelsNotInstalled = error {
-                                Button("Open System Settings") {
-                                    openTranslationSettings()
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                            }
-                            
                             Spacer()
                             Button("Try Again") {
                                 Task {
@@ -240,7 +166,7 @@ struct TranscriptionView: View {
                 if let transcriptText = video.transcriptText {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
-                            if let language = showTranslation ? video.translatedLanguage : video.transcriptLanguage {
+                            if let language = video.transcriptLanguage {
                                 Label(displayLanguageName(for: language), systemImage: "globe")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
@@ -248,16 +174,7 @@ struct TranscriptionView: View {
                             
                             Spacer()
                             
-                            if video.transcriptText != nil && video.translatedText != nil {
-                                Picker("View", selection: $showTranslation) {
-                                    Text("Original").tag(false)
-                                    Text("Translation").tag(true)
-                                }
-                                .pickerStyle(.segmented)
-                                .frame(width: 140)
-                            }
-                            
-                            if let dateGenerated = showTranslation ? video.translationDateGenerated : video.transcriptDateGenerated {
+                            if let dateGenerated = video.transcriptDateGenerated {
                                 Text("Generated \(dateGenerated, formatter: DateFormatter.shortDate)")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
@@ -267,25 +184,20 @@ struct TranscriptionView: View {
                         Divider()
                         
                         ScrollView {
-                            Text(showTranslation && video.translatedText != nil ? video.translatedText! : transcriptText)
-                                .id(showTranslation ? "translation" : "original")
+                            Text(transcriptText)
                                 .font(.body)
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                 } else if !transcriptionService.isTranscribing && transcriptionService.errorMessage == nil {
-                    // Center the empty state and make the title smaller
-                    VStack {
-                        ContentUnavailableView(
-                            "No transcript available",
-                            systemImage: "doc.text",
-                            description: Text("Tap 'Generate Transcript' to create a transcript of this video's audio.")
-                        )
-                        .font(.title3) // smaller than default title
-                        .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                    ContentUnavailableView(
+                        "No transcript available",
+                        systemImage: "doc.text",
+                        description: Text("Tap 'Transcribe' to create a transcript of this video's audio.")
+                    )
+                    .font(.title3)
+                    .multilineTextAlignment(.center)
                 }
                 
                 Spacer()
@@ -312,19 +224,6 @@ struct TranscriptionView: View {
             } else {
                 inputSelection = nil // Auto
             }
-            // Initialize Output picker to a supported equivalent of the system locale
-            if let systemEquivalent = await SpeechTranscriber.supportedLocale(equivalentTo: Locale.current),
-               locales.contains(where: { $0.identifier == systemEquivalent.identifier }) {
-                await MainActor.run {
-                    systemSupportedLocale = systemEquivalent
-                    outputSelection = systemEquivalent
-                }
-            } else {
-                await MainActor.run {
-                    systemSupportedLocale = nil
-                    outputSelection = locales.first
-                }
-            }
         }
     }
     
@@ -350,32 +249,8 @@ struct TranscriptionView: View {
         }
     }
     
-    private var outputSelectionLabel: String {
-        if let outputSelection {
-            if let systemLocale = systemSupportedLocale,
-               outputSelection.identifier == systemLocale.identifier {
-                return "System"
-            }
-            return displayName(for: outputSelection)
-        } else if systemSupportedLocale != nil {
-            return "System"
-        } else {
-            return "—"
-        }
-    }
-    
     private func displayLanguageName(for languageIdentifier: String) -> String {
         return Locale.current.localizedString(forIdentifier: languageIdentifier) ?? languageIdentifier
-    }
-    
-    private func openTranslationSettings() {
-        #if os(macOS)
-        if let settingsURL = URL(string: "x-apple.systempreferences:com.apple.Localization-Settings.extension") {
-            NSWorkspace.shared.open(settingsURL)
-        } else {
-            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
-        }
-        #endif
     }
     
     private func parseTranscriptionError(from message: String) -> TranscriptionError? {
@@ -393,8 +268,6 @@ struct TranscriptionView: View {
             return .noSpeechDetected
         } else if message.contains("download") && message.contains("assets") {
             return .assetInstallationFailed
-        } else if message.contains("Translation models") && message.contains("not installed") {
-            return .translationModelsNotInstalled("", "")
         }
         return nil
     }
@@ -464,11 +337,14 @@ struct TranscriptionView_Previews: PreviewProvider {
         video.duration = 3605
         video.fileSize = 123_456_789
         video.transcriptText = """
-        Welcome to the Swift Concurrency deep dive. In this session, we’ll explore async/await, actors, \
-        and structured concurrency. We’ll start with the basics and move to advanced patterns...
+        Welcome to the Swift Concurrency deep dive. In this session, we'll explore async/await, actors, \
+        and structured concurrency. We'll start with the basics and move to advanced patterns...
         """
         video.transcriptLanguage = "en-US"
         video.transcriptDateGenerated = Date()
+        
+        // Shared service
+        let transcriptionService = SpeechTranscriptionService()
         
         // LibraryManager environment
         let libraryManager = LibraryManager.shared
@@ -478,6 +354,7 @@ struct TranscriptionView_Previews: PreviewProvider {
         
         return TranscriptionView(video: video)
             .environmentObject(libraryManager)
+            .environmentObject(transcriptionService)
             .frame(minWidth: 600, minHeight: 500)
             .previewDisplayName("TranscriptionView")
     }
