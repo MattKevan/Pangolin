@@ -135,88 +135,117 @@ struct HierarchicalContentView: View {
         .background(.clear)
     }
     
+    // MARK: - Table Content Builders
+    
+    @ViewBuilder
+    private func buildNameCellContent(for item: HierarchicalContentItem) -> some View {
+        HStack(spacing: 8) {
+            buildItemIcon(for: item)
+            buildItemName(for: item)
+            Spacer(minLength: 0)
+        }
+    }
+    
+    @ViewBuilder
+    private func buildItemIcon(for item: HierarchicalContentItem) -> some View {
+        if case .video(let video) = item.contentType {
+            VideoThumbnailView(video: video, size: CGSize(width: 20, height: 14))
+                .frame(width: 20, height: 14)
+                .clipShape(RoundedRectangle(cornerRadius: 2))
+        } else {
+            Image(systemName: item.isFolder ? "folder" : "play.rectangle")
+                .foregroundColor(item.isFolder ? .accentColor : .primary)
+                .frame(width: 16, height: 16)
+        }
+    }
+    
+    @ViewBuilder
+    private func buildItemName(for item: HierarchicalContentItem) -> some View {
+        if renamingItemID == item.id {
+            TextField("Name", text: $editedName)
+                .textFieldStyle(.plain)
+                .focused($focusedField, equals: item.id)
+                .onAppear {
+                    editedName = item.name
+                }
+                .onSubmit {
+                    Task { await commitRename() }
+                }
+                .onKeyPress(.escape) {
+                    cancelRename()
+                    return .handled
+                }
+        } else {
+            Text(item.name)
+                .lineLimit(1)
+        }
+    }
+    
+    @ViewBuilder
+    private func buildDurationContent(for item: HierarchicalContentItem) -> some View {
+        if case .video(let video) = item.contentType {
+            Text(video.formattedDuration)
+                .font(.system(.body, design: .monospaced))
+                .foregroundColor(.secondary)
+        } else {
+            Text("")
+        }
+    }
+    
+    @ViewBuilder
+    private func buildPlayedContent(for item: HierarchicalContentItem) -> some View {
+        if case .video(let video) = item.contentType {
+            Image(systemName: video.playCount > 0 ? "checkmark.circle.fill" : "circle")
+                .foregroundColor(video.playCount > 0 ? .green : .secondary)
+                .help(video.playCount > 0 ? "Played" : "Unplayed")
+        } else {
+            Text("")
+        }
+    }
+    
+    @ViewBuilder
+    private func buildFavoriteContent(for item: HierarchicalContentItem) -> some View {
+        if case .video(let video) = item.contentType {
+            Button {
+                toggleFavorite(video: video)
+            } label: {
+                Image(systemName: video.isFavorite ? "heart.fill" : "heart")
+                    .foregroundColor(video.isFavorite ? .red : .secondary)
+            }
+            .buttonStyle(.plain)
+            .help(video.isFavorite ? "Remove from Favorites" : "Add to Favorites")
+        } else {
+            Text("")
+        }
+    }
+    
     @ViewBuilder 
     private var hierarchicalTableView: some View {
         Table(filteredContent, children: \.children, selection: $selectedItems, sortOrder: $sortOrder) {
-            TableColumn("Name") { (item: HierarchicalContentItem) in
-                HStack(spacing: 8) {
-                    // Icon or Thumbnail
-                    Group {
-                        if case .video(let video) = item.contentType {
-                            VideoThumbnailView(video: video, size: CGSize(width: 20, height: 14))
-                                .frame(width: 20, height: 14)
-                                .clipShape(RoundedRectangle(cornerRadius: 2))
-                        } else {
-                            Image(systemName: item.isFolder ? "folder" : "play.rectangle")
-                                .foregroundColor(item.isFolder ? .accentColor : .primary)
-                                .frame(width: 16, height: 16)
-                        }
-                    }
-                    
-                    // Name (editable if renaming)
-                    if renamingItemID == item.id {
-                        TextField("Name", text: $editedName)
-                            .textFieldStyle(.plain)
-                            .focused($focusedField, equals: item.id)
-                            .onAppear {
-                                editedName = item.name
-                            }
-                            .onSubmit {
-                                Task { await commitRename() }
-                            }
-                            .onKeyPress(.escape) {
-                                cancelRename()
-                                return .handled
-                            }
-                    } else {
-                        Text(item.name)
-                            .lineLimit(1)
-                    }
-                    
-                    Spacer(minLength: 0)
-                }
+            
+            TableColumn("Name") { item in
+                buildNameCellContent(for: item)
             }
             .width(min: 200, ideal: 300, max: nil)
             
-            TableColumn("Duration") { (item: HierarchicalContentItem) in
-                if case .video(let video) = item.contentType {
-                    Text(video.formattedDuration)
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundColor(.secondary)
-                } else {
-                    Text("")
-                }
+            TableColumn("Duration") { item in
+                buildDurationContent(for: item)
             }
             .width(min: 80, ideal: 80, max: 100)
             
-            TableColumn("Played") { (item: HierarchicalContentItem) in
-                if case .video(let video) = item.contentType {
-                    Image(systemName: video.playCount > 0 ? "checkmark.circle.fill" : "circle")
-                        .foregroundColor(video.playCount > 0 ? .green : .secondary)
-                        .help(video.playCount > 0 ? "Played" : "Unplayed")
-                } else {
-                    Text("")
-                }
+            TableColumn("Played") { item in
+                buildPlayedContent(for: item)
             }
             .width(min: 60, ideal: 60, max: 80)
             
-            TableColumn("Favorite") { (item: HierarchicalContentItem) in
-                if case .video(let video) = item.contentType {
-                    Button {
-                        toggleFavorite(video: video)
-                    } label: {
-                        Image(systemName: video.isFavorite ? "heart.fill" : "heart")
-                            .foregroundColor(video.isFavorite ? .red : .secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help(video.isFavorite ? "Remove from Favorites" : "Add to Favorites")
-                } else {
-                    Text("")
-                }
+            TableColumn("Favorite") { item in
+                buildFavoriteContent(for: item)
             }
             .width(min: 60, ideal: 60, max: 80)
         }
+        #if os(macOS)
         .alternatingRowBackgrounds(.enabled)
+        #endif
         .tableStyle(.automatic)
         .contextMenu(forSelectionType: UUID.self) { selection in
             if !selection.isEmpty {

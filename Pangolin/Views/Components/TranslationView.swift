@@ -152,7 +152,11 @@ struct TranslationView: View {
                             .foregroundColor(.secondary)
                     }
                     .padding()
+                    #if os(macOS)
                     .background(Color(NSColor.controlBackgroundColor))
+                    #else
+                    .background(.regularMaterial)
+                    #endif
                     .cornerRadius(8)
                 } else if let errorMessage = transcriptionService.errorMessage {
                     VStack(alignment: .leading, spacing: 12) {

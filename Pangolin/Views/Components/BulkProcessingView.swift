@@ -110,7 +110,11 @@ struct BulkProcessingView: View {
             }
         }
         .padding()
+        #if os(macOS)
         .background(Color(NSColor.controlBackgroundColor))
+        #else
+        .background(.regularMaterial)
+        #endif
     }
     
     // MARK: - Task List View
@@ -175,7 +179,11 @@ struct BulkProcessingView: View {
             }
         }
         .padding()
+        #if os(macOS)
         .background(Color(NSColor.controlBackgroundColor))
+        #else
+        .background(.regularMaterial)
+        #endif
     }
     
     // MARK: - Context Menu

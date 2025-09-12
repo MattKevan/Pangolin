@@ -135,6 +135,7 @@ struct CompactTaskRowView: View {
         case .transcribe: return .blue
         case .translate: return .green
         case .summarize: return .purple
+        case .iCloudDownload: return .cyan
         }
     }
     

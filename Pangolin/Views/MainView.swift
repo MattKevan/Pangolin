@@ -51,6 +51,7 @@ private struct ToggleSidebarButton: View {
 struct MainView: View {
     @EnvironmentObject var libraryManager: LibraryManager
     @StateObject private var folderStore: FolderNavigationStore
+    @StateObject private var searchManager = SearchManager()
     @StateObject private var transcriptionService = SpeechTranscriptionService()
     @StateObject private var taskQueueManager = TaskQueueManager.shared
     
@@ -58,7 +59,6 @@ struct MainView: View {
     @State private var showingCreateFolder = false
     @State private var showingImportPicker = false
     
-    @State private var searchText = ""
     @State private var selectedInspectorTab: InspectorTab = .transcript
     
     // Prevent duplicate auto-triggers during rapid selection changes
@@ -77,72 +77,110 @@ struct MainView: View {
                 .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 350)
                 .environmentObject(folderStore)
                 .environmentObject(libraryManager)
+                .environmentObject(searchManager)
                 .applyManagedObjectContext(libraryManager.viewContext)
         } detail: {
-            DetailView(video: folderStore.selectedVideo)
-                .environmentObject(folderStore)
-                .navigationSplitViewColumnWidth(min: 700, ideal: 900)
+            Group {
+                if folderStore.isSearchMode {
+                    DetailContentView()
+                        .environmentObject(folderStore)
+                        .environmentObject(searchManager)
+                        .environmentObject(libraryManager)
+                } else {
+                    DetailContentView()
+                        .environmentObject(folderStore)
+                        .environmentObject(searchManager)
+                        .environmentObject(libraryManager)
+                }
+            }
+            .navigationSplitViewColumnWidth(min: 700, ideal: 900)
                 .toolbar {
-                    // Leading actions
-                    ToolbarItemGroup(placement: .navigation) {
-                        Button {
-                            showingImportPicker = true
-                        } label: {
-                            Image(systemName: "square.and.arrow.down")
-                        }
-                        .help("Import Videos")
-                        .disabled(libraryManager.currentLibrary == nil)
-                        
-                        Button {
-                            showingCreateFolder = true
-                        } label: {
-                            Image(systemName: "folder.badge.plus")
-                        }
-                        .help("Add Folder")
-                        .disabled(libraryManager.currentLibrary == nil)
-                    }
-                    
-                    // Trailing actions
-                    ToolbarItemGroup(placement: .primaryAction) {
-                        // Task Queue Progress Indicator
-                        if taskQueueManager.hasActiveTasks {
-                            Button {
-                                showTaskPopover.toggle()
-                            } label: {
-                                ZStack {
-                                    ProgressView(value: taskQueueManager.overallProgress)
-                                        .progressViewStyle(.circular)
-                                        .controlSize(.small)
-                                        .frame(width: 14, height: 14)
-                                    
-                                    // Badge showing number of active tasks
-                                    if taskQueueManager.activeTaskCount > 1 {
-                                        Text("\(taskQueueManager.activeTaskCount)")
-                                            .font(.system(size: 8, weight: .bold))
-                                            .foregroundColor(.white)
-                                            .frame(width: 12, height: 12)
-                                            .background(Color.red)
-                                            .clipShape(Circle())
-                                            .offset(x: 6, y: -6)
+                    if folderStore.isSearchMode {
+                        // Search Mode: Wide centered search field
+                        ToolbarItem(placement: .principal) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "magnifyingglass")
+                                    .foregroundColor(.secondary)
+                                    .font(.system(size: 16))
+                                
+                                TextField("Search videos, transcripts, and summaries", text: $searchManager.searchText)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(maxWidth: 800) // Much wider search field
+                                
+                                // Search scope picker
+                                Picker("Scope", selection: $searchManager.searchScope) {
+                                    ForEach(SearchManager.SearchScope.allCases) { scope in
+                                        Text(scope.rawValue).tag(scope)
                                     }
                                 }
-                                .frame(width: 20, height: 20) // hit target
-                                .accessibilityLabel("Background tasks")
-                                .accessibilityValue("\(taskQueueManager.activeTaskCount) active tasks")
+                                .pickerStyle(.menu)
+                                .frame(width: 100)
                             }
-                            .buttonStyle(.plain)
-                            .popover(isPresented: $showTaskPopover, arrowEdge: .top) {
-                                TaskQueuePopoverView()
+                            .padding(.horizontal, 16)
+                        }
+                    } else {
+                        // Only show normal toolbar items when NOT in search mode
+                        // Normal Mode: Standard toolbar items
+                        ToolbarItemGroup(placement: .navigation) {
+                            Button {
+                                showingImportPicker = true
+                            } label: {
+                                Image(systemName: "square.and.arrow.down")
                             }
+                            .help("Import Videos")
+                            .disabled(libraryManager.currentLibrary == nil)
+                            
+                            Button {
+                                showingCreateFolder = true
+                            } label: {
+                                Image(systemName: "folder.badge.plus")
+                            }
+                            .help("Add Folder")
+                            .disabled(libraryManager.currentLibrary == nil)
                         }
                         
-                        Button {
-                            showInspector.toggle()
-                        } label: {
-                            Image(systemName: "sidebar.right")
+                        // Trailing actions
+                        ToolbarItemGroup(placement: .primaryAction) {
+                            // Task Queue Progress Indicator
+                            if taskQueueManager.hasActiveTasks {
+                                Button {
+                                    showTaskPopover.toggle()
+                                } label: {
+                                    ZStack {
+                                        ProgressView(value: taskQueueManager.overallProgress)
+                                            .progressViewStyle(.circular)
+                                            .controlSize(.small)
+                                            .frame(width: 14, height: 14)
+                                        
+                                        // Badge showing number of active tasks
+                                        if taskQueueManager.activeTaskCount > 1 {
+                                            Text("\(taskQueueManager.activeTaskCount)")
+                                                .font(.system(size: 8, weight: .bold))
+                                                .foregroundColor(.white)
+                                                .frame(width: 12, height: 12)
+                                                .background(Color.red)
+                                                .clipShape(Circle())
+                                                .offset(x: 6, y: -6)
+                                        }
+                                    }
+                                    .frame(width: 20, height: 20) // hit target
+                                    .accessibilityLabel("Background tasks")
+                                    .accessibilityValue("\(taskQueueManager.activeTaskCount) active tasks")
+                                }
+                                .buttonStyle(.plain)
+                                .popover(isPresented: $showTaskPopover, arrowEdge: .top) {
+                                    TaskQueuePopoverView()
+                                }
+                            }
+                            
+                            Button {
+                                showInspector.toggle()
+                            } label: {
+                                Image(systemName: "sidebar.right")
+                            }
+                            .keyboardShortcut("i", modifiers: [.command, .option])
+                            .help("Show Inspector")
                         }
-                        .keyboardShortcut("i", modifiers: [.command, .option])
-                        .help("Show Inspector")
                     }
                 }
                 .inspector(isPresented: $showInspector) {
@@ -205,6 +243,13 @@ struct MainView: View {
                 .environmentObject(folderStore)
         }
         .navigationTitle(libraryManager.currentLibrary?.name ?? "Pangolin")
+        .onChange(of: folderStore.selectedSidebarItem) { _, newSelection in
+            if case .search = newSelection {
+                searchManager.activateSearch()
+            } else {
+                searchManager.deactivateSearch()
+            }
+        }
         .pangolinAlert(error: $libraryManager.error)
     }
     
@@ -265,6 +310,36 @@ private struct InspectorContainer<ToolbarContent: View, Content: View>: View {
             Rectangle()
                 .fill(Color.secondary.opacity(0.25))
                 .frame(width: 1)
+        }
+    }
+}
+
+// MARK: - Detail Content View
+private struct DetailContentView: View {
+    @EnvironmentObject private var folderStore: FolderNavigationStore
+    @EnvironmentObject private var searchManager: SearchManager
+    @EnvironmentObject private var libraryManager: LibraryManager
+    
+    var body: some View {
+        Group {
+            if folderStore.isSearchMode {
+                // Search Mode: Always show search results view
+                SearchResultsView()
+                    .environmentObject(searchManager)
+                    .environmentObject(folderStore)
+                    .environmentObject(libraryManager)
+            } else {
+                // Normal Mode: Show regular detail view or hierarchical content
+                if let selectedVideo = folderStore.selectedVideo {
+                    DetailView(video: selectedVideo)
+                        .environmentObject(folderStore)
+                        .environmentObject(libraryManager)
+                } else {
+                    HierarchicalContentView(searchText: "")
+                        .environmentObject(folderStore)
+                        .environmentObject(libraryManager)
+                }
+            }
         }
     }
 }

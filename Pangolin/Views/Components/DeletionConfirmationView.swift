@@ -74,7 +74,11 @@ struct DeletionConfirmationView: View {
                     .frame(maxHeight: 120)
                 }
                 .padding(12)
+                #if os(macOS)
                 .background(Color(NSColor.controlBackgroundColor))
+                #else
+                .background(.regularMaterial)
+                #endif
                 .cornerRadius(8)
             }
             
@@ -95,7 +99,11 @@ struct DeletionConfirmationView: View {
         }
         .padding(24)
         .frame(width: 420)
+        #if os(macOS)
         .background(Color(NSColor.windowBackgroundColor))
+        #else
+        .background(.regularMaterial)
+        #endif
         .cornerRadius(12)
     }
     

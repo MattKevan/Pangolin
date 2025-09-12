@@ -67,7 +67,11 @@ struct TaskQueuePopoverView: View {
             }
         }
         .frame(width: 320)
+        #if os(macOS)
         .background(Color(NSColor.windowBackgroundColor))
+        #else
+        .background(.regularMaterial)
+        #endif
     }
 }
 

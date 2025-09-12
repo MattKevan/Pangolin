@@ -7,7 +7,9 @@
 
 import Foundation
 import Combine
+#if canImport(AppKit)
 import AppKit
+#endif
 
 @MainActor
 class VideoFileManager: ObservableObject {
@@ -150,93 +152,70 @@ class VideoFileManager: ObservableObject {
             throw VideoFileError.invalidVideoPath
         }
         
-        // Add to downloading set
+        // Add to downloading set for UI feedback
         downloadingVideos.insert(videoId)
-        downloadProgress[videoId] = 0.0
-        
         defer {
             downloadingVideos.remove(videoId)
-            downloadProgress.removeValue(forKey: videoId)
         }
         
-        return try await withCheckedThrowingContinuation { continuation in
-            do {
-                // Start downloading from iCloud
-                try fileManager.startDownloadingUbiquitousItem(at: fileURL)
-                
-                // Monitor download progress
-                let observer = startDownloadProgressMonitoring(for: fileURL, videoId: videoId) { result in
-                    continuation.resume(with: result)
-                }
-                
-                downloadObservers[videoId] = observer
-                
-            } catch {
-                continuation.resume(throwing: VideoFileError.iCloudDownloadFailed(error))
-            }
-        }
+        // Add iCloud download task to processing queue
+        let processingQueueManager = ProcessingQueueManager.shared
+        processingQueueManager.addTask(for: video, type: .iCloudDownload)
+        
+        // Start downloading from iCloud
+        try fileManager.startDownloadingUbiquitousItem(at: fileURL)
+        
+        // Wait for download to complete by monitoring file status
+        return try await waitForDownloadCompletion(fileURL: fileURL)
     }
     
-    private func startDownloadProgressMonitoring(
-        for fileURL: URL,
-        videoId: UUID,
-        completion: @escaping (Result<URL, Error>) -> Void
-    ) -> Any {
-        
-        let timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] timer in
-            Task { @MainActor in
-                guard let self = self else {
-                    timer.invalidate()
-                    return
-                }
+    private func waitForDownloadCompletion(fileURL: URL) async throws -> URL {
+        return try await withCheckedThrowingContinuation { continuation in
+            Task {
+                var completed = false
                 
-                do {
-                    let resourceValues = try fileURL.resourceValues(forKeys: [
-                        .ubiquitousItemDownloadingStatusKey,
-                        .ubiquitousItemDownloadingErrorKey,
-                        .ubiquitousItemDownloadRequestedKey
-                    ])
-                    
-                    // Check for download error
-                    if let error = resourceValues.ubiquitousItemDownloadingError {
-                        timer.invalidate()
-                        self.downloadObservers.removeValue(forKey: videoId)
-                        completion(.failure(VideoFileError.iCloudDownloadFailed(error)))
+                while !completed {
+                    do {
+                        let resourceValues = try fileURL.resourceValues(forKeys: [
+                            .ubiquitousItemDownloadingStatusKey,
+                            .ubiquitousItemDownloadingErrorKey
+                        ])
+                        
+                        // Check for download error
+                        if let error = resourceValues.ubiquitousItemDownloadingError {
+                            continuation.resume(throwing: VideoFileError.iCloudDownloadFailed(error))
+                            return
+                        }
+                        
+                        // Check download status
+                        if let downloadStatus = resourceValues.ubiquitousItemDownloadingStatus {
+                            switch downloadStatus {
+                            case .current:
+                                // Download complete
+                                continuation.resume(returning: fileURL)
+                                completed = true
+                                
+                            case .downloaded, .notDownloaded:
+                                // Still downloading, continue waiting
+                                break
+                                
+                            default:
+                                // Still downloading, continue waiting
+                                break
+                            }
+                        }
+                        
+                        if !completed {
+                            try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                        }
+                        
+                    } catch {
+                        continuation.resume(throwing: error)
                         return
                     }
-                    
-                    // Check download status
-                    if let downloadStatus = resourceValues.ubiquitousItemDownloadingStatus {
-                        switch downloadStatus {
-                        case .current:
-                            // Download complete
-                            timer.invalidate()
-                            self.downloadObservers.removeValue(forKey: videoId)
-                            self.downloadProgress[videoId] = 1.0
-                            completion(.success(fileURL))
-                            
-                        case .downloaded:
-                            // File is downloaded but may not be current
-                            self.downloadProgress[videoId] = 0.9
-                            
-                        case .notDownloaded:
-                            // Still downloading
-                            self.downloadProgress[videoId] = 0.1
-                            
-                        default:
-                            self.downloadProgress[videoId] = 0.5
-                        }
-                    }
-                    
-                } catch {
-                    timer.invalidate()
-                    self.downloadObservers.removeValue(forKey: videoId)
-                    completion(.failure(error))
                 }
             }
         }
-        
-        return timer
     }
     
     // MARK: - Storage Availability Checking
@@ -266,25 +245,17 @@ class VideoFileManager: ObservableObject {
                 throw VideoFileError.storageLocationUnavailable(customPath)
             }
             
-        case .dropbox:
-            let dropboxPath = fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Dropbox")
-            if !fileManager.fileExists(atPath: dropboxPath.path) {
-                unavailableStorage.insert("Dropbox")
-                throw VideoFileError.storageLocationUnavailable("Dropbox")
+        case .dropbox, .googleDrive, .oneDrive:
+            // These are now handled through custom path selection
+            // Fall through to custom path validation
+            guard let customPath = library.customVideoStoragePath else {
+                throw VideoFileError.storageLocationUnavailable("Custom location not configured")
             }
             
-        case .googleDrive:
-            let googleDrivePath = fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Google Drive")
-            if !fileManager.fileExists(atPath: googleDrivePath.path) {
-                unavailableStorage.insert("Google Drive")
-                throw VideoFileError.storageLocationUnavailable("Google Drive")
-            }
-            
-        case .oneDrive:
-            let oneDrivePath = fileManager.homeDirectoryForCurrentUser.appendingPathComponent("OneDrive")
-            if !fileManager.fileExists(atPath: oneDrivePath.path) {
-                unavailableStorage.insert("OneDrive")
-                throw VideoFileError.storageLocationUnavailable("OneDrive")
+            let customURL = URL(fileURLWithPath: customPath)
+            if !fileManager.fileExists(atPath: customURL.path) {
+                unavailableStorage.insert(customPath)
+                throw VideoFileError.storageLocationUnavailable(customPath)
             }
             
         case .localLibrary:
@@ -296,6 +267,7 @@ class VideoFileManager: ObservableObject {
     // MARK: - Storage Monitoring
     
     private func setupStorageMonitoring() {
+    #if canImport(AppKit)
         // Monitor for external drive connections/disconnections
         NotificationCenter.default.addObserver(
             forName: NSWorkspace.didMountNotification,
@@ -312,6 +284,9 @@ class VideoFileManager: ObservableObject {
         ) { [weak self] notification in
             self?.handleStorageChange(notification)
         }
+    #else
+        // External storage monitoring is not supported on this platform
+    #endif
     }
     
     private func handleStorageChange(_ notification: Notification) {
@@ -326,6 +301,36 @@ class VideoFileManager: ObservableObject {
                 object: nil
             )
         }
+    }
+    
+    // MARK: - Cross-Platform Path Resolution
+    
+    /// Get cloud service path for cross-platform compatibility
+    private func getCloudServicePath(for serviceName: String) -> URL? {
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
+        // On iOS and other platforms, cloud services are typically in Documents/CloudServices
+        // or accessible through Files app integration
+        let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
+        return documentsURL?.appendingPathComponent("CloudServices").appendingPathComponent(serviceName)
+        #else
+        // On macOS, check standard locations
+        let homeURL = fileManager.homeDirectoryForCurrentUser
+        return homeURL.appendingPathComponent(serviceName)
+        #endif
+    }
+    
+    /// Get platform-appropriate storage directory for app data
+    private func getPlatformStorageDirectory() -> URL? {
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
+        // Use Documents directory on iOS platforms per Apple guidelines
+        // This ensures files are backed up to iCloud and accessible to users
+        return fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
+        #else
+        // Use Application Support directory on macOS per Apple guidelines
+        // This is for app-specific data that doesn't need user access
+        return fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Pangolin")
+        #endif
     }
     
     // MARK: - Utility Methods

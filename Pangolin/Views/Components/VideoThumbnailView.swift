@@ -10,6 +10,8 @@ import SwiftUI
 struct VideoThumbnailView: View {
     let video: Video
     let size: CGSize
+    @StateObject private var videoFileManager = VideoFileManager.shared
+    @State private var fileStatus: VideoFileStatus = .available
     
     init(video: Video, size: CGSize = CGSize(width: 160, height: 90)) {
         self.video = video
@@ -69,6 +71,74 @@ struct VideoThumbnailView: View {
                 }
             }
         )
+        .overlay(
+            // iCloud status overlay (top-right corner, Finder style)
+            HStack {
+                Spacer()
+                VStack {
+                    cloudStatusIcon
+                    Spacer()
+                }
+                .padding(4)
+            }
+        )
+        .onAppear {
+            Task {
+                fileStatus = await videoFileManager.isVideoFileAccessible(video)
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var cloudStatusIcon: some View {
+        switch fileStatus {
+        case .iCloudNotDownloaded:
+            Image(systemName: "icloud")
+                .font(.caption)
+                .foregroundColor(.white)
+                .background(Circle().fill(.blue))
+                .frame(width: 16, height: 16)
+                .help("File is in iCloud - tap to download")
+                
+        case .storageUnavailable:
+            Image(systemName: "icloud.slash")
+                .font(.caption)
+                .foregroundColor(.white)
+                .background(Circle().fill(.orange))
+                .frame(width: 16, height: 16)
+                .help("Storage unavailable")
+                
+        case .notFound:
+            Image(systemName: "exclamationmark.icloud")
+                .font(.caption)
+                .foregroundColor(.white)
+                .background(Circle().fill(.red))
+                .frame(width: 16, height: 16)
+                .help("File not found")
+                
+        case .available:
+            // Show checkmark for downloaded files, similar to Finder
+            if videoFileManager.downloadingVideos.contains(video.id ?? UUID()) {
+                // Show download progress
+                Image(systemName: "icloud.and.arrow.down")
+                    .font(.caption)
+                    .foregroundColor(.white)
+                    .background(Circle().fill(.blue))
+                    .frame(width: 16, height: 16)
+                    .help("Downloading from iCloud")
+            } else {
+                // File is available locally - no icon needed (like Finder)
+                EmptyView()
+            }
+            
+        case .invalid:
+            Image(systemName: "questionmark.diamond")
+                .font(.caption)
+                .foregroundColor(.white)
+                .background(Circle().fill(.gray))
+                .frame(width: 16, height: 16)
+                .help("Invalid file path")
+        }
     }
 }
 

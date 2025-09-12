@@ -4,12 +4,14 @@ enum ProcessingTaskType: String, CaseIterable, Codable {
     case transcribe = "transcribe"
     case translate = "translate"
     case summarize = "summarize"
+    case iCloudDownload = "icloud_download"
     
     var displayName: String {
         switch self {
         case .transcribe: return "Transcription"
         case .translate: return "Translation"
         case .summarize: return "Summary"
+        case .iCloudDownload: return "iCloud Download"
         }
     }
     
@@ -18,6 +20,7 @@ enum ProcessingTaskType: String, CaseIterable, Codable {
         case .transcribe: return "waveform"
         case .translate: return "translate"
         case .summarize: return "doc.text.below.ecg"
+        case .iCloudDownload: return "icloud.and.arrow.down"
         }
     }
     
@@ -29,6 +32,8 @@ enum ProcessingTaskType: String, CaseIterable, Codable {
             return [.transcribe]
         case .summarize:
             return [.transcribe] // Can work with either original or translated text
+        case .iCloudDownload:
+            return [] // iCloud downloads are independent
         }
     }
 }
@@ -186,6 +191,7 @@ class ProcessingTask: ObservableObject, Identifiable, Codable {
         case .transcribe: return 30.0 // Depends on video length
         case .translate: return 10.0
         case .summarize: return 15.0
+        case .iCloudDownload: return 20.0 // Depends on file size and network speed
         }
     }
     

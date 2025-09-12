@@ -30,9 +30,15 @@ class CoreDataStack {
         
         container.loadPersistentStores { (storeDescription, error) in
             if let error = error as NSError? {
-                // Log error - in production, handle this more gracefully
                 print("Core Data error: \(error), \(error.userInfo)")
-                fatalError("Unresolved error \(error), \(error.userInfo)")
+                
+                // Handle database corruption specifically
+                if error.code == 11 { // SQLite corruption
+                    print("❌ Database corruption detected. Attempting recovery...")
+                    self.handleDatabaseCorruption(storeURL: storeDescription.url!, container: container)
+                } else {
+                    fatalError("Unresolved error \(error), \(error.userInfo)")
+                }
             }
         }
         
@@ -69,6 +75,53 @@ class CoreDataStack {
                     continuation.resume(throwing: error)
                 }
             }
+        }
+    }
+    
+    // MARK: - Database Recovery
+    
+    private func handleDatabaseCorruption(storeURL: URL, container: NSPersistentCloudKitContainer) {
+        print("🔧 Attempting database recovery...")
+        
+        let fileManager = FileManager.default
+        let backupURL = storeURL.appendingPathExtension("backup")
+        
+        do {
+            // Create backup of corrupted database
+            if fileManager.fileExists(atPath: storeURL.path) {
+                if fileManager.fileExists(atPath: backupURL.path) {
+                    try fileManager.removeItem(at: backupURL)
+                }
+                try fileManager.moveItem(at: storeURL, to: backupURL)
+                print("✅ Corrupted database backed up")
+            }
+            
+            // Remove related files (WAL, SHM)
+            let walURL = storeURL.appendingPathExtension("sqlite-wal")
+            let shmURL = storeURL.appendingPathExtension("sqlite-shm")
+            
+            if fileManager.fileExists(atPath: walURL.path) {
+                try fileManager.removeItem(at: walURL)
+            }
+            if fileManager.fileExists(atPath: shmURL.path) {
+                try fileManager.removeItem(at: shmURL)
+            }
+            
+            print("✅ Database recovery complete - new database will be created")
+            
+            // Retry loading the store
+            container.loadPersistentStores { (_, retryError) in
+                if let retryError = retryError {
+                    print("❌ Recovery failed: \(retryError)")
+                    fatalError("Failed to recover from database corruption: \(retryError)")
+                } else {
+                    print("✅ New database created successfully")
+                }
+            }
+            
+        } catch {
+            print("❌ Database recovery failed: \(error)")
+            fatalError("Database recovery failed: \(error)")
         }
     }
 }

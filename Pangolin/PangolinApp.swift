@@ -9,11 +9,12 @@ struct PangolinApp: App {
     @StateObject private var libraryManager = LibraryManager.shared
     @StateObject private var processingQueueManager = ProcessingQueueManager.shared
     @StateObject private var videoFileManager = VideoFileManager.shared
+    @StateObject private var videoScanner = iCloudVideoScanner.shared
     @State private var hasAttemptedAutoOpen = false
     
     var body: some Scene {
         WindowGroup {
-            Group {
+            VStack {
                 if libraryManager.isLibraryOpen {
                     // REFACTORED: Pass the configured libraryManager into MainView's initializer.
                     // This ensures the entire view hierarchy, including the FolderNavigationStore,
@@ -38,18 +39,42 @@ struct PangolinApp: App {
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
+                        } else if videoScanner.isScanning {
+                            VStack(spacing: 10) {
+                                Text("Restoring your video library...")
+                                    .font(.headline)
+                                
+                                Text(videoScanner.scanStatusMessage)
+                                    .font(.body)
+                                    .foregroundColor(.secondary)
+                                
+                                if videoScanner.scanProgress > 0 {
+                                    ProgressView(value: videoScanner.scanProgress)
+                                        .frame(maxWidth: 300)
+                                    Text("\(Int(videoScanner.scanProgress * 100))%")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
                         } else {
                             Text("Opening iCloud library...")
                                 .font(.headline)
                         }
                         
                         if let error = libraryManager.error {
-                            VStack(spacing: 10) {
-                                Text("Error")
-                                    .font(.headline)
+                            VStack(spacing: 15) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 50))
                                     .foregroundColor(.red)
+                                
+                                Text("Library Error")
+                                    .font(.title2)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.red)
+                                
                                 Text(error.localizedDescription)
                                     .multilineTextAlignment(.center)
+                                
                                 if let recovery = error.recoverySuggestion {
                                     Text(recovery)
                                         .font(.caption)
@@ -57,12 +82,49 @@ struct PangolinApp: App {
                                         .multilineTextAlignment(.center)
                                 }
                                 
-                                Button("Retry") {
-                                    retryLibraryOpen()
+                                // Special handling for database corruption and invalid libraries  
+                                switch error {
+                                case .databaseCorrupted(_), .invalidLibrary(_):
+                                    VStack(spacing: 10) {
+                                        Text("Your library database is corrupted, but it can be fixed.")
+                                            .font(.body)
+                                            .multilineTextAlignment(.center)
+                                            .foregroundColor(.primary)
+                                        
+                                        Text("This will create a fresh library. Your videos will remain in iCloud.")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                            .multilineTextAlignment(.center)
+                                        
+                                        HStack(spacing: 10) {
+                                            Button("Reset Library") {
+                                                resetCorruptedLibrary()
+                                            }
+                                            .buttonStyle(.borderedProminent)
+                                            .foregroundColor(.white)
+                                            .tint(.red)
+                                            
+                                            Button("Retry") {
+                                                retryLibraryOpen()
+                                            }
+                                            .buttonStyle(.bordered)
+                                        }
+                                    }
+                                default:
+                                    Button("Retry") {
+                                        retryLibraryOpen()
+                                    }
+                                    .buttonStyle(.borderedProminent)
                                 }
-                                .buttonStyle(.borderedProminent)
                             }
-                            .padding()
+                            .padding(30)
+                            #if os(macOS)
+                            .background(Color(.controlBackgroundColor))
+                            #else
+                            .background(Color(.systemGray6))
+                            #endif
+                            .cornerRadius(12)
+                            .padding(.horizontal, 40)
                         }
                     }
                     .frame(minWidth: 600, minHeight: 500)
@@ -83,6 +145,18 @@ struct PangolinApp: App {
                 }
                 .keyboardShortcut("R", modifiers: .command)
                 .disabled(libraryManager.isLoading)
+                
+                Divider()
+                
+                Button("Clean Up Temp Files") {
+                    libraryManager.cleanupStaleDownloadsManually()
+                }
+                .keyboardShortcut("L", modifiers: [.command, .shift])
+                
+                Button("Reset Database (Debug)") {
+                    resetCorruptedLibrary()
+                }
+                .keyboardShortcut("D", modifiers: [.command, .option, .shift])
             }
             
             // File menu additions
@@ -115,11 +189,12 @@ struct PangolinApp: App {
         Task {
             do {
                 // Always try to get or create iCloud library
-                _ = try await libraryManager.getOrCreateiCloudLibrary()
+                _ = try await libraryManager.smartStartup()
                 print("✅ Successfully opened iCloud library")
             } catch {
                 print("❌ Failed to get/create iCloud library: \(error)")
-                // Error will be shown in the UI via libraryManager.error
+                // Set the error for UI display
+                libraryManager.error = error as? LibraryError
             }
         }
     }
@@ -129,6 +204,20 @@ struct PangolinApp: App {
         libraryManager.error = nil
         hasAttemptedAutoOpen = false
         attemptAutoOpeniCloudLibrary()
+    }
+    
+    private func resetCorruptedLibrary() {
+        Task {
+            do {
+                libraryManager.error = nil
+                print("🔧 APP: Starting database reset...")
+                _ = try await libraryManager.resetCorruptedDatabase()
+                print("✅ APP: Database reset successful")
+            } catch {
+                print("❌ APP: Database reset failed: \(error)")
+                libraryManager.error = error as? LibraryError
+            }
+        }
     }
     
     private func generateThumbnails() {
@@ -154,3 +243,4 @@ struct PangolinApp: App {
         NotificationCenter.default.post(name: NSNotification.Name("TriggerRename"), object: nil)
     }
 }
+

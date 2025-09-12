@@ -9,11 +9,29 @@ import SwiftUI
 import CoreData
 import Combine
 
+// MARK: - Sidebar Selection Types
+enum SidebarSelection: Hashable, Identifiable {
+    case search
+    case folder(Folder)
+    
+    var id: String {
+        switch self {
+        case .search: return "search"
+        case .folder(let folder): return folder.id?.uuidString ?? ""
+        }
+    }
+}
+
 @MainActor
 class FolderNavigationStore: ObservableObject {
     // MARK: - Core State
     @Published var navigationPath = NavigationPath()
     @Published var currentFolderID: UUID?
+    @Published var selectedSidebarItem: SidebarSelection? {
+        didSet {
+            handleSidebarSelectionChange()
+        }
+    }
     @Published var selectedTopLevelFolder: Folder? {
         didSet {
             // When the top-level folder changes, ensure a video is selected
@@ -24,6 +42,7 @@ class FolderNavigationStore: ObservableObject {
         }
     }
     @Published var selectedVideo: Video?
+    @Published var isSearchMode = false
     
     // Reactive data sources for the UI
     @Published var hierarchicalContent: [HierarchicalContentItem] = []
@@ -83,6 +102,7 @@ class FolderNavigationStore: ObservableObject {
             do {
                 if let allVideosFolder = try context.fetch(request).first {
                     selectedTopLevelFolder = allVideosFolder
+                    selectedSidebarItem = .folder(allVideosFolder)
                     currentFolderID = allVideosFolder.id // This triggers the sink above to load content
                 } else {
                     refreshContent()
@@ -91,6 +111,46 @@ class FolderNavigationStore: ObservableObject {
                 print("Error setting initial folder: \(error)")
                 refreshContent()
             }
+        }
+    }
+    
+    // MARK: - Search Support
+    private func handleSidebarSelectionChange() {
+        Task { @MainActor in
+            switch selectedSidebarItem {
+            case .search:
+                isSearchMode = true
+                // Don't change currentFolderID when in search mode
+                // Content will be managed by SearchManager
+            case .folder(let folder):
+                isSearchMode = false
+                selectedTopLevelFolder = folder
+                currentFolderID = folder.id
+            case .none:
+                isSearchMode = false
+                // Keep current state
+            }
+        }
+    }
+    
+    func activateSearch() {
+        selectedSidebarItem = .search
+    }
+    
+    func selectAllVideos() {
+        guard let context = libraryManager.viewContext,
+              let library = libraryManager.currentLibrary else { return }
+        
+        let request = Folder.fetchRequest()
+        request.predicate = NSPredicate(format: "library == %@ AND isTopLevel == YES AND isSmartFolder == YES AND name == %@", library, "All Videos")
+        request.fetchLimit = 1
+        
+        do {
+            if let allVideosFolder = try context.fetch(request).first {
+                selectedSidebarItem = .folder(allVideosFolder)
+            }
+        } catch {
+            print("Error selecting All Videos folder: \(error)")
         }
     }
     

@@ -185,6 +185,8 @@ class ProcessingQueueManager: ObservableObject {
                 await processTranslation(task: task, video: video)
             case .summarize:
                 await processSummarization(task: task, video: video)
+            case .iCloudDownload:
+                await processICloudDownload(task: task, video: video)
             }
             
         } catch {
@@ -342,6 +344,33 @@ class ProcessingQueueManager: ObservableObject {
         }
     }
     
+    private func processICloudDownload(task: ProcessingTask, video: Video) async {
+        do {
+            await MainActor.run {
+                task.updateProgress(0.1, message: "Starting iCloud download...")
+            }
+            
+            // Use VideoFileManager to handle the download
+            let videoFileManager = VideoFileManager.shared
+            let fileURL = try await videoFileManager.getVideoFileURL(for: video, downloadIfNeeded: true)
+            
+            await MainActor.run {
+                task.updateProgress(1.0, message: "Download complete")
+                task.markAsCompleted()
+                queue.markTaskAsFinished(task)
+            }
+            
+            print("✅ Successfully downloaded video from iCloud: \(fileURL)")
+            
+        } catch {
+            await MainActor.run {
+                task.markAsFailed(error: "iCloud download failed: \(error.localizedDescription)")
+                queue.markTaskAsFinished(task)
+            }
+            print("❌ iCloud download failed: \(error)")
+        }
+    }
+    
     // MARK: - Helper Methods
     
     private func hasRequiredData(video: Video, type: ProcessingTaskType) -> Bool {
@@ -352,6 +381,8 @@ class ProcessingQueueManager: ObservableObject {
             return video.translatedText != nil && !video.translatedText!.isEmpty
         case .summarize:
             return video.transcriptSummary != nil && !video.transcriptSummary!.isEmpty
+        case .iCloudDownload:
+            return false // Always allow iCloud download tasks to be processed
         }
     }
     

@@ -65,6 +65,7 @@ struct DraggableSplitter: View {
         }
         .contentShape(Rectangle())
         .onHover { hovering in
+            #if os(macOS)
             if hovering && !isDragging {
                 if isVertical {
                     NSCursor.resizeUpDown.push()
@@ -74,6 +75,7 @@ struct DraggableSplitter: View {
             } else if !hovering && !isDragging {
                 NSCursor.pop()
             }
+            #endif
         }
         .gesture(
             DragGesture()

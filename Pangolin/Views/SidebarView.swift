@@ -25,9 +25,13 @@ struct SidebarView: View {
     @State private var isDeletingFolder = false
     
     var body: some View {
-        List(selection: $store.selectedTopLevelFolder) {
-            // System folders (smart folders)
+        List(selection: $store.selectedSidebarItem) {
+            // Search item
             Section("Pangolin") {
+                Label("Search", systemImage: "magnifyingglass")
+                    .contentShape(Rectangle())
+                    .tag(SidebarSelection.search)
+                
                 ForEach(systemFolders) { folder in
                     FolderRowView(
                         folder: folder,
@@ -38,7 +42,7 @@ struct SidebarView: View {
                         onDelete: {}
                     )
                     .contentShape(Rectangle()) // Make the entire row clickable
-                    .tag(folder)
+                    .tag(SidebarSelection.folder(folder))
                 }
             }
             
@@ -54,15 +58,7 @@ struct SidebarView: View {
                         onDelete: { deleteFolder(folder) }
                     )
                     .contentShape(Rectangle()) // Make the entire row clickable
-                    .tag(folder)
-                }
-            }
-        }
-        .onChange(of: store.selectedTopLevelFolder) { _, newFolder in
-            // Defer the state update to avoid "Publishing changes from within view updates" error
-            Task { @MainActor in
-                if let newFolder {
-                    store.currentFolderID = newFolder.id
+                    .tag(SidebarSelection.folder(folder))
                 }
             }
         }
@@ -91,7 +87,7 @@ struct SidebarView: View {
         }
         .onKeyPress { keyPress in
             if keyPress.key == .return,
-               let selected = store.selectedTopLevelFolder,
+               case .folder(let selected) = store.selectedSidebarItem,
                !selected.isSmartFolder { // Only allow renaming for user folders
                 renamingFolderID = selected.id
                 Task { @MainActor in
@@ -100,7 +96,7 @@ struct SidebarView: View {
                 }
                 return .handled
             } else if (keyPress.key == .delete || keyPress.key == .deleteForward),
-                      let selected = store.selectedTopLevelFolder,
+                      case .folder(let selected) = store.selectedSidebarItem,
                       !selected.isSmartFolder { // Only allow deletion for user folders
                 deleteFolder(selected)
                 return .handled
@@ -144,13 +140,10 @@ struct SidebarView: View {
         await MainActor.run {
             if success {
                 // Clear selection if the deleted folder was selected
-                if store.selectedTopLevelFolder?.id == deletionItem.id {
+                if case .folder(let selectedFolder) = store.selectedSidebarItem,
+                   selectedFolder.id == deletionItem.id {
                     // Select "All Videos" folder as fallback
-                    let systemFolders = store.systemFolders()
-                    if let allVideosFolder = systemFolders.first(where: { $0.name == "All Videos" }) {
-                        store.selectedTopLevelFolder = allVideosFolder
-                        store.currentFolderID = allVideosFolder.id
-                    }
+                    store.selectAllVideos()
                 }
             }
             
@@ -167,7 +160,7 @@ struct SidebarView: View {
     
     private func triggerRenameFromMenu() {
         // Trigger rename on the selected sidebar folder
-        if let selected = store.selectedTopLevelFolder,
+        if case .folder(let selected) = store.selectedSidebarItem,
            !selected.isSmartFolder { // Only allow renaming for user folders
             renamingFolderID = selected.id
             Task { @MainActor in
