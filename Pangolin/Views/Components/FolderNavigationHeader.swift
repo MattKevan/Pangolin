@@ -10,6 +10,8 @@ import SwiftUI
 struct FolderNavigationHeader: View {
     @EnvironmentObject private var store: FolderNavigationStore
     let onCreateSubfolder: () -> Void
+    let onDeleteSelected: () -> Void
+    let hasSelectedItems: Bool
     
     private var canGoBack: Bool {
         !store.navigationPath.isEmpty
@@ -17,6 +19,18 @@ struct FolderNavigationHeader: View {
     
     private var folderName: String {
         store.folderName(for: store.currentFolderID)
+    }
+    
+    private var shouldShowCreateButton: Bool {
+        // Hide create button in smart folders
+        guard let currentFolder = store.currentFolder else { return false }
+        return !currentFolder.isSmartFolder
+    }
+    
+    private var shouldShowDeleteButton: Bool {
+        // Hide delete button in smart folders
+        guard let currentFolder = store.currentFolder else { return false }
+        return !currentFolder.isSmartFolder
     }
     
     var body: some View {
@@ -37,8 +51,6 @@ struct FolderNavigationHeader: View {
                 .foregroundColor(.primary)
             }
             
-            Spacer()
-            
             // Folder name
             Text(folderName)
                 .font(.headline)
@@ -47,20 +59,35 @@ struct FolderNavigationHeader: View {
             
             Spacer()
             
-            // Create subfolder button
-            Button {
-                onCreateSubfolder()
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "folder.badge.plus")
-                        .font(.system(size: 14))
-                    Text("New Folder")
-                        .font(.system(size: 14))
+            // Action buttons (hidden in smart folders)
+            HStack(spacing: 8) {
+                // Delete selected items button
+                if shouldShowDeleteButton {
+                    Button {
+                        onDeleteSelected()
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 14))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(hasSelectedItems ? .primary : .secondary)
+                    .disabled(!hasSelectedItems)
+                    .help("Delete Selected Items")
+                }
+                
+                // Create subfolder button
+                if shouldShowCreateButton {
+                    Button {
+                        onCreateSubfolder()
+                    } label: {
+                        Image(systemName: "folder.badge.plus")
+                            .font(.system(size: 14))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.primary)
+                    .help("Create New Subfolder")
                 }
             }
-            .buttonStyle(.plain)
-            .foregroundColor(.primary)
-            .help("Create New Subfolder")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -91,8 +118,14 @@ struct FolderNavigationHeader: View {
 }
 
 #Preview {
-    FolderNavigationHeader {
-        // Preview action
-    }
+    FolderNavigationHeader(
+        onCreateSubfolder: {
+            // Preview create action
+        },
+        onDeleteSelected: {
+            // Preview delete action
+        },
+        hasSelectedItems: true
+    )
     .environmentObject(FolderNavigationStore(libraryManager: LibraryManager.shared))
 }

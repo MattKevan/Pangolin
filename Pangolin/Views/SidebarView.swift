@@ -18,12 +18,11 @@ struct SidebarView: View {
     @State private var editingFolder: Folder?
     @State private var renamingFolderID: UUID? = nil
     @FocusState private var focusedField: UUID?
-    @State private var showingDeletionConfirmation = false
-    @State private var folderToDelete: Folder?
-    @State private var folderToDeleteSnapshot: DeletionItem?
+    @State private var folderToDelete: DeletionItem?
     
     @State private var systemFolders: [Folder] = []
     @State private var userFolders: [Folder] = []
+    @State private var isDeletingFolder = false
     
     var body: some View {
         List(selection: $store.selectedTopLevelFolder) {
@@ -74,30 +73,20 @@ struct SidebarView: View {
         #endif
         // Removed Sidebar toolbar to avoid duplicates and overflow.
         // Add-folder is now owned by MainView's toolbar.
-        .sheet(isPresented: $showingDeletionConfirmation) {
-            if let folder = folderToDelete {
-                let deletionItem = DeletionItem(folder: folder)
-                DeletionConfirmationView(
-                    items: [deletionItem],
-                    onConfirm: {
-                        Task {
-                            await confirmDeletion()
-                        }
-                    },
-                    onCancel: {
-                        cancelDeletion()
+        .sheet(item: $folderToDelete) { deletionItem in
+            DeletionConfirmationView(
+                items: [deletionItem],
+                onConfirm: {
+                    Task {
+                        await confirmDeletion(deletionItem)
                     }
-                )
-                .onAppear {
-                    print("🗑️ SIDEBAR: Sheet rendering DeletionConfirmationView for: \(deletionItem.name)")
+                },
+                onCancel: {
+                    cancelDeletion()
                 }
-            } else {
-                Text("No folder selected for deletion")
-                    .padding()
-                    .onAppear {
-                        print("⚠️ SIDEBAR: Sheet rendering but folderToDelete is nil!")
-                        showingDeletionConfirmation = false
-                    }
+            )
+            .onAppear {
+                print("🗑️ SIDEBAR: Sheet rendering DeletionConfirmationView for: \(deletionItem.name)")
             }
         }
         .onKeyPress { keyPress in
@@ -122,7 +111,9 @@ struct SidebarView: View {
             triggerRenameFromMenu()
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSManagedObjectContextDidSave)) { _ in
-            refreshFolders()
+            if !isDeletingFolder {
+                refreshFolders()
+            }
         }
         .onReceive(libraryManager.$currentLibrary) { _ in
             refreshFolders()
@@ -139,24 +130,21 @@ struct SidebarView: View {
     
     private func deleteFolder(_ folder: Folder) {
         print("🗑️ SIDEBAR: deleteFolder called for: \(folder.name ?? "nil") (ID: \(folder.id ?? UUID()))")
-        folderToDelete = folder
+        isDeletingFolder = true
         // Create a snapshot that won't be affected by Core Data changes
-        folderToDeleteSnapshot = DeletionItem(folder: folder)
-        print("🗑️ SIDEBAR: Set folderToDelete to: \(folderToDelete?.name ?? "nil")")
-        print("🗑️ SIDEBAR: Created folderToDeleteSnapshot: \(folderToDeleteSnapshot?.name ?? "nil")")
-        showingDeletionConfirmation = true
-        print("🗑️ SIDEBAR: Set showingDeletionConfirmation to: \(showingDeletionConfirmation)")
+        let deletionItem = DeletionItem(folder: folder)
+        print("🗑️ SIDEBAR: Created deletion item: \(deletionItem.name)")
+        folderToDelete = deletionItem
+        print("🗑️ SIDEBAR: Set folderToDelete item, this should trigger sheet")
     }
     
-    private func confirmDeletion() async {
-        guard let folder = folderToDelete else { return }
-        
-        let success = await store.deleteItems([folder.id!])
+    private func confirmDeletion(_ deletionItem: DeletionItem) async {
+        let success = await store.deleteItems([deletionItem.id])
         
         await MainActor.run {
             if success {
                 // Clear selection if the deleted folder was selected
-                if store.selectedTopLevelFolder?.id == folder.id {
+                if store.selectedTopLevelFolder?.id == deletionItem.id {
                     // Select "All Videos" folder as fallback
                     let systemFolders = store.systemFolders()
                     if let allVideosFolder = systemFolders.first(where: { $0.name == "All Videos" }) {
@@ -172,8 +160,9 @@ struct SidebarView: View {
     
     private func cancelDeletion() {
         folderToDelete = nil
-        folderToDeleteSnapshot = nil
-        showingDeletionConfirmation = false
+        isDeletingFolder = false
+        // Refresh folders after deletion process is complete
+        refreshFolders()
     }
     
     private func triggerRenameFromMenu() {

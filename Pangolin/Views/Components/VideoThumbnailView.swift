@@ -28,8 +28,9 @@ struct VideoThumbnailView: View {
                     Rectangle()
                         .fill(Color.gray.opacity(0.2))
                         .overlay(
-                            ProgressView()
-                                .scaleEffect(0.7)
+                            Image(systemName: "play.rectangle.fill")
+                                .font(.title2)
+                                .foregroundColor(.gray.opacity(0.6))
                         )
                 }
             } else {

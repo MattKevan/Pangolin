@@ -355,6 +355,24 @@ class FolderNavigationStore: ObservableObject {
         return "Unknown Folder"
     }
     
+    // MARK: - Current Folder
+    var currentFolder: Folder? {
+        guard let folderID = currentFolderID,
+              let context = libraryManager.viewContext,
+              let library = libraryManager.currentLibrary else {
+            return nil
+        }
+        
+        let request = Folder.fetchRequest()
+        request.predicate = NSPredicate(format: "library == %@ AND id == %@", library, folderID as CVarArg)
+        
+        do {
+            return try context.fetch(request).first
+        } catch {
+            return nil
+        }
+    }
+    
     // MARK: - Smart Folder Content
     private func getSmartFolderContent(folder: Folder, library: Library, context: NSManagedObjectContext) -> [ContentType] {
         var contentItems: [ContentType] = []
@@ -515,7 +533,8 @@ class FolderNavigationStore: ObservableObject {
                 
                 // Update selected video if it was deleted
                 if let selectedVideo = selectedVideo,
-                   itemIDs.contains(selectedVideo.id!) {
+                   let selectedVideoID = selectedVideo.id,
+                   itemIDs.contains(selectedVideoID) {
                     self.selectedVideo = nil
                 }
                 

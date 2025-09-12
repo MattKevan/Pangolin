@@ -9,7 +9,7 @@ import SwiftUI
 import CoreData
 import Combine
 
-/// A Finder-like hierarchical content view using SwiftUI's native OutlineGroup/hierarchical List
+/// A Finder-like hierarchical content view using SwiftUI's native Table with columns
 struct HierarchicalContentView: View {
     @EnvironmentObject private var store: FolderNavigationStore
     @EnvironmentObject var libraryManager: LibraryManager
@@ -28,8 +28,14 @@ struct HierarchicalContentView: View {
     @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
     @State private var showingProcessingPanel = false
     
+    // Create folder dialog
+    @State private var showingCreateFolder = false
+    
     // Track last explicitly selected video ID to preserve selection across refreshes
     @State private var lastSelectedVideoID: UUID?
+    
+    // Table sorting
+    @State private var sortOrder = [KeyPathComparator(\HierarchicalContentItem.name)]
     
     // This property filters the store's reactive data source
     private var filteredContent: [HierarchicalContentItem] {
@@ -96,6 +102,11 @@ struct HierarchicalContentView: View {
                         }
                 }
             }
+            // Create folder sheet
+            .sheet(isPresented: $showingCreateFolder) {
+                CreateFolderView(parentFolderID: store.currentFolderID)
+                    .environmentObject(store)
+            }
             // When content refreshes (store.hierarchicalContent changes), try to restore selection
             .onChange(of: store.hierarchicalContent) { _, _ in
                 restoreSelectionIfPossible()
@@ -106,53 +117,127 @@ struct HierarchicalContentView: View {
     private var contentView: some View {
         VStack(spacing: 0) {
             // Header remains for navigation affordance (if you still want to keep it)
-            FolderNavigationHeader {
-                // The "Add Folder" button was moved to MainView's toolbar.
-                // If you still want the header's plus action to do something here, you can:
-                // showingCreateFolder = true
-            }
+            FolderNavigationHeader(
+                onCreateSubfolder: {
+                    showingCreateFolder = true
+                },
+                onDeleteSelected: {
+                    deleteSelectedItems()
+                },
+                hasSelectedItems: !selectedItems.isEmpty
+            )
             
-            if filteredContent.isEmpty {
-                // Keep the header at the top; show empty state under it
-                VStack(alignment: .center, spacing: 12) {
-                    ContentUnavailableView(
-                        "No Content",
-                        systemImage: "folder.badge.questionmark",
-                        description: Text(store.currentFolderID == nil ? "Import videos to get started" : "This folder is empty")
-                    )
-                }
+            hierarchicalTableView
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            } else {
-                hierarchicalListView
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            }
         }
         // Ensure the whole content fills the available space and pins to the top
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(.clear)
     }
     
     @ViewBuilder 
-    private var hierarchicalListView: some View {
-        List(filteredContent, id: \.id, children: \.children, selection: $selectedItems) { item in
-            HierarchicalContentRowView(
-                item: item,
-                renamingItemID: $renamingItemID,
-                focusedField: $focusedField,
-                editedName: $editedName,
-                selectedItems: $selectedItems,
-                onDelete: { itemID in
-                    deleteSpecificItem(itemID)
+    private var hierarchicalTableView: some View {
+        Table(filteredContent, children: \.children, selection: $selectedItems, sortOrder: $sortOrder) {
+            TableColumn("Name") { (item: HierarchicalContentItem) in
+                HStack(spacing: 8) {
+                    // Icon or Thumbnail
+                    Group {
+                        if case .video(let video) = item.contentType {
+                            VideoThumbnailView(video: video, size: CGSize(width: 20, height: 14))
+                                .frame(width: 20, height: 14)
+                                .clipShape(RoundedRectangle(cornerRadius: 2))
+                        } else {
+                            Image(systemName: item.isFolder ? "folder" : "play.rectangle")
+                                .foregroundColor(item.isFolder ? .accentColor : .primary)
+                                .frame(width: 16, height: 16)
+                        }
+                    }
+                    
+                    // Name (editable if renaming)
+                    if renamingItemID == item.id {
+                        TextField("Name", text: $editedName)
+                            .textFieldStyle(.plain)
+                            .focused($focusedField, equals: item.id)
+                            .onAppear {
+                                editedName = item.name
+                            }
+                            .onSubmit {
+                                Task { await commitRename() }
+                            }
+                            .onKeyPress(.escape) {
+                                cancelRename()
+                                return .handled
+                            }
+                    } else {
+                        Text(item.name)
+                            .lineLimit(1)
+                    }
+                    
+                    Spacer(minLength: 0)
                 }
-            )
-            .contentShape(Rectangle()) // Ensure full row is clickable
+            }
+            .width(min: 200, ideal: 300, max: nil)
+            
+            TableColumn("Duration") { (item: HierarchicalContentItem) in
+                if case .video(let video) = item.contentType {
+                    Text(video.formattedDuration)
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("")
+                }
+            }
+            .width(min: 80, ideal: 80, max: 100)
+            
+            TableColumn("Played") { (item: HierarchicalContentItem) in
+                if case .video(let video) = item.contentType {
+                    Image(systemName: video.playCount > 0 ? "checkmark.circle.fill" : "circle")
+                        .foregroundColor(video.playCount > 0 ? .green : .secondary)
+                        .help(video.playCount > 0 ? "Played" : "Unplayed")
+                } else {
+                    Text("")
+                }
+            }
+            .width(min: 60, ideal: 60, max: 80)
+            
+            TableColumn("Favorite") { (item: HierarchicalContentItem) in
+                if case .video(let video) = item.contentType {
+                    Button {
+                        toggleFavorite(video: video)
+                    } label: {
+                        Image(systemName: video.isFavorite ? "heart.fill" : "heart")
+                            .foregroundColor(video.isFavorite ? .red : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(video.isFavorite ? "Remove from Favorites" : "Add to Favorites")
+                } else {
+                    Text("")
+                }
+            }
+            .width(min: 60, ideal: 60, max: 80)
         }
+        .alternatingRowBackgrounds(.enabled)
+        .tableStyle(.automatic)
         .contextMenu(forSelectionType: UUID.self) { selection in
             if !selection.isEmpty {
                 bulkProcessingContextMenu(for: selection)
             }
         }
-        .onChange(of: selectedItems) { _, newSelection in
+        .onChange(of: selectedItems) { oldSelection, newSelection in
+            print("🔍 TABLE SELECTION: Changed from \(oldSelection.count) to \(newSelection.count) items")
+            print("🔍 TABLE SELECTION: New selection: \(newSelection)")
             handleSelectionChange(newSelection)
+        }
+        .onChange(of: sortOrder) { _, newSortOrder in
+            // Handle sorting - would need to implement sorting in the store
+            // For now, we'll keep the current order
+        }
+        .draggable(dragPayload)
+        .dropDestination(for: ContentTransfer.self) { items, location in
+            // Handle drop operations
+            return handleTableDrop(items)
+        } isTargeted: { isTargeted in
+            // Could add visual feedback for drop targeting
         }
     }
     
@@ -276,28 +361,55 @@ struct HierarchicalContentView: View {
                    let video = selectedItem.video {
                     lastSelectedVideoID = video.id
                     store.selectVideo(video)
-                } else {
-                    // ID exists but no longer maps to a video (e.g., filtered out)
-                    // Keep previous selection if possible
-                    restoreSelectionIfPossible()
                 }
-            } else {
-                // Selection became empty or multi-selected. Do not clear the currently selected video immediately.
-                // Try to preserve the last selected video if it still exists.
+                // Don't restore selection for single video - let it be
+            } else if newSelection.isEmpty {
+                // Only restore selection if nothing is selected
                 restoreSelectionIfPossible()
+            } else {
+                // Multi-selection: Preserve the currently active video in player view
+                // Don't change video unless the current one is no longer selected
+                
+                if let currentlySelectedVideo = store.selectedVideo,
+                   let currentVideoID = currentlySelectedVideo.id,
+                   newSelection.contains(currentVideoID) {
+                    // Current video is still in the selection - keep it active
+                    lastSelectedVideoID = currentVideoID
+                } else {
+                    // Current video is not in selection, try to pick the most recently selected video
+                    if let lastID = lastSelectedVideoID,
+                       newSelection.contains(lastID),
+                       let item = findItem(withID: lastID, in: filteredContent),
+                       let video = item.video {
+                        // Last selected video is in the multi-selection - use it
+                        store.selectVideo(video)
+                    } else {
+                        // Pick the first video from the multi-selection for the player
+                        for selectedID in newSelection {
+                            if let item = findItem(withID: selectedID, in: filteredContent),
+                               let video = item.video {
+                                lastSelectedVideoID = video.id
+                                store.selectVideo(video)
+                                break
+                            }
+                        }
+                    }
+                }
             }
         }
     }
     
     private func restoreSelectionIfPossible() {
-        // If we already have a selected video in the store and it still exists, keep it.
+        // IMPORTANT: Only restore selection if we currently have NO selection
+        // Don't interfere with existing single or multi-selections
+        guard selectedItems.isEmpty else { return }
+        
+        // If we already have a selected video in the store and it still exists, restore it.
         if let current = store.selectedVideo,
-           findItem(withID: current.id!, in: filteredContent) != nil {
-            lastSelectedVideoID = current.id
-            // Optionally re-assert the list selection to match the detail selection.
-            if selectedItems != [current.id!] {
-                selectedItems = [current.id!]
-            }
+           let currentID = current.id,
+           findItem(withID: currentID, in: filteredContent) != nil {
+            lastSelectedVideoID = currentID
+            selectedItems = [currentID]
             return
         }
         
@@ -306,18 +418,15 @@ struct HierarchicalContentView: View {
            let item = findItem(withID: lastID, in: filteredContent),
            let video = item.video {
             store.selectVideo(video)
-            if selectedItems != [lastID] {
-                selectedItems = [lastID]
-            }
+            selectedItems = [lastID]
             return
         }
         
         // Otherwise, fall back to the store's auto-selection logic (it selects first video if needed)
-        // Sync the list selection to match store.selectedVideo if set
-        if let fallback = store.selectedVideo?.id {
-            if selectedItems != [fallback] {
-                selectedItems = [fallback]
-            }
+        // Only if we still have no selection
+        if selectedItems.isEmpty,
+           let fallback = store.selectedVideo?.id {
+            selectedItems = [fallback]
         }
     }
     
@@ -432,6 +541,70 @@ struct HierarchicalContentView: View {
         if selectedItems.count == 1, let selectedID = selectedItems.first,
            let selectedItem = findItem(withID: selectedID, in: filteredContent) {
             startRenaming(selectedItem)
+        }
+    }
+    
+    // MARK: - Drag and Drop
+    
+    private var dragPayload: ContentTransfer {
+        // If selected items exist, drag all selected items, otherwise drag nothing
+        if selectedItems.isEmpty {
+            return ContentTransfer(itemIDs: [])
+        } else {
+            return ContentTransfer(itemIDs: Array(selectedItems))
+        }
+    }
+    
+    private func handleTableDrop(_ items: [ContentTransfer]) -> Bool {
+        // For table-level drop, we might want to handle differently
+        // For now, return false to indicate drop not handled at table level
+        return false
+    }
+    
+    // MARK: - Renaming Functions
+    
+    private func commitRename() async {
+        guard let renamingID = renamingItemID,
+              let item = findItem(withID: renamingID, in: filteredContent) else {
+            await MainActor.run { cancelRename() }
+            return
+        }
+        
+        let trimmedName = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty && trimmedName != item.name else {
+            await MainActor.run { cancelRename() }
+            return
+        }
+        
+        // Use the store's rename function
+        await store.renameItem(id: item.id, to: trimmedName)
+        
+        await MainActor.run {
+            renamingItemID = nil
+            focusedField = nil
+        }
+    }
+    
+    private func cancelRename() {
+        renamingItemID = nil
+        focusedField = nil
+        editedName = ""
+    }
+    
+    // MARK: - Favorite Toggle
+    
+    private func toggleFavorite(video: Video) {
+        guard let context = libraryManager.viewContext else { return }
+        
+        video.isFavorite.toggle()
+        
+        do {
+            try context.save()
+            print("✅ FAVORITE: Toggled favorite status for video: \(video.title ?? "Unknown")")
+        } catch {
+            print("❌ FAVORITE: Failed to save favorite status: \(error)")
+            // Revert the change on error
+            video.isFavorite.toggle()
         }
     }
 }

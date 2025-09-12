@@ -341,8 +341,23 @@ class FileSystemManager {
             let videoCount = allVideos.count
             print("Rebuilding thumbnails for \(videoCount) videos")
             
-            for video in allVideos {
+            // Register with task queue
+            let taskGroupId = await MainActor.run {
+                TaskQueueManager.shared.startTaskGroup(
+                    type: .generatingThumbnails,
+                    totalItems: videoCount
+                )
+            }
+            
+            for (index, video) in allVideos.enumerated() {
                 guard let videoURL = video.fileURL else { continue }
+                
+                // Update task queue progress
+                await TaskQueueManager.shared.updateTaskGroup(
+                    id: taskGroupId,
+                    completedItems: index,
+                    currentItem: video.title ?? video.fileName ?? "Unknown Video"
+                )
                 
                 do {
                     let thumbnailPath = try await generateThumbnail(for: videoURL, in: library)
@@ -363,6 +378,9 @@ class FileSystemManager {
                     print("Failed to save rebuilt thumbnail paths: \(error)")
                 }
             }
+            
+            // Complete task group
+            await TaskQueueManager.shared.completeTaskGroup(id: taskGroupId)
             
         } catch {
             print("Failed to fetch videos for thumbnail rebuild: \(error)")

@@ -157,9 +157,24 @@ class SpeechTranscriptionService: ObservableObject {
         progress = 0.0
         statusMessage = "Starting transcription..."
         
+        // Register with task queue
+        let taskGroupId = await MainActor.run {
+            TaskQueueManager.shared.startTaskGroup(
+                type: .transcribing,
+                totalItems: 1
+            )
+        }
+        
         do {
             // Use the async method to get accessible video file URL, downloading if needed
             statusMessage = "Accessing video file..."
+            // Update task queue (this handles main thread dispatch internally)
+            await TaskQueueManager.shared.updateTaskGroup(
+                id: taskGroupId,
+                completedItems: 0,
+                currentItem: video.title ?? "Unknown Video"
+            )
+            
             let videoURL: URL
             do {
                 videoURL = try await video.getAccessibleFileURL(downloadIfNeeded: true)
@@ -237,6 +252,15 @@ class SpeechTranscriptionService: ObservableObject {
         }
         
         isTranscribing = false
+        
+        // Complete or remove task group based on success/failure (handles main thread internally)
+        if errorMessage == nil {
+            await TaskQueueManager.shared.completeTaskGroup(id: taskGroupId)
+        } else {
+            await MainActor.run {
+                TaskQueueManager.shared.removeTaskGroup(id: taskGroupId)
+            }
+        }
     }
 
     func translateVideo(_ video: Video, libraryManager: LibraryManager, targetLanguage: Locale.Language? = nil) async {

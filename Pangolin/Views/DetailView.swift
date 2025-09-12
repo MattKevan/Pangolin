@@ -74,7 +74,7 @@ struct DetailView: View {
                 // Bottom: Hierarchical content (library browser)
                 HierarchicalContentView(searchText: "")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(windowBackgroundColor)
+                .background(.clear)
             }
             .onAppear {
                 // Seed initial selection if DetailView was constructed with a video

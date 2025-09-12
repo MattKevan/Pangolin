@@ -141,7 +141,7 @@ struct DeletionConfirmationView: View {
     }
 }
 
-struct DeletionItem {
+struct DeletionItem: Identifiable {
     let id: UUID
     let name: String
     let isFolder: Bool

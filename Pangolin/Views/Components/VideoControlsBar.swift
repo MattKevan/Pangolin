@@ -39,9 +39,12 @@ struct VideoControlsBar: View {
             
             // Progress slider
             Slider(value: Binding(
-                get: { viewModel.currentTime },
+                get: { 
+                    let time = viewModel.currentTime
+                    return time.isFinite ? max(0, time) : 0
+                },
                 set: { viewModel.seek(to: $0) }
-            ), in: 0...max(viewModel.duration, 1))
+            ), in: 0...max(1, viewModel.duration.isFinite ? max(1, viewModel.duration) : 1))
             
             // Duration display
             Text(formatTime(viewModel.duration))
@@ -85,6 +88,11 @@ struct VideoControlsBar: View {
     }
     
     func formatTime(_ time: TimeInterval) -> String {
+        // Handle invalid time values
+        guard time.isFinite && time >= 0 else {
+            return "00:00"
+        }
+        
         let formatter = DateComponentsFormatter()
         formatter.allowedUnits = [.hour, .minute, .second]
         formatter.unitsStyle = .positional

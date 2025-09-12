@@ -46,8 +46,13 @@ class VideoImporter: ObservableObject {
         
         // Gather all video files
         let videoFiles = gatherVideoFiles(from: urls)
-        await MainActor.run {
+        let taskGroupId = await MainActor.run {
             totalFiles = videoFiles.count
+            // Register with task queue
+            return TaskQueueManager.shared.startTaskGroup(
+                type: .importing, 
+                totalItems: videoFiles.count
+            )
         }
         
         // Import each file  
@@ -59,6 +64,13 @@ class VideoImporter: ObservableObject {
                 processedFiles = index
                 progress = Double(index) / Double(videoFiles.count)
             }
+            
+            // Update task queue (this handles main thread dispatch internally)
+            await TaskQueueManager.shared.updateTaskGroup(
+                id: taskGroupId,
+                completedItems: index,
+                currentItem: fileURL.lastPathComponent
+            )
             
             print("📹 IMPORT: Processing file \(index + 1)/\(videoFiles.count): \(fileURL.lastPathComponent)")
             
@@ -125,10 +137,36 @@ class VideoImporter: ObservableObject {
             }
         }
         
-        await MainActor.run {
+        // Complete import task group
+        await TaskQueueManager.shared.completeTaskGroup(id: taskGroupId)
+        
+        // Start thumbnail generation task group for imported videos
+        let importedVideoCount = await MainActor.run {
             isImporting = false
             progress = 1.0
             processedFiles = totalFiles
+            return importedVideos.count
+        }
+        
+        if importedVideoCount > 0 {
+            let thumbnailTaskGroupId = await MainActor.run {
+                TaskQueueManager.shared.startTaskGroup(
+                    type: .generatingThumbnails,
+                    totalItems: importedVideoCount
+                )
+            }
+            
+            for (index, video) in importedVideos.enumerated() {
+                await TaskQueueManager.shared.updateTaskGroup(
+                    id: thumbnailTaskGroupId,
+                    completedItems: index,
+                    currentItem: video.title ?? video.fileName ?? "Unknown Video"
+                )
+                // Thumbnail generation happens automatically in FileSystemManager.importVideo
+                // This just updates the progress display
+            }
+            
+            await TaskQueueManager.shared.completeTaskGroup(id: thumbnailTaskGroupId)
         }
     }
     
@@ -412,16 +450,29 @@ class VideoImporter: ObservableObject {
         // Find the folder that corresponds to the video's original folder
         let videoDirectory = originalPath.deletingLastPathComponent()
         
-        // Look for a folder that matches this directory or any parent directory
+        // Find the exact matching folder first (most specific)
+        var bestMatch: Folder?
+        var bestMatchPath = ""
+        
         for (folderPath, folder) in createdFolders {
             let folderURL = URL(fileURLWithPath: folderPath)
             
-            // Check if the video's directory is the same as or a subdirectory of the folder's directory
+            // Check if this folder path matches the video's directory exactly or is a parent
             if videoDirectory.path.hasPrefix(folderURL.path) {
-                // Assign video to this folder
-                video.folder = folder
-                break
+                // Prefer the longest matching path (most specific folder)
+                if folderPath.count > bestMatchPath.count {
+                    bestMatch = folder
+                    bestMatchPath = folderPath
+                }
             }
+        }
+        
+        // Assign to the most specific matching folder
+        if let bestMatch = bestMatch {
+            video.folder = bestMatch
+            print("📁 IMPORT: Assigned video '\(video.fileName ?? "Unknown")' to folder '\(bestMatch.name ?? "Unknown")'")
+        } else {
+            print("⚠️ IMPORT: No matching folder found for video '\(video.fileName ?? "Unknown")' at path: \(videoDirectory.path)")
         }
     }
 }

@@ -52,6 +52,7 @@ struct MainView: View {
     @EnvironmentObject var libraryManager: LibraryManager
     @StateObject private var folderStore: FolderNavigationStore
     @StateObject private var transcriptionService = SpeechTranscriptionService()
+    @StateObject private var taskQueueManager = TaskQueueManager.shared
     
     @State private var showInspector = false
     @State private var showingCreateFolder = false
@@ -103,37 +104,35 @@ struct MainView: View {
                     
                     // Trailing actions
                     ToolbarItemGroup(placement: .primaryAction) {
-                        // Native circular ProgressView indicator (service-only), hidden when idle
-                        if isAnyTaskActive {
+                        // Task Queue Progress Indicator
+                        if taskQueueManager.hasActiveTasks {
                             Button {
                                 showTaskPopover.toggle()
                             } label: {
                                 ZStack {
-                                    if currentProgress > 0 && currentProgress < 1 {
-                                        ProgressView(value: currentProgress)
-                                            .progressViewStyle(.circular)
-                                            .controlSize(.small)
-                                            .frame(width: 14, height: 14)
-                                    } else {
-                                        ProgressView()
-                                            .progressViewStyle(.circular)
-                                            .controlSize(.small)
-                                            .frame(width: 14, height: 14)
+                                    ProgressView(value: taskQueueManager.overallProgress)
+                                        .progressViewStyle(.circular)
+                                        .controlSize(.small)
+                                        .frame(width: 14, height: 14)
+                                    
+                                    // Badge showing number of active tasks
+                                    if taskQueueManager.activeTaskCount > 1 {
+                                        Text("\(taskQueueManager.activeTaskCount)")
+                                            .font(.system(size: 8, weight: .bold))
+                                            .foregroundColor(.white)
+                                            .frame(width: 12, height: 12)
+                                            .background(Color.red)
+                                            .clipShape(Circle())
+                                            .offset(x: 6, y: -6)
                                     }
                                 }
                                 .frame(width: 20, height: 20) // hit target
-                                .accessibilityLabel(currentTaskTitle)
-                                .accessibilityValue("\(Int(currentProgress * 100)) percent")
+                                .accessibilityLabel("Background tasks")
+                                .accessibilityValue("\(taskQueueManager.activeTaskCount) active tasks")
                             }
                             .buttonStyle(.plain)
                             .popover(isPresented: $showTaskPopover, arrowEdge: .top) {
-                                TaskPopoverView(
-                                    title: currentTaskTitle,
-                                    message: transcriptionService.statusMessage,
-                                    progress: currentProgress
-                                )
-                                .padding()
-                                .frame(minWidth: 240)
+                                TaskQueuePopoverView()
                             }
                         }
                         
@@ -209,27 +208,6 @@ struct MainView: View {
         .pangolinAlert(error: $libraryManager.error)
     }
     
-    // MARK: - Indicator logic (service-only)
-    
-    private var isAnyTaskActive: Bool {
-        transcriptionService.isTranscribing || transcriptionService.isSummarizing
-    }
-    
-    private var currentProgress: Double {
-        min(max(transcriptionService.progress, 0.0), 1.0)
-    }
-    
-    private var currentTaskTitle: String {
-        if transcriptionService.isSummarizing {
-            return "Summary"
-        } else {
-            let lower = transcriptionService.statusMessage.lowercased()
-            if lower.contains("translat") {
-                return "Translation"
-            }
-            return "Transcription"
-        }
-    }
     
     private func hasTranscript(_ video: Video) -> Bool {
         if let t = video.transcriptText {
@@ -255,54 +233,6 @@ struct MainView: View {
     }
 }
 
-// MARK: - Task Popover
-
-private struct TaskPopoverView: View {
-    let title: String
-    let message: String
-    let progress: Double
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: iconName)
-                    .foregroundStyle(iconColor)
-                Text(title)
-                    .font(.headline)
-            }
-            if !message.isEmpty {
-                Text(message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            ProgressView(value: progress)
-                .progressViewStyle(.linear)
-            HStack {
-                Spacer()
-                Text("\(Int(progress * 100))%")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-    
-    private var iconName: String {
-        switch title {
-        case "Summary": return "doc.text.below.ecg"
-        case "Translation": return "globe.badge.chevron.backward"
-        default: return "waveform"
-        }
-    }
-    
-    private var iconColor: Color {
-        switch title {
-        case "Summary": return .purple
-        case "Translation": return .green
-        default: return .blue
-        }
-    }
-}
 
 // MARK: - Inspector Container and other helpers
 
