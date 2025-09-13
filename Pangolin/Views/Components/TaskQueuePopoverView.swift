@@ -9,6 +9,7 @@ import SwiftUI
 
 struct TaskQueuePopoverView: View {
     @StateObject private var taskManager = TaskQueueManager.shared
+    @EnvironmentObject private var syncEngine: PangolinSyncEngine
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -38,33 +39,40 @@ struct TaskQueuePopoverView: View {
             
             Divider()
             
-            // Task Groups List
-            if taskManager.taskGroups.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "checkmark.circle")
-                        .font(.title2)
-                        .foregroundStyle(.secondary)
-                    Text("No active tasks")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 32)
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(taskManager.taskGroups) { group in
-                            TaskGroupRowView(group: group)
-                            
-                            if group.id != taskManager.taskGroups.last?.id {
-                                Divider()
-                                    .padding(.leading, 16)
-                            }
+            // Task Groups List  
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    // Regular Tasks
+                    ForEach(taskManager.taskGroups) { group in
+                        TaskGroupRowView(group: group)
+                        
+                        if group.id != taskManager.taskGroups.last?.id || hasSyncTasks {
+                            Divider()
+                                .padding(.leading, 16)
                         }
                     }
+                    
+                    // Sync Tasks
+                    if hasSyncTasks {
+                        SyncTasksSection(syncEngine: syncEngine)
+                    }
+                    
+                    // Empty state
+                    if taskManager.taskGroups.isEmpty && !hasSyncTasks {
+                        VStack(spacing: 8) {
+                            Image(systemName: "checkmark.circle")
+                                .font(.title2)
+                                .foregroundStyle(.secondary)
+                            Text("No active tasks")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 32)
+                    }
                 }
-                .frame(maxHeight: 300)
             }
+            .frame(maxHeight: 300)
         }
         .frame(width: 320)
         #if os(macOS)
@@ -72,6 +80,17 @@ struct TaskQueuePopoverView: View {
         #else
         .background(.regularMaterial)
         #endif
+    }
+    
+    private var hasSyncTasks: Bool {
+        switch syncEngine.syncStatus {
+        case .syncing:
+            return true
+        case .error:
+            return true
+        default:
+            return !syncEngine.pendingUploads.isEmpty || !syncEngine.pendingDownloads.isEmpty
+        }
     }
 }
 
@@ -144,6 +163,152 @@ struct TaskGroupRowView: View {
                 .contentShape(Rectangle())
         )
         .opacity(group.isActive ? 1.0 : 0.6)
+    }
+}
+
+// MARK: - Sync Tasks Section
+
+struct SyncTasksSection: View {
+    @ObservedObject var syncEngine: PangolinSyncEngine
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Upload tasks
+            if !syncEngine.pendingUploads.isEmpty {
+                SyncTaskRowView(
+                    icon: "icloud.and.arrow.up",
+                    title: "Uploading to iCloud",
+                    progress: syncEngine.uploadProgress,
+                    itemCount: syncEngine.pendingUploads.count,
+                    isActive: syncEngine.syncStatus == .syncing
+                )
+                
+                if !syncEngine.pendingDownloads.isEmpty {
+                    Divider()
+                        .padding(.leading, 16)
+                }
+            }
+            
+            // Download tasks
+            if !syncEngine.pendingDownloads.isEmpty {
+                SyncTaskRowView(
+                    icon: "icloud.and.arrow.down",
+                    title: "Downloading from iCloud",
+                    progress: syncEngine.downloadProgress,
+                    itemCount: syncEngine.pendingDownloads.count,
+                    isActive: syncEngine.syncStatus == .syncing
+                )
+            }
+            
+            // Error state
+            if case .error(let errors) = syncEngine.syncStatus {
+                Divider()
+                    .padding(.leading, 16)
+                
+                SyncErrorRowView(errors: errors, syncEngine: syncEngine)
+            }
+        }
+    }
+}
+
+struct SyncTaskRowView: View {
+    let icon: String
+    let title: String
+    let progress: Double
+    let itemCount: Int
+    let isActive: Bool
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                // Sync icon
+                Image(systemName: icon)
+                    .font(.title3)
+                    .foregroundStyle(isActive ? .blue : .secondary)
+                    .frame(width: 20)
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    // Task name
+                    Text(title)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    
+                    // Progress bar
+                    ProgressView(value: progress)
+                        .progressViewStyle(.linear)
+                        .frame(height: 6)
+                        .tint(.blue)
+                    
+                    // Item count and percentage
+                    HStack {
+                        Text("\(itemCount) video\(itemCount != 1 ? "s" : "")")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        
+                        Spacer()
+                        
+                        Text("\(Int(progress * 100))%")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
+                
+                Spacer()
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .opacity(isActive ? 1.0 : 0.6)
+    }
+}
+
+struct SyncErrorRowView: View {
+    let errors: [SyncError]
+    @ObservedObject var syncEngine: PangolinSyncEngine
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                // Error icon
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.title3)
+                    .foregroundStyle(.red)
+                    .frame(width: 20)
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    // Error title
+                    Text("Sync Errors")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    
+                    // Error count
+                    Text("\(errors.count) error\(errors.count != 1 ? "s" : "") occurred")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                    
+                    // Most recent error
+                    if let latestError = errors.first {
+                        Text(latestError.message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+                
+                // Retry button
+                Button("Retry") {
+                    Task {
+                        await syncEngine.retryFailedSyncs()
+                    }
+                }
+                .font(.caption)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 }
 

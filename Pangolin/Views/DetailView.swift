@@ -12,6 +12,7 @@ struct DetailView: View {
     // Selection now comes from the navigation store
     @EnvironmentObject private var store: FolderNavigationStore
     @EnvironmentObject private var libraryManager: LibraryManager
+    @EnvironmentObject private var syncEngine: PangolinSyncEngine
     
     // Legacy initializer parameter kept for compatibility; if provided, it will seed the initial selection.
     let video: Video?

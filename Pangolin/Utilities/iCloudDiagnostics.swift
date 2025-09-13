@@ -196,9 +196,11 @@ class iCloudDiagnostics: ObservableObject {
             }
         }
         
-        // If we get here, try Core Data stack as backup test
+        // If we get here, try Core Data stack as backup test using singleton pattern
         do {
-            let _ = try CoreDataStack(libraryURL: libraryURL)
+            let _ = try CoreDataStack.getInstance(for: libraryURL)
+            // Release immediately since this is just a test
+            CoreDataStack.releaseInstance(for: libraryURL)
             return .healthy
         } catch {
             if let nsError = error as NSError? {

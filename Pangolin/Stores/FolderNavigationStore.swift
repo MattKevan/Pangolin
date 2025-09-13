@@ -164,6 +164,10 @@ class FolderNavigationStore: ObservableObject {
             return
         }
         
+        // 🔍 SELECTION PRESERVATION: Capture current selection before refresh
+        let preservedSelectionID = selectedVideo?.id
+        print("🔄 STORE: Refreshing content, preserving selection: \(preservedSelectionID?.uuidString ?? "none")")
+        
         let folderRequest = Folder.fetchRequest()
         folderRequest.predicate = NSPredicate(format: "library == %@ AND id == %@", library, folderID as CVarArg)
         
@@ -201,8 +205,32 @@ class FolderNavigationStore: ObservableObject {
         self.hierarchicalContent = newHierarchicalContent
         self.flatContent = applySorting(newFlatContent)
         
-        // Ensure a video is selected after content refresh
-        self.selectFirstVideoInCurrentFolderIfNeeded()
+        // 🔍 SELECTION PRESERVATION: Restore selection if it still exists in content
+        if let preservedID = preservedSelectionID {
+            let stillExists = newHierarchicalContent.contains { item in
+                if case .video(let video) = item.contentType {
+                    return video.id == preservedID
+                }
+                return false
+            }
+            
+            if stillExists {
+                print("✅ STORE: Preserved selection \(preservedID.uuidString) still exists, keeping it")
+                // Keep the current selectedVideo - don't change it
+                return
+            } else {
+                print("❌ STORE: Preserved selection \(preservedID.uuidString) no longer exists")
+                selectedVideo = nil
+            }
+        }
+        
+        // Only select first video if we have no current selection
+        if selectedVideo == nil {
+            print("🎯 STORE: No selection, selecting first video if needed")
+            self.selectFirstVideoInCurrentFolderIfNeeded()
+        } else {
+            print("🎯 STORE: Keeping existing selection: \(selectedVideo?.title ?? "unknown")")
+        }
     }
     
     // MARK: - Content Access (for Sidebar)

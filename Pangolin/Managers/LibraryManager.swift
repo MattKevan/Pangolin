@@ -49,6 +49,11 @@ class LibraryManager: ObservableObject {
         return coreDataStack?.viewContext
     }
     
+    /// Access to the current Core Data stack for sync engine
+    var currentCoreDataStack: CoreDataStack? {
+        return coreDataStack
+    }
+    
     // MARK: - Public Methods
     
     /// Saves the current library's data context if there are changes.
@@ -120,8 +125,8 @@ class LibraryManager: ObservableObject {
         try createLibraryStructure(at: libraryURL)
         loadingProgress = 0.3
         
-        // Initialize Core Data stack
-        let stack = try CoreDataStack(libraryURL: libraryURL)
+        // Initialize Core Data stack using singleton pattern
+        let stack = try CoreDataStack.getInstance(for: libraryURL)
         self.coreDataStack = stack
         loadingProgress = 0.6
         
@@ -221,8 +226,8 @@ class LibraryManager: ObservableObject {
         }
         loadingProgress = 0.3
         
-        // Initialize Core Data stack
-        let stack = try CoreDataStack(libraryURL: url)
+        // Initialize Core Data stack using singleton pattern
+        let stack = try CoreDataStack.getInstance(for: url)
         self.coreDataStack = stack
         loadingProgress = 0.5
         
@@ -269,10 +274,15 @@ class LibraryManager: ObservableObject {
     
     /// Close the current library
     func closeCurrentLibrary() async {
-        guard currentLibrary != nil else { return }
+        guard let library = currentLibrary else { return }
         
         // Save any pending changes
         await save()
+        
+        // Release the CoreDataStack instance for this library
+        if let libraryURL = library.url {
+            CoreDataStack.releaseInstance(for: libraryURL)
+        }
         
         // Clean up
         coreDataStack = nil
@@ -681,6 +691,10 @@ class LibraryManager: ObservableObject {
         // If library folder exists, clean it up first
         if fileManager.fileExists(atPath: libraryURL.path) {
             print("🔧 LIBRARY: Removing existing library structure...")
+            
+            // Release any existing CoreDataStack instance for this library
+            CoreDataStack.releaseInstance(for: libraryURL)
+            
             let databaseURL = libraryURL.appendingPathComponent("Library.sqlite")
             let walURL = databaseURL.appendingPathExtension("sqlite-wal")  
             let shmURL = databaseURL.appendingPathExtension("sqlite-shm")

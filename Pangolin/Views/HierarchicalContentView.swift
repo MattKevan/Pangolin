@@ -13,6 +13,7 @@ import Combine
 struct HierarchicalContentView: View {
     @EnvironmentObject private var store: FolderNavigationStore
     @EnvironmentObject var libraryManager: LibraryManager
+    @EnvironmentObject var videoFileManager: VideoFileManager
     let searchText: String
     
     @State private var selectedItems: Set<UUID> = []
@@ -219,6 +220,15 @@ struct HierarchicalContentView: View {
         }
     }
     
+    @ViewBuilder
+    private func buildiCloudStatusContent(for item: HierarchicalContentItem) -> some View {
+        if case .video(let video) = item.contentType {
+            VideoSyncStatusView(video: video)
+        } else {
+            Text("")
+        }
+    }
+    
     @ViewBuilder 
     private var hierarchicalTableView: some View {
         Table(filteredContent, children: \.children, selection: $selectedItems, sortOrder: $sortOrder) {
@@ -242,6 +252,11 @@ struct HierarchicalContentView: View {
                 buildFavoriteContent(for: item)
             }
             .width(min: 60, ideal: 60, max: 80)
+            
+            TableColumn("iCloud") { item in
+                buildiCloudStatusContent(for: item)
+            }
+            .width(min: 50, ideal: 50, max: 60)
         }
         #if os(macOS)
         .alternatingRowBackgrounds(.enabled)
@@ -429,34 +444,65 @@ struct HierarchicalContentView: View {
     }
     
     private func restoreSelectionIfPossible() {
-        // IMPORTANT: Only restore selection if we currently have NO selection
-        // Don't interfere with existing single or multi-selections
-        guard selectedItems.isEmpty else { return }
+        print("🔄 TABLE: Attempting to restore selection...")
+        print("🔄 TABLE: Current selectedItems: \(selectedItems)")
+        print("🔄 TABLE: Current store.selectedVideo: \(store.selectedVideo?.title ?? "none")")
+        print("🔄 TABLE: LastSelectedVideoID: \(lastSelectedVideoID?.uuidString ?? "none")")
         
-        // If we already have a selected video in the store and it still exists, restore it.
+        // Check if store has a selected video that still exists in current content
         if let current = store.selectedVideo,
            let currentID = current.id,
            findItem(withID: currentID, in: filteredContent) != nil {
-            lastSelectedVideoID = currentID
-            selectedItems = [currentID]
+            
+            // If table selection doesn't match store selection, update table
+            if !selectedItems.contains(currentID) {
+                print("✅ TABLE: Restoring selection to match store: \(current.title ?? "unknown")")
+                lastSelectedVideoID = currentID
+                selectedItems = [currentID]
+                return
+            } else {
+                print("✅ TABLE: Selection already matches store")
+                return
+            }
+        }
+        
+        // Store's selection is nil or doesn't exist - check if we have a valid table selection
+        if let firstSelectedID = selectedItems.first,
+           let item = findItem(withID: firstSelectedID, in: filteredContent),
+           let video = item.video {
+            print("✅ TABLE: Updating store to match table selection: \(video.title ?? "unknown")")
+            lastSelectedVideoID = video.id
+            store.selectVideo(video)
             return
         }
         
-        // If we have a remembered last selected video ID, reselect it if still present
+        // If we have a remembered last selected video ID, try to restore it
         if let lastID = lastSelectedVideoID,
            let item = findItem(withID: lastID, in: filteredContent),
            let video = item.video {
+            print("✅ TABLE: Restoring last remembered selection: \(video.title ?? "unknown")")
             store.selectVideo(video)
             selectedItems = [lastID]
             return
         }
         
-        // Otherwise, fall back to the store's auto-selection logic (it selects first video if needed)
-        // Only if we still have no selection
-        if selectedItems.isEmpty,
-           let fallback = store.selectedVideo?.id {
-            selectedItems = [fallback]
+        // Clear invalid selections
+        if !selectedItems.isEmpty {
+            let validSelections = selectedItems.filter { id in
+                findItem(withID: id, in: filteredContent) != nil
+            }
+            
+            if validSelections.isEmpty {
+                print("❌ TABLE: All selections invalid, clearing")
+                selectedItems.removeAll()
+                lastSelectedVideoID = nil
+            } else {
+                print("🔧 TABLE: Keeping valid selections: \(validSelections)")
+                selectedItems = Set(validSelections)
+            }
         }
+        
+        print("🔄 TABLE: Selection restoration complete")
     }
     
     private func startRenaming(_ item: HierarchicalContentItem) {
