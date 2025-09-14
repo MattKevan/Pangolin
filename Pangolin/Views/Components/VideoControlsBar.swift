@@ -11,7 +11,6 @@ import SwiftUI
 
 struct VideoControlsBar: View {
     @ObservedObject var viewModel: VideoPlayerViewModel
-    @EnvironmentObject private var syncEngine: PangolinSyncEngine
     
     var body: some View {
         HStack(spacing: 20) {
@@ -85,11 +84,6 @@ struct VideoControlsBar: View {
                 }
             }
             
-            // Sync status for current video
-            if let currentVideo = viewModel.currentVideo {
-                VideoSyncStatusView(video: currentVideo)
-                    .help("Sync status")
-            }
         }
         .padding(.horizontal)
     }

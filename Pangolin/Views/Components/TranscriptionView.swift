@@ -133,7 +133,7 @@ struct TranscriptionView: View {
                         description: Text("Tap 'Transcribe' to create a transcript of this video's audio.")
                     )
                     .font(.title3)
-                    .multilineTextAlignment(.center)
+                    .multilineTextAlignment(.leading)
                 }
                 
                 Spacer()

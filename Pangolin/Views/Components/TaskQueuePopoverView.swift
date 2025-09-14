@@ -9,7 +9,6 @@ import SwiftUI
 
 struct TaskQueuePopoverView: View {
     @StateObject private var taskManager = TaskQueueManager.shared
-    @EnvironmentObject private var syncEngine: PangolinSyncEngine
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -46,19 +45,14 @@ struct TaskQueuePopoverView: View {
                     ForEach(taskManager.taskGroups) { group in
                         TaskGroupRowView(group: group)
                         
-                        if group.id != taskManager.taskGroups.last?.id || hasSyncTasks {
+                        if group.id != taskManager.taskGroups.last?.id {
                             Divider()
                                 .padding(.leading, 16)
                         }
                     }
-                    
-                    // Sync Tasks
-                    if hasSyncTasks {
-                        SyncTasksSection(syncEngine: syncEngine)
-                    }
-                    
+
                     // Empty state
-                    if taskManager.taskGroups.isEmpty && !hasSyncTasks {
+                    if taskManager.taskGroups.isEmpty {
                         VStack(spacing: 8) {
                             Image(systemName: "checkmark.circle")
                                 .font(.title2)
@@ -82,16 +76,6 @@ struct TaskQueuePopoverView: View {
         #endif
     }
     
-    private var hasSyncTasks: Bool {
-        switch syncEngine.syncStatus {
-        case .syncing:
-            return true
-        case .error:
-            return true
-        default:
-            return !syncEngine.pendingUploads.isEmpty || !syncEngine.pendingDownloads.isEmpty
-        }
-    }
 }
 
 struct TaskGroupRowView: View {
@@ -166,11 +150,12 @@ struct TaskGroupRowView: View {
     }
 }
 
-// MARK: - Sync Tasks Section
+// MARK: - Sync Tasks Section (DISABLED - Local storage only)
 
+/*
 struct SyncTasksSection: View {
     @ObservedObject var syncEngine: PangolinSyncEngine
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Upload tasks
@@ -182,13 +167,13 @@ struct SyncTasksSection: View {
                     itemCount: syncEngine.pendingUploads.count,
                     isActive: syncEngine.syncStatus == .syncing
                 )
-                
+
                 if !syncEngine.pendingDownloads.isEmpty {
                     Divider()
                         .padding(.leading, 16)
                 }
             }
-            
+
             // Download tasks
             if !syncEngine.pendingDownloads.isEmpty {
                 SyncTaskRowView(
@@ -199,12 +184,12 @@ struct SyncTasksSection: View {
                     isActive: syncEngine.syncStatus == .syncing
                 )
             }
-            
+
             // Error state
             if case .error(let errors) = syncEngine.syncStatus {
                 Divider()
                     .padding(.leading, 16)
-                
+
                 SyncErrorRowView(errors: errors, syncEngine: syncEngine)
             }
         }
@@ -217,7 +202,7 @@ struct SyncTaskRowView: View {
     let progress: Double
     let itemCount: Int
     let isActive: Bool
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
@@ -226,34 +211,34 @@ struct SyncTaskRowView: View {
                     .font(.title3)
                     .foregroundStyle(isActive ? .blue : .secondary)
                     .frame(width: 20)
-                
+
                 VStack(alignment: .leading, spacing: 4) {
                     // Task name
                     Text(title)
                         .font(.subheadline)
                         .fontWeight(.medium)
-                    
+
                     // Progress bar
                     ProgressView(value: progress)
                         .progressViewStyle(.linear)
                         .frame(height: 6)
                         .tint(.blue)
-                    
+
                     // Item count and percentage
                     HStack {
                         Text("\(itemCount) video\(itemCount != 1 ? "s" : "")")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        
+
                         Spacer()
-                        
+
                         Text("\(Int(progress * 100))%")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
                     }
                 }
-                
+
                 Spacer()
             }
         }
@@ -266,7 +251,7 @@ struct SyncTaskRowView: View {
 struct SyncErrorRowView: View {
     let errors: [SyncError]
     @ObservedObject var syncEngine: PangolinSyncEngine
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
@@ -275,18 +260,18 @@ struct SyncErrorRowView: View {
                     .font(.title3)
                     .foregroundStyle(.red)
                     .frame(width: 20)
-                
+
                 VStack(alignment: .leading, spacing: 4) {
                     // Error title
                     Text("Sync Errors")
                         .font(.subheadline)
                         .fontWeight(.medium)
-                    
+
                     // Error count
                     Text("\(errors.count) error\(errors.count != 1 ? "s" : "") occurred")
                         .font(.caption)
                         .foregroundStyle(.red)
-                    
+
                     // Most recent error
                     if let latestError = errors.first {
                         Text(latestError.message)
@@ -295,7 +280,7 @@ struct SyncErrorRowView: View {
                             .lineLimit(2)
                     }
                 }
-                
+
                 // Retry button
                 Button("Retry") {
                     Task {
@@ -311,6 +296,7 @@ struct SyncErrorRowView: View {
         .padding(.vertical, 12)
     }
 }
+*/
 
 #Preview {
     TaskQueuePopoverView()

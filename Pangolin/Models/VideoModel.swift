@@ -66,16 +66,17 @@ extension Video {
         return await VideoFileManager.shared.isVideoFileAccessible(self)
     }
     
-    // Get properly resolved video file URL using VideoStorageManager
+    // Get properly resolved video file URL from library package
     func getResolvedFileURL() async throws -> URL {
         guard let library = library,
               let relativePath = relativePath else { 
             throw VideoFileError.invalidVideoPath 
         }
         
-        let storageURL = try await MainActor.run {
-            return try VideoStorageManager.shared.resolveVideoStorageURL(for: library)
+        guard let libraryURL = library.url else {
+            throw VideoFileError.invalidVideoPath
         }
+        let storageURL = libraryURL.appendingPathComponent("Videos")
         return storageURL.appendingPathComponent(relativePath)
     }
     

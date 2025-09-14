@@ -38,8 +38,6 @@ class LibraryManager: ObservableObject {
     // MARK: - Initialization
     private init() {
         loadRecentLibraries()
-        // Clean up stale download files on startup
-        cleanupStaleDownloads()
     }
     
     // MARK: - Public Properties
@@ -105,19 +103,25 @@ class LibraryManager: ObservableObject {
     
     /// Create a new library at the specified URL
     func createLibrary(at url: URL, name: String) async throws -> Library {
+        print("📝 CREATE_LIBRARY: Starting createLibrary...")
+        print("📝 CREATE_LIBRARY: Parent URL: \(url.path)")
+        print("📝 CREATE_LIBRARY: Library name: \(name)")
+
         isLoading = true
         loadingProgress = 0
-        
+
         defer {
             isLoading = false
             loadingProgress = 0
         }
-        
+
         // Create library package directory
         let libraryURL = url.appendingPathComponent("\(name).\(libraryExtension)")
-        
+        print("📝 CREATE_LIBRARY: Full library URL: \(libraryURL.path)")
+
         // Check if already exists
         if fileManager.fileExists(atPath: libraryURL.path) {
+            print("❌ CREATE_LIBRARY: Library already exists at path")
             throw LibraryError.libraryAlreadyExists(libraryURL)
         }
         
@@ -173,8 +177,8 @@ class LibraryManager: ObservableObject {
         library.defaultPlaybackSpeed = 1.0
         library.rememberPlaybackPosition = true
         
-        // Set default video storage to iCloud Drive
-        library.videoStorageType = "icloud_drive"
+        // Set default video storage to local storage
+        library.videoStorageType = "local_library"
         
         print("All properties set successfully")
         
@@ -297,28 +301,41 @@ class LibraryManager: ObservableObject {
     
     /// Open the last used library
     func openLastLibrary() async throws {
-        guard let lastLibraryPath = userDefaults.url(forKey: lastOpenedLibraryKey) else {
+        guard let lastLibraryPath = userDefaults.url(forKey: lastOpenedLibraryKey),
+              fileManager.fileExists(atPath: lastLibraryPath.path) else {
             throw LibraryError.noLastLibrary
         }
-        
+
         _ = try await openLibrary(at: lastLibraryPath)
     }
     
     /// Smart startup following Apple's performance best practices
     func smartStartup() async throws -> Library {
         print("🚀 LIBRARY: Starting smart startup...")
-        
-        // FAST PATH 1: Check iCloud availability (minimal work)
-        guard let iCloudURL = fileManager.url(forUbiquityContainerIdentifier: nil) else {
-            throw LibraryError.iCloudUnavailable
+
+        // FAST PATH 1: Get real user Documents directory (not sandboxed)
+        // Use NSHomeDirectory() to get the actual user home, not sandboxed version
+        let realHomeDirectory = NSHomeDirectory()
+        let documentsURL = URL(fileURLWithPath: realHomeDirectory).appendingPathComponent("Documents")
+
+        print("🏠 LIBRARY: Real home directory: \(realHomeDirectory)")
+        print("📁 LIBRARY: Real Documents directory: \(documentsURL.path)")
+
+        // Verify we can access the real Documents folder
+        guard fileManager.fileExists(atPath: documentsURL.path) else {
+            throw LibraryError.documentsFolderUnavailable
         }
-        
-        let pangolinDirectory = iCloudURL.appendingPathComponent("Pangolin")
-        let libraryName = "My Video Library"
+
+        let pangolinDirectory = documentsURL.appendingPathComponent("Pangolin")
+        let libraryName = "Library"
         let libraryURL = pangolinDirectory.appendingPathComponent("\(libraryName).pangolin")
-        
+
+        print("📍 LIBRARY: Pangolin directory: \(pangolinDirectory.path)")
         print("📍 LIBRARY: Library path: \(libraryURL.path)")
-        
+        print("📍 LIBRARY: Library exists: \(fileManager.fileExists(atPath: libraryURL.path))")
+
+        print("🎯 ==> LIBRARY LOCATION: \(libraryURL.path)")
+
         // FAST PATH 2: New user - no library folder exists
         if !fileManager.fileExists(atPath: libraryURL.path) {
             print("👤 LIBRARY: New user detected - creating fresh library")
@@ -341,25 +358,38 @@ class LibraryManager: ObservableObject {
         return try await handleDatabaseIssue(libraryURL: libraryURL, libraryName: libraryName)
     }
     
-    /// Legacy method for backwards compatibility
-    func getOrCreateiCloudLibrary() async throws -> Library {
-        return try await smartStartup()
-    }
     
     // MARK: - Smart Startup Support Methods
     
     /// Fast new user library creation
     private func createNewUserLibrary(at libraryURL: URL, name: String) async throws -> Library {
+        print("🆕 LIBRARY: Creating new user library...")
+        print("📍 LIBRARY: Target library URL: \(libraryURL.path)")
+        print("📍 LIBRARY: Library name: \(name)")
+
         let pangolinDirectory = libraryURL.deletingLastPathComponent()
-        
+        print("📁 LIBRARY: Parent directory: \(pangolinDirectory.path)")
+
         // Create directory structure if needed
-        try fileManager.createDirectory(at: pangolinDirectory, withIntermediateDirectories: true, attributes: nil)
-        
-        // Create library - this also sets up the Core Data stack and currentLibrary
-        let newLibrary = try await createLibrary(at: libraryURL, name: name)
-        
-        // No need to call openLibrary since createLibrary already sets up everything
-        return newLibrary
+        do {
+            print("🔧 LIBRARY: Creating parent directory...")
+            try fileManager.createDirectory(at: pangolinDirectory, withIntermediateDirectories: true, attributes: nil)
+            print("✅ LIBRARY: Parent directory created successfully")
+        } catch {
+            print("❌ LIBRARY: Failed to create parent directory: \(error)")
+            throw error
+        }
+
+        // Create library - pass the parent directory, createLibrary will append the name
+        do {
+            print("🔧 LIBRARY: Calling createLibrary...")
+            let newLibrary = try await createLibrary(at: pangolinDirectory, name: name)
+            print("✅ LIBRARY: Library created successfully")
+            return newLibrary
+        } catch {
+            print("❌ LIBRARY: Failed to create library: \(error)")
+            throw error
+        }
     }
     
     /// Fast existing library opening
@@ -401,45 +431,28 @@ class LibraryManager: ObservableObject {
     
     /// Handle database corruption/missing scenarios (expensive operations)
     private func handleDatabaseIssue(libraryURL: URL, libraryName: String) async throws -> Library {
-        // NOW run full diagnostics since we know there's a problem
-        let diagnostics = iCloudDiagnostics.shared
-        let report = await diagnostics.runFullDiagnostics()
-        
-        // Check for existing videos (expensive scan)
-        let videoDiscovery = await scanExistingVideos()
-        
-        if videoDiscovery.videoCount > 0 {
-            // User has existing videos - need to show choice
-            print("📹 LIBRARY: Found \(videoDiscovery.videoCount) existing videos")
-            throw LibraryError.invalidLibrary([
-                "Database missing or corrupted", 
-                "Found \(videoDiscovery.videoCount) videos that can be imported",
-                "Choose: Import existing videos or start fresh"
-            ])
-        } else {
-            // No existing videos - auto-recreate
-            print("🔄 LIBRARY: No existing videos found - auto-recreating library")
-            return try await recreateEmptyLibrary(at: libraryURL, name: libraryName)
-        }
+        // For simplified version, just recreate the library
+        print("🔄 LIBRARY: Database issue detected - recreating library")
+        return try await recreateEmptyLibrary(at: libraryURL, name: libraryName)
     }
     
     /// Scan for existing videos (only called when needed)
     private func scanExistingVideos() async -> (videoCount: Int, totalSize: Int64) {
-        guard let iCloudURL = fileManager.url(forUbiquityContainerIdentifier: nil) else {
+        guard let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
             return (0, 0)
         }
-        
+
         let videoExtensions = Set(["mp4", "mov", "m4v", "avi", "mkv", "wmv"])
         var videoCount = 0
         var totalSize: Int64 = 0
-        
-        // Search common locations in iCloud Drive
+
+        // Search common locations in Documents and other local folders
         let searchPaths = [
-            iCloudURL.appendingPathComponent("Documents"),
-            iCloudURL.appendingPathComponent("Desktop"), 
-            iCloudURL.appendingPathComponent("Downloads"),
-            iCloudURL // Root iCloud folder
-        ]
+            documentsURL,
+            fileManager.urls(for: .desktopDirectory, in: .userDomainMask).first,
+            fileManager.urls(for: .downloadsDirectory, in: .userDomainMask).first,
+            fileManager.urls(for: .moviesDirectory, in: .userDomainMask).first
+        ].compactMap { $0 }
         
         for searchPath in searchPaths {
             do {
@@ -496,57 +509,44 @@ class LibraryManager: ObservableObject {
                                     isRepairable: false)
         }
         
-        // Check if this is an iCloud library
-        let isICloudLibrary = url.path.contains("Mobile Documents/iCloud~com~pangolin~video-library")
-        
-        // Check for required subdirectories (create them if missing for iCloud libraries)
-        let requiredDirs = ["Videos", "Subtitles", "Thumbnails", "Backups"]
+        // Check for required subdirectories (create them if missing)
+        let requiredDirs = ["Videos", "Subtitles", "Thumbnails", "Transcripts", "Translations", "Summaries", "Backups"]
         for dir in requiredDirs {
             let dirPath = url.appendingPathComponent(dir)
             if !fileManager.fileExists(atPath: dirPath.path) {
-                if isICloudLibrary {
-                    // Try to create missing directories for iCloud libraries
-                    do {
-                        try fileManager.createDirectory(at: dirPath, withIntermediateDirectories: true)
-                        print("📁 Created missing directory: \(dir)")
-                    } catch {
-                        errors.append("Missing directory: \(dir)")
-                    }
-                } else {
+                // Try to create missing directories
+                do {
+                    try fileManager.createDirectory(at: dirPath, withIntermediateDirectories: true)
+                    print("📁 Created missing directory: \(dir)")
+                } catch {
                     errors.append("Missing directory: \(dir)")
                 }
             }
         }
         
-        // Check for database (only for local libraries - CloudKit libraries don't need local SQLite files)
-        if !isICloudLibrary {
-            let dbPath = url.appendingPathComponent("Library.sqlite")
-            if !fileManager.fileExists(atPath: dbPath.path) {
-                errors.append("Database file not found")
-            }
+        // Check for database file
+        let dbPath = url.appendingPathComponent("Library.sqlite")
+        if !fileManager.fileExists(atPath: dbPath.path) {
+            errors.append("Database file not found")
         }
         
-        // Check Info.plist (create if missing for iCloud libraries)
+        // Check Info.plist (create if missing)
         let infoPlistPath = url.appendingPathComponent("Info.plist")
         if !fileManager.fileExists(atPath: infoPlistPath.path) {
-            if isICloudLibrary {
-                // Try to create Info.plist for iCloud libraries
-                do {
-                    let info: [String: Any] = [
-                        "Version": currentVersion,
-                        "CreatedDate": Date(),
-                        "BundleIdentifier": "com.pangolin.library",
-                        "LibraryType": "VideoLibrary"
-                    ]
-                    let plistData = try PropertyListSerialization.data(fromPropertyList: info,
-                                                                      format: .xml,
-                                                                      options: 0)
-                    try plistData.write(to: infoPlistPath)
-                    print("📄 Created missing Info.plist")
-                } catch {
-                    errors.append("Info.plist not found")
-                }
-            } else {
+            // Try to create Info.plist
+            do {
+                let info: [String: Any] = [
+                    "Version": currentVersion,
+                    "CreatedDate": Date(),
+                    "BundleIdentifier": "com.pangolin.library",
+                    "LibraryType": "VideoLibrary"
+                ]
+                let plistData = try PropertyListSerialization.data(fromPropertyList: info,
+                                                                  format: .xml,
+                                                                  options: 0)
+                try plistData.write(to: infoPlistPath)
+                print("📄 Created missing Info.plist")
+            } catch {
                 errors.append("Info.plist not found")
             }
         }
@@ -559,133 +559,19 @@ class LibraryManager: ObservableObject {
                                 isRepairable: isRepairable)
     }
     
-    // MARK: - File Management
-    
-    /// Clean up stale download temporary files
-    private func cleanupStaleDownloads() {
-        print("🧹 CLEANUP: Starting cleanup of stale download files...")
-        
-        Task.detached(priority: .utility) { @MainActor in
-            let tempDir = self.fileManager.temporaryDirectory
-            let containerTempDir = self.getContainerTempDirectory()
-            
-            // Clean up system temp directory
-            self.cleanupTempFiles(in: tempDir, pattern: "CFNetworkDownload_")
-            
-            // Clean up container temp directory if it exists
-            if let containerTemp = containerTempDir {
-                self.cleanupTempFiles(in: containerTemp, pattern: "CFNetworkDownload_")
-            }
-            
-            // Clean up any pangolin-specific temp files
-            self.cleanupTempFiles(in: tempDir, pattern: "pangolin_")
-            self.cleanupTempFiles(in: tempDir, pattern: "video_download_")
-            
-            print("✅ CLEANUP: Temp file cleanup completed")
-        }
-    }
-    
-    private func getContainerTempDirectory() -> URL? {
-        // Get current bundle identifier
-        let bundleIdentifier = Bundle.main.bundleIdentifier ?? "unknown"
-        print("🔍 CLEANUP: App bundle identifier: \(bundleIdentifier)")
-        
-        // Get the app's container directory using known paths
-        let possiblePaths = [
-            // Current bundle identifier
-            "~/Library/Containers/\(bundleIdentifier)/Data/tmp",
-            // Known possible identifiers
-            "~/Library/Containers/new-industries.Pangolin/Data/tmp",
-            "~/Library/Containers/com.pangolin.video-library/Data/tmp",
-            // Group container paths
-            "~/Library/Group Containers/group.com.pangolin.video-library/Data/tmp"
-        ]
-        
-        for pathString in possiblePaths {
-            let expandedPath = NSString(string: pathString).expandingTildeInPath
-            let tempURL = URL(fileURLWithPath: expandedPath)
-            
-            if fileManager.fileExists(atPath: tempURL.path) {
-                print("🔍 CLEANUP: Found container temp directory: \(tempURL.path)")
-                return tempURL
-            } else {
-                print("🔍 CLEANUP: Checked path (not found): \(tempURL.path)")
-            }
-        }
-        
-        print("⚠️ CLEANUP: No container temp directory found")
-        return nil
-    }
-    
-    private func cleanupTempFiles(in directory: URL, pattern: String) {
-        do {
-            let contents = try fileManager.contentsOfDirectory(at: directory, 
-                                                              includingPropertiesForKeys: [.creationDateKey, .fileSizeKey],
-                                                              options: .skipsHiddenFiles)
-            
-            let tempFiles = contents.filter { url in
-                url.lastPathComponent.hasPrefix(pattern) || 
-                (url.pathExtension == "tmp" && url.lastPathComponent.contains(pattern))
-            }
-            
-            var removedCount = 0
-            var removedSize: Int64 = 0
-            
-            for tempFile in tempFiles {
-                do {
-                    // Check if file is older than 1 hour to avoid removing active downloads
-                    let resourceValues = try tempFile.resourceValues(forKeys: [.creationDateKey, .fileSizeKey])
-                    if let creationDate = resourceValues.creationDate,
-                       let fileSize = resourceValues.fileSize {
-                        
-                        let hourAgo = Date().addingTimeInterval(-3600) // 1 hour ago
-                        if creationDate < hourAgo {
-                            try fileManager.removeItem(at: tempFile)
-                            removedCount += 1
-                            removedSize += Int64(fileSize)
-                            print("🗑️ CLEANUP: Removed stale temp file: \(tempFile.lastPathComponent)")
-                        }
-                    } else {
-                        // If we can't get creation date, assume it's stale and remove it
-                        if let fileSize = resourceValues.fileSize {
-                            removedSize += Int64(fileSize)
-                        }
-                        try fileManager.removeItem(at: tempFile)
-                        removedCount += 1
-                        print("🗑️ CLEANUP: Removed temp file (no creation date): \(tempFile.lastPathComponent)")
-                    }
-                } catch {
-                    print("❌ CLEANUP: Failed to remove \(tempFile.lastPathComponent): \(error)")
-                }
-            }
-            
-            if removedCount > 0 {
-                let sizeText = ByteCountFormatter.string(fromByteCount: removedSize, countStyle: .file)
-                print("✅ CLEANUP: Removed \(removedCount) temp files (\(sizeText)) from \(directory.lastPathComponent)")
-            }
-            
-        } catch {
-            print("❌ CLEANUP: Failed to scan directory \(directory.path): \(error)")
-        }
-    }
-    
-    /// Manually trigger cleanup of stale download files
-    func cleanupStaleDownloadsManually() {
-        cleanupStaleDownloads()
-    }
     
     // MARK: - Database Recovery
     
     /// Delete corrupted database and start fresh, then reimport existing videos
     func resetCorruptedDatabase() async throws -> Library {
         print("🔧 LIBRARY: Resetting corrupted database...")
-        
-        guard let iCloudURL = fileManager.url(forUbiquityContainerIdentifier: nil) else {
-            throw LibraryError.iCloudUnavailable
+
+        guard let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            throw LibraryError.documentsFolderUnavailable
         }
-        
-        let pangolinDirectory = iCloudURL.appendingPathComponent("Pangolin")
-        let libraryName = "My Video Library"
+
+        let pangolinDirectory = documentsURL.appendingPathComponent("Pangolin")
+        let libraryName = "Library"
         let libraryURL = pangolinDirectory.appendingPathComponent("\(libraryName).pangolin")
         
         // If library folder exists, clean it up first
@@ -718,20 +604,8 @@ class LibraryManager: ObservableObject {
         
         // Open the new library to set up Core Data context
         try await openLibrary(at: libraryURL)
-        
-        // Scan and import existing videos from iCloud
-        if let viewContext = viewContext {
-            print("📹 LIBRARY: Scanning iCloud for existing videos to reimport...")
-            let scanner = iCloudVideoScanner.shared
-            
-            do {
-                try await scanner.scanAndImportVideos(into: newLibrary, context: viewContext)
-                print("✅ LIBRARY: Video reimport completed")
-            } catch {
-                print("⚠️ LIBRARY: Video reimport failed, but library is functional: \(error)")
-                // Don't fail the entire reset if reimport fails
-            }
-        }
+
+        print("✅ LIBRARY: Fresh library created and opened successfully")
         
         return newLibrary
     }
@@ -739,12 +613,29 @@ class LibraryManager: ObservableObject {
     // MARK: - Private Methods
     
     private func createLibraryStructure(at url: URL) throws {
+        print("🏗️ CREATE_STRUCTURE: Creating library structure at: \(url.path)")
+
         // Create main directory
-        try fileManager.createDirectory(at: url,
-                                       withIntermediateDirectories: true)
-        
-        // Create subdirectories
-        let subdirectories = ["Videos", "Subtitles", "Thumbnails", "Backups"]
+        do {
+            print("🏗️ CREATE_STRUCTURE: Creating main directory...")
+            try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+            print("✅ CREATE_STRUCTURE: Main directory created successfully")
+        } catch {
+            print("❌ CREATE_STRUCTURE: Failed to create main directory: \(error)")
+            throw error
+        }
+
+        // Create subdirectories - ALL content goes inside the package
+        let subdirectories = [
+            "Videos",        // All video files here
+            "Subtitles",     // All subtitle files here
+            "Thumbnails",    // All generated thumbnails here
+            "Transcripts",   // All transcription files here
+            "Translations",  // All translation files here
+            "Summaries",     // All summary files here
+            "Backups"        // Any backup data here
+        ]
+        print("🏗️ CREATE_STRUCTURE: Creating subdirectories: \(subdirectories)")
         for dir in subdirectories {
             let dirURL = url.appendingPathComponent(dir)
             try fileManager.createDirectory(at: dirURL,
@@ -888,10 +779,7 @@ enum LibraryError: LocalizedError {
     case insufficientPermissions
     case diskSpaceInsufficient
     case saveFailed(Error)
-    case iCloudUnavailable
-    case iCloudDownloadFailed(Error)
-    case iCloudDownloadTimeout
-    case syncConflicts([String])
+    case documentsFolderUnavailable
     
     var errorDescription: String? {
         switch self {
@@ -915,14 +803,8 @@ enum LibraryError: LocalizedError {
             return "Not enough disk space available"
         case .saveFailed(let error):
             return "Failed to save the library. \(error.localizedDescription)"
-        case .iCloudUnavailable:
-            return "iCloud Drive is not available"
-        case .iCloudDownloadFailed(let error):
-            return "Failed to download library from iCloud: \(error.localizedDescription)"
-        case .iCloudDownloadTimeout:
-            return "iCloud download timed out"
-        case .syncConflicts(let conflicts):
-            return "iCloud sync conflicts detected: \(conflicts.joined(separator: ", "))"
+        case .documentsFolderUnavailable:
+            return "Documents folder is not accessible"
         }
     }
     
@@ -942,12 +824,8 @@ enum LibraryError: LocalizedError {
             return "Check file permissions and try again"
         case .diskSpaceInsufficient:
             return "Free up disk space and try again"
-        case .iCloudUnavailable:
-            return "Enable iCloud Drive in System Settings and sign in to iCloud"
-        case .iCloudDownloadFailed, .iCloudDownloadTimeout:
-            return "Check your internet connection and iCloud Drive status. Try again in a few moments."
-        case .syncConflicts:
-            return "Resolve iCloud sync conflicts by running the diagnostic tool or manually resolving conflicts in Finder."
+        case .documentsFolderUnavailable:
+            return "Check file system permissions and ensure the Documents folder is accessible."
         }
     }
 }

@@ -50,10 +50,11 @@ class FileSystemManager {
             }
         }
         
-        // Get the configured video storage location
-        let videoStorageURL = try await MainActor.run {
-            return try VideoStorageManager.shared.resolveVideoStorageURL(for: library)
+        // Use Videos directory inside the library package
+        guard let libraryURL = library.url else {
+            throw FileSystemError.invalidLibraryPath
         }
+        let videoStorageURL = libraryURL.appendingPathComponent("Videos")
         
         // Create date-based subdirectory
         let importDate = Date()

@@ -158,15 +158,8 @@ class VideoFileManager: ObservableObject {
             downloadingVideos.remove(videoId)
         }
         
-        // Add iCloud download task to processing queue
-        let processingQueueManager = ProcessingQueueManager.shared
-        processingQueueManager.addTask(for: video, type: .iCloudDownload)
-        
-        // Start downloading from iCloud
-        try fileManager.startDownloadingUbiquitousItem(at: fileURL)
-        
-        // Wait for download to complete by monitoring file status
-        return try await waitForDownloadCompletion(fileURL: fileURL)
+        // In simplified mode, all files are local - no iCloud downloading needed
+        return fileURL
     }
     
     private func waitForDownloadCompletion(fileURL: URL) async throws -> URL {

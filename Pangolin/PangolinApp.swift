@@ -7,164 +7,130 @@ import UniformTypeIdentifiers
 @main
 struct PangolinApp: App {
     @StateObject private var libraryManager = LibraryManager.shared
-    @StateObject private var processingQueueManager = ProcessingQueueManager.shared
     @StateObject private var videoFileManager = VideoFileManager.shared
-    @StateObject private var videoScanner = iCloudVideoScanner.shared
     @State private var hasAttemptedAutoOpen = false
-    
+    @State private var showingNewLibraryPicker = false
+    @State private var showingOpenLibraryPicker = false
+
     var body: some Scene {
         WindowGroup {
             VStack {
                 if libraryManager.isLibraryOpen {
-                    // REFACTORED: Pass the configured libraryManager into MainView's initializer.
-                    // This ensures the entire view hierarchy, including the FolderNavigationStore,
-                    // uses the correct, active Core Data context.
                     MainView(libraryManager: libraryManager)
                         .environmentObject(libraryManager)
                         .environmentObject(videoFileManager)
                 } else {
-                    // Show loading state while opening iCloud library
-                    VStack(spacing: 20) {
-                        ProgressView()
-                            .scaleEffect(1.5)
-                        
-                        if libraryManager.isLoading {
-                            Text("Initializing iCloud library...")
-                                .font(.headline)
-                            
-                            if libraryManager.loadingProgress > 0 {
-                                ProgressView(value: libraryManager.loadingProgress)
-                                    .frame(maxWidth: 300)
-                                Text("\(Int(libraryManager.loadingProgress * 100))%")
+                    LibraryPickerView()
+                        .environmentObject(libraryManager)
+
+                    if let error = libraryManager.error {
+                        VStack(spacing: 15) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 50))
+                                .foregroundColor(.red)
+
+                            Text("Library Error")
+                                .font(.title2)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.red)
+
+                            Text(error.localizedDescription)
+                                .multilineTextAlignment(.center)
+
+                            if let recovery = error.recoverySuggestion {
+                                Text(recovery)
                                     .font(.caption)
                                     .foregroundColor(.secondary)
-                            }
-                        } else if videoScanner.isScanning {
-                            VStack(spacing: 10) {
-                                Text("Restoring your video library...")
-                                    .font(.headline)
-                                
-                                Text(videoScanner.scanStatusMessage)
-                                    .font(.body)
-                                    .foregroundColor(.secondary)
-                                
-                                if videoScanner.scanProgress > 0 {
-                                    ProgressView(value: videoScanner.scanProgress)
-                                        .frame(maxWidth: 300)
-                                    Text("\(Int(videoScanner.scanProgress * 100))%")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                        } else {
-                            Text("Opening iCloud library...")
-                                .font(.headline)
-                        }
-                        
-                        if let error = libraryManager.error {
-                            VStack(spacing: 15) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .font(.system(size: 50))
-                                    .foregroundColor(.red)
-                                
-                                Text("Library Error")
-                                    .font(.title2)
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(.red)
-                                
-                                Text(error.localizedDescription)
                                     .multilineTextAlignment(.center)
-                                
-                                if let recovery = error.recoverySuggestion {
-                                    Text(recovery)
+                            }
+
+                            switch error {
+                            case .databaseCorrupted(_), .invalidLibrary(_):
+                                VStack(spacing: 10) {
+                                    Text("Your library database is corrupted, but it can be fixed.")
+                                        .font(.body)
+                                        .multilineTextAlignment(.center)
+                                        .foregroundColor(.primary)
+
+                                    Text("This will create a fresh library.")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                         .multilineTextAlignment(.center)
-                                }
-                                
-                                // Special handling for database corruption and invalid libraries  
-                                switch error {
-                                case .databaseCorrupted(_), .invalidLibrary(_):
-                                    VStack(spacing: 10) {
-                                        Text("Your library database is corrupted, but it can be fixed.")
-                                            .font(.body)
-                                            .multilineTextAlignment(.center)
-                                            .foregroundColor(.primary)
-                                        
-                                        Text("This will create a fresh library. Your videos will remain in iCloud.")
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                            .multilineTextAlignment(.center)
-                                        
-                                        HStack(spacing: 10) {
-                                            Button("Reset Library") {
-                                                resetCorruptedLibrary()
-                                            }
-                                            .buttonStyle(.borderedProminent)
-                                            .foregroundColor(.white)
-                                            .tint(.red)
-                                            
-                                            Button("Retry") {
-                                                retryLibraryOpen()
-                                            }
-                                            .buttonStyle(.bordered)
+
+                                    HStack(spacing: 10) {
+                                        Button("Reset Library") {
+                                            resetCorruptedLibrary()
                                         }
+                                        .buttonStyle(.borderedProminent)
+                                        .foregroundColor(.white)
+                                        .tint(.red)
+
+                                        Button("Retry") {
+                                            retryLibraryOpen()
+                                        }
+                                        .buttonStyle(.bordered)
                                     }
-                                default:
-                                    Button("Retry") {
-                                        retryLibraryOpen()
-                                    }
-                                    .buttonStyle(.borderedProminent)
                                 }
+                            default:
+                                Button("Retry") {
+                                    retryLibraryOpen()
+                                }
+                                .buttonStyle(.borderedProminent)
                             }
-                            .padding(30)
-                            #if os(macOS)
-                            .background(Color(.controlBackgroundColor))
-                            #else
-                            .background(Color(.systemGray6))
-                            #endif
-                            .cornerRadius(12)
-                            .padding(.horizontal, 40)
                         }
+                        .padding(30)
+                        #if os(macOS)
+                        .background(Color(.controlBackgroundColor))
+                        #else
+                        .background(Color(.systemGray6))
+                        #endif
+                        .cornerRadius(12)
+                        .padding(.horizontal, 40)
                     }
-                    .frame(minWidth: 600, minHeight: 500)
                 }
             }
+            .frame(minWidth: 600, minHeight: 500)
             .onAppear {
                 if !hasAttemptedAutoOpen {
-                    attemptAutoOpeniCloudLibrary()
+                    attemptOpenLastLibrary()
                 }
+            }
+            .fileExporter(
+                isPresented: $showingNewLibraryPicker,
+                document: LibraryDocument(),
+                contentType: .pangolinLibrary,
+                defaultFilename: "My Video Library"
+            ) { result in
+                handleNewLibraryCreation(result)
+            }
+            .fileImporter(
+                isPresented: $showingOpenLibraryPicker,
+                allowedContentTypes: [.pangolinLibrary]
+            ) { result in
+                handleOpenLibrarySelection(result)
             }
         }
-        #if os(macOS)
         .commands {
-            // iCloud Library menu
-            CommandMenu("Library") {
-                Button("Refresh Library") {
-                    retryLibraryOpen()
-                }
-                .keyboardShortcut("R", modifiers: .command)
-                .disabled(libraryManager.isLoading)
-                
-                Divider()
-                
-                Button("Clean Up Temp Files") {
-                    libraryManager.cleanupStaleDownloadsManually()
-                }
-                .keyboardShortcut("L", modifiers: [.command, .shift])
-                
-                Button("Reset Database (Debug)") {
-                    resetCorruptedLibrary()
-                }
-                .keyboardShortcut("D", modifiers: [.command, .option, .shift])
-            }
-            
-            // File menu additions
             CommandGroup(after: .newItem) {
-                // Import and folder creation now handled in MainView toolbar
+                Button("New Library...") {
+                    showNewLibraryPicker()
+                }
+                .keyboardShortcut("N", modifiers: [.command, .shift])
+
+                Button("Open Library...") {
+                    showOpenLibraryPicker()
+                }
+                .keyboardShortcut("O", modifiers: [.command, .shift])
+
+                Divider()
+
+                Button("Import Videos...") {
+                    // TODO: Show import dialog
+                }
+                .keyboardShortcut("I", modifiers: .command)
+                .disabled(!libraryManager.isLibraryOpen)
             }
-            
-            // Edit menu additions
+
             CommandGroup(after: .undoRedo) {
                 Button("Rename") {
                     triggerRename()
@@ -172,7 +138,7 @@ struct PangolinApp: App {
                 .keyboardShortcut(.return)
                 .disabled(!libraryManager.isLibraryOpen || !hasRenameableSelection())
             }
-            
+
             CommandMenu("Video") {
                 Button("Generate Thumbnails") {
                     generateThumbnails()
@@ -180,32 +146,26 @@ struct PangolinApp: App {
                 .disabled(!libraryManager.isLibraryOpen)
             }
         }
-        #endif
     }
-    
-    private func attemptAutoOpeniCloudLibrary() {
+
+    private func attemptOpenLastLibrary() {
         hasAttemptedAutoOpen = true
-        
+
         Task {
             do {
-                // Always try to get or create iCloud library
-                _ = try await libraryManager.smartStartup()
-                print("✅ Successfully opened iCloud library")
+                try await libraryManager.openLastLibrary()
             } catch {
-                print("❌ Failed to get/create iCloud library: \(error)")
-                // Set the error for UI display
-                libraryManager.error = error as? LibraryError
+                print("No last library found, showing picker")
             }
         }
     }
-    
+
     private func retryLibraryOpen() {
-        // Clear the error and try again
         libraryManager.error = nil
         hasAttemptedAutoOpen = false
-        attemptAutoOpeniCloudLibrary()
+        attemptOpenLastLibrary()
     }
-    
+
     private func resetCorruptedLibrary() {
         Task {
             do {
@@ -219,28 +179,65 @@ struct PangolinApp: App {
             }
         }
     }
-    
+
     private func generateThumbnails() {
         guard let library = libraryManager.currentLibrary,
               let context = libraryManager.viewContext else { return }
-        
+
         Task {
             await FileSystemManager.shared.rebuildAllThumbnails(for: library, context: context)
         }
     }
-    
-    
-    
+
     private func hasRenameableSelection() -> Bool {
-        // Check if there's a renameable selection by checking if a rename notification would work
-        // This is a simple heuristic - in practice, this would be more sophisticated
         return libraryManager.isLibraryOpen
     }
-    
+
     private func triggerRename() {
-        // This would trigger rename on the selected item
-        // TODO: Implement rename triggering mechanism
         NotificationCenter.default.post(name: NSNotification.Name("TriggerRename"), object: nil)
     }
-}
 
+    private func showNewLibraryPicker() {
+        showingNewLibraryPicker = true
+    }
+
+    private func showOpenLibraryPicker() {
+        showingOpenLibraryPicker = true
+    }
+
+    private func handleNewLibraryCreation(_ result: Result<URL, Error>) {
+        switch result {
+        case .success(let url):
+            Task {
+                do {
+                    let parentDirectory = url.deletingLastPathComponent()
+                    let libraryName = url.deletingPathExtension().lastPathComponent
+                    _ = try await libraryManager.createLibrary(at: parentDirectory, name: libraryName)
+                    print("✅ Successfully created new library at: \(url.path)")
+                } catch {
+                    print("❌ Failed to create new library: \(error)")
+                    libraryManager.error = error as? LibraryError
+                }
+            }
+        case .failure(let error):
+            print("❌ Library creation cancelled or failed: \(error)")
+        }
+    }
+
+    private func handleOpenLibrarySelection(_ result: Result<URL, Error>) {
+        switch result {
+        case .success(let url):
+            Task {
+                do {
+                    _ = try await libraryManager.openLibrary(at: url)
+                    print("✅ Successfully opened library at: \(url.path)")
+                } catch {
+                    print("❌ Failed to open library: \(error)")
+                    libraryManager.error = error as? LibraryError
+                }
+            }
+        case .failure(let error):
+            print("❌ Library opening cancelled or failed: \(error)")
+        }
+    }
+}

@@ -26,7 +26,7 @@ struct ProcessingPopoverView: View {
                 .font(.caption)
             }
             
-            if processingManager.queue.tasks.isEmpty {
+            if processingManager.queue.isEmpty {
                 Text("No tasks in queue")
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -34,7 +34,7 @@ struct ProcessingPopoverView: View {
             } else {
                 // Task list
                 VStack(alignment: .leading, spacing: 8) {
-                    ForEach(Array(processingManager.queue.getTasksSortedByPriority().prefix(5)), id: \.id) { task in
+                    ForEach(Array(processingManager.queue.prefix(5)), id: \.id) { task in
                         CompactTaskRowView(task: task)
                     }
                     
@@ -58,7 +58,7 @@ struct ProcessingPopoverView: View {
                 
                 // Quick actions
                 HStack {
-                    if processingManager.queue.isPaused {
+                    if processingManager.isPaused {
                         Button("Resume") {
                             processingManager.resumeProcessing()
                         }

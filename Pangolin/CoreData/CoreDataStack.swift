@@ -1,10 +1,9 @@
 // CoreData/CoreDataStack.swift
 import Foundation
 import CoreData
-import CloudKit
 
 /// Singleton Core Data stack that ensures only one instance per database
-/// Following Apple's best practices for Core Data + CloudKit synchronization
+/// Local-only Core Data stack for .pangolin library packages
 class CoreDataStack {
     private let modelName = "Pangolin"
     private let libraryURL: URL
@@ -44,15 +43,15 @@ class CoreDataStack {
     }
     
     // MARK: - Core Data Properties
-    private var _persistentContainer: NSPersistentCloudKitContainer?
+    private var _persistentContainer: NSPersistentContainer?
     private let containerQueue = DispatchQueue(label: "com.pangolin.coredata.container")
-    
-    lazy var persistentContainer: NSPersistentCloudKitContainer = {
+
+    lazy var persistentContainer: NSPersistentContainer = {
         return containerQueue.sync {
             if let existing = _persistentContainer {
                 return existing
             }
-            
+
             let container = createPersistentContainer()
             _persistentContainer = container
             return container
@@ -75,21 +74,14 @@ class CoreDataStack {
     }
     
     // MARK: - Container Creation
-    private func createPersistentContainer() -> NSPersistentCloudKitContainer {
-        print("🏗️ STACK: Creating NSPersistentCloudKitContainer...")
+    private func createPersistentContainer() -> NSPersistentContainer {
+        print("🏗️ STACK: Creating NSPersistentContainer for local storage...")
+
+        let container = NSPersistentContainer(name: modelName)
         
-        let container = NSPersistentCloudKitContainer(name: modelName)
-        
-        // CRITICAL: Ensure database file location is properly coordinated for iCloud
+        // Set up database file location
         let storeURL = libraryURL.appendingPathComponent("Library.sqlite")
         print("📍 STACK: Database location: \(storeURL.path)")
-        
-        // Validate iCloud file status before proceeding
-        do {
-            try validateiCloudFileAccess(for: storeURL)
-        } catch {
-            print("⚠️ STACK: iCloud file validation failed: \(error)")
-        }
         
         let storeDescription = createStoreDescription(for: storeURL)
         container.persistentStoreDescriptions = [storeDescription]
@@ -109,7 +101,7 @@ class CoreDataStack {
                 if error.code == 11 || error.domain == NSSQLiteErrorDomain && error.code == 11 {
                     print("🔧 STACK: Database corruption detected - attempting recovery...")
                     do {
-                        try self.handleDatabaseCorruption(storeURL: storeDescription.url!, container: container)
+                        try self.handleDatabaseCorruption(storeURL: storeDescription.url!)
                     } catch {
                         print("❌ STACK: Recovery failed: \(error)")
                         loadError = error
@@ -126,150 +118,91 @@ class CoreDataStack {
             fatalError("Failed to load Core Data stack: \(loadError)")
         }
         
-        // Configure view context for CloudKit sync
+        // Configure view context
         configureViewContext(container.viewContext)
-        
-        // Setup CloudKit notifications
-        setupCloudKitNotifications(container)
-        
-        // Initialize CloudKit schema for development
-        initializeCloudKitSchema(container)
+
+        print("✅ STACK: Core Data container configured for local storage")
         
         return container
     }
     
     private func createStoreDescription(for storeURL: URL) -> NSPersistentStoreDescription {
         let storeDescription = NSPersistentStoreDescription(url: storeURL)
-        
-        // CRITICAL: Core Data + CloudKit best practices
+
+        // CRITICAL: Core Data best practices
         storeDescription.shouldMigrateStoreAutomatically = true
         storeDescription.shouldInferMappingModelAutomatically = true
-        
-        // Enable persistent history tracking (REQUIRED for CloudKit)
+
+        // Enable WAL mode for query generation support and better concurrency
+        storeDescription.setOption("WAL" as NSString, forKey: "journal_mode")
+
+        // Enable file protection for better security (iOS only)
+        #if os(iOS)
+        storeDescription.setOption(true as NSNumber, forKey: NSPersistentStoreFileProtectionKey)
+        #endif
+
+        // Enable persistent history tracking for better data integrity
         storeDescription.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
         storeDescription.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
-        
-        // Configure CloudKit container with proper error handling
-        let cloudKitOptions = NSPersistentCloudKitContainerOptions(
-            containerIdentifier: "iCloud.com.pangolin.video-library"
-        )
-        
-        // CRITICAL: Enable database scope tracking for proper sync
-        storeDescription.cloudKitContainerOptions = cloudKitOptions
-        
-        print("☁️ STACK: CloudKit container configured: iCloud.com.pangolin.video-library")
+
+        // Additional options for better stability
+        storeDescription.setOption(10000 as NSNumber, forKey: "busy_timeout")
+
+        print("📦 STACK: Core Data store configured with WAL mode")
         return storeDescription
     }
     
     private func configureViewContext(_ context: NSManagedObjectContext) {
-        // CRITICAL: Configure merge policy to handle conflicts properly
+        // Configure merge policy to handle conflicts properly
         context.automaticallyMergesChangesFromParent = true
         context.mergePolicy = NSMergeByPropertyStoreTrumpMergePolicy
-        
-        // CRITICAL: Pin to query generation for consistent UI
+
+        // Try to pin to query generation, but handle gracefully if it fails
         do {
             try context.setQueryGenerationFrom(.current)
             print("✅ STACK: View context pinned to current query generation")
-        } catch {
-            print("⚠️ STACK: Failed to pin view context to query generation: \(error)")
+        } catch let error as NSError {
+            print("⚠️ STACK: Query generation not supported, using automatic merging: \(error)")
+
+            // For SQLite error 769 (SQLITE_SNAPSHOT_STALE), we need different handling
+            if error.domain == NSSQLiteErrorDomain && error.code == 769 {
+                print("📝 STACK: Snapshot stale error detected - using context refresh strategy")
+                // Don't pin to query generation, rely on automatic merging instead
+            } else {
+                print("📝 STACK: Other query generation error - fallback to automatic merging")
+            }
         }
-        
-        print("✅ STACK: View context configured for CloudKit sync")
+
+        print("✅ STACK: View context configured with fallback handling")
     }
-    
-    private func setupCloudKitNotifications(_ container: NSPersistentCloudKitContainer) {
-        // Monitor CloudKit sync events
-        NotificationCenter.default.addObserver(
-            forName: NSPersistentCloudKitContainer.eventChangedNotification,
-            object: container,
-            queue: .main
-        ) { notification in
-            if let event = notification.userInfo?[NSPersistentCloudKitContainer.eventNotificationUserInfoKey] as? NSPersistentCloudKitContainer.Event {
-                self.handleCloudKitEvent(event)
-            }
-        }
-        
-        print("✅ STACK: CloudKit notifications configured")
-    }
-    
-    private func initializeCloudKitSchema(_ container: NSPersistentCloudKitContainer) {
-        #if DEBUG
-        // Only initialize schema in development builds
-        print("🔧 STACK: Initializing CloudKit schema for development...")
-        
-        Task.detached(priority: .utility) {
-            do {
-                // Initialize schema by creating temporary records
-                try await container.initializeCloudKitSchema(options: [])
-                print("✅ STACK: CloudKit schema initialization completed")
-            } catch {
-                print("❌ STACK: CloudKit schema initialization failed: \(error)")
-                // This is not fatal - schema might already be initialized
-            }
-        }
-        #else
-        print("ℹ️ STACK: Skipping CloudKit schema initialization in production build")
-        #endif
-    }
-    
-    private func handleCloudKitEvent(_ event: NSPersistentCloudKitContainer.Event) {
-        switch event.type {
-        case .setup:
-            if event.succeeded {
-                print("☁️ STACK: CloudKit setup succeeded")
-            } else if let error = event.error {
-                print("❌ STACK: CloudKit setup failed: \(error)")
-            }
-        case .import:
-            if event.succeeded {
-                print("📥 STACK: CloudKit import succeeded")
-            } else if let error = event.error {
-                print("❌ STACK: CloudKit import failed: \(error)")
-            }
-        case .export:
-            if event.succeeded {
-                print("📤 STACK: CloudKit export succeeded")
-            } else if let error = event.error {
-                print("❌ STACK: CloudKit export failed: \(error)")
-            }
-        @unknown default:
-            print("ℹ️ STACK: Unknown CloudKit event: \(event.type)")
-        }
-    }
-    
-    // MARK: - iCloud File Validation
-    private func validateiCloudFileAccess(for storeURL: URL) throws {
-        let parentURL = storeURL.deletingLastPathComponent()
-        
-        // Check if parent directory exists and is accessible
-        guard FileManager.default.fileExists(atPath: parentURL.path) else {
-            print("ℹ️ STACK: Parent directory doesn't exist - will be created")
-            return
-        }
-        
-        // Check iCloud status of the directory
+
+    // MARK: - Query Generation Management
+
+    /// Refreshes the view context when query generation fails
+    func refreshViewContextIfNeeded() {
+        let context = viewContext
+
+        // Try to advance to the latest query generation
         do {
-            let resourceValues = try parentURL.resourceValues(forKeys: [
-                .ubiquitousItemDownloadingStatusKey
-            ])
-            
-            if let downloadStatus = resourceValues.ubiquitousItemDownloadingStatus {
-                print("☁️ STACK: iCloud status: \(downloadStatus)")
-                
-                // If not downloaded, wait briefly for sync
-                if downloadStatus == .notDownloaded {
-                    print("⏳ STACK: iCloud directory not downloaded - requesting download...")
-                    try FileManager.default.startDownloadingUbiquitousItem(at: parentURL)
-                    
-                    // Brief wait for download to start
-                    Thread.sleep(forTimeInterval: 1.0)
-                }
+            try context.setQueryGenerationFrom(.current)
+            print("✅ STACK: Successfully advanced to current query generation")
+        } catch let error as NSError {
+            print("🔄 STACK: Query generation failed, refreshing context objects: \(error)")
+
+            // Fallback: refresh all objects to get latest data
+            context.refreshAllObjects()
+
+            // Also try to reset and re-pin if possible
+            do {
+                context.reset()
+                try context.setQueryGenerationFrom(.current)
+                print("✅ STACK: Successfully reset and re-pinned context")
+            } catch {
+                print("⚠️ STACK: Could not re-pin after reset, continuing with automatic merging")
             }
-        } catch {
-            print("⚠️ STACK: Could not check iCloud status: \(error)")
-            // Continue anyway - might not be an iCloud file
         }
     }
+
     
     // MARK: - Context Operations
     func saveContext() throws {
@@ -306,16 +239,16 @@ class CoreDataStack {
     }
     
     // MARK: - Database Recovery
-    private func handleDatabaseCorruption(storeURL: URL, container: NSPersistentCloudKitContainer) throws {
+    private func handleDatabaseCorruption(storeURL: URL) throws {
         print("🔧 STACK: Attempting database corruption recovery...")
         
         let fileManager = FileManager.default
         let backupURL = storeURL.appendingPathExtension("corrupted-\(Int(Date().timeIntervalSince1970))")
         
-        // Stop any ongoing CloudKit operations
+        // Stop any ongoing operations
         if _persistentContainer != nil {
-            // Give CloudKit time to finish current operations
-            Thread.sleep(forTimeInterval: 2.0)
+            // Give operations time to finish
+            Thread.sleep(forTimeInterval: 1.0)
         }
         
         // Create backup of corrupted database
@@ -340,15 +273,12 @@ class CoreDataStack {
     // MARK: - Cleanup
     private func cleanup() {
         print("🧹 STACK: Cleaning up CoreDataStack...")
-        
-        // Remove CloudKit notifications
-        NotificationCenter.default.removeObserver(self)
-        
+
         // Clear container reference
         containerQueue.sync {
             _persistentContainer = nil
         }
-        
+
         print("✅ STACK: CoreDataStack cleanup complete")
     }
 }

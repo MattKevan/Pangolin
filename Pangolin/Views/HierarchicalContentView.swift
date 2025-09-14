@@ -25,7 +25,7 @@ struct HierarchicalContentView: View {
     @FocusState private var focusedField: UUID?
     @State private var editedName: String = ""
     
-    // Processing queue
+    // Processing panel (simplified)
     @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
     @State private var showingProcessingPanel = false
     
@@ -57,10 +57,17 @@ struct HierarchicalContentView: View {
             }
             // Processing panel remains available if something external presents it
             .sheet(isPresented: $showingProcessingPanel) {
-                BulkProcessingView(
-                    processingManager: processingQueueManager,
-                    isPresented: $showingProcessingPanel
-                )
+                VStack {
+                    Text("Processing")
+                        .font(.headline)
+                    Text("Processing functionality has been simplified.")
+                    Button("Close") {
+                        showingProcessingPanel = false
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding()
+                .frame(minWidth: 300, minHeight: 200)
             }
             .onKeyPress { keyPress in
                 // Return key triggers rename on single selected item
@@ -222,11 +229,8 @@ struct HierarchicalContentView: View {
     
     @ViewBuilder
     private func buildiCloudStatusContent(for item: HierarchicalContentItem) -> some View {
-        if case .video(let video) = item.contentType {
-            VideoSyncStatusView(video: video)
-        } else {
-            Text("")
-        }
+        // DISABLED: Sync status removed for local-only storage
+        Text("")
     }
     
     @ViewBuilder 

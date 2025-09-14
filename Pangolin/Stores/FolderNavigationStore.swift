@@ -72,10 +72,17 @@ class FolderNavigationStore: ObservableObject {
                 .debounce(for: .milliseconds(50), scheduler: DispatchQueue.main) // Prevent refresh storms
                 .sink { [weak self] _ in
                     print("🧠 STORE: Context saved, refreshing content.")
+
+                    // Try to refresh context with query generation if needed
+                    if let stack = self?.libraryManager.currentCoreDataStack {
+                        stack.refreshViewContextIfNeeded()
+                    }
+
                     self?.refreshContent()
                 }
                 .store(in: &cancellables)
         }
+
         
         // Subscribe to internal navigation changes to refresh content
         $currentFolderID

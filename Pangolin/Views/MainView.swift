@@ -54,8 +54,6 @@ struct MainView: View {
     @StateObject private var searchManager = SearchManager()
     @StateObject private var transcriptionService = SpeechTranscriptionService()
     @StateObject private var taskQueueManager = TaskQueueManager.shared
-    @StateObject private var orphanManager = iCloudOrphanManager()
-    @StateObject private var syncEngine: PangolinSyncEngine
     
     @State private var showInspector = false
     @State private var showingCreateFolder = false
@@ -68,23 +66,9 @@ struct MainView: View {
     
     // Popover state for task indicator
     @State private var showTaskPopover = false
-    @State private var showOrphanedFilesSheet = false
-    @State private var orphanedFileCount = 0
     
     init(libraryManager: LibraryManager) {
         self._folderStore = StateObject(wrappedValue: FolderNavigationStore(libraryManager: libraryManager))
-        
-        // Initialize sync engine when library is available
-        if let library = libraryManager.currentLibrary,
-           let libraryURL = library.url,
-           let coreDataStack = libraryManager.currentCoreDataStack {
-            self._syncEngine = StateObject(wrappedValue: PangolinSyncEngine(localStore: coreDataStack, libraryURL: libraryURL))
-        } else {
-            // Create a placeholder - will be updated when library loads
-            let tempURL = FileManager.default.temporaryDirectory
-            let tempStack = try! CoreDataStack.getInstance(for: tempURL)
-            self._syncEngine = StateObject(wrappedValue: PangolinSyncEngine(localStore: tempStack, libraryURL: tempURL))
-        }
     }
     
     var body: some View {
@@ -94,7 +78,6 @@ struct MainView: View {
                 .environmentObject(folderStore)
                 .environmentObject(libraryManager)
                 .environmentObject(searchManager)
-                .environmentObject(syncEngine)
                 .applyManagedObjectContext(libraryManager.viewContext)
         } detail: {
             Group {
@@ -103,13 +86,11 @@ struct MainView: View {
                         .environmentObject(folderStore)
                         .environmentObject(searchManager)
                         .environmentObject(libraryManager)
-                        .environmentObject(syncEngine)
                 } else {
                     DetailContentView()
                         .environmentObject(folderStore)
                         .environmentObject(searchManager)
                         .environmentObject(libraryManager)
-                        .environmentObject(syncEngine)
                 }
             }
             .navigationSplitViewColumnWidth(min: 700, ideal: 900)
@@ -192,35 +173,7 @@ struct MainView: View {
                                 }
                             }
                             
-                            // Sync Status Indicator
-                            SyncStatusIndicator(syncEngine: syncEngine)
                             
-                            // Orphaned Files Indicator
-                            if orphanedFileCount > 0 {
-                                Button {
-                                    showOrphanedFilesSheet = true
-                                } label: {
-                                    ZStack {
-                                        Image(systemName: "exclamationmark.triangle.fill")
-                                            .foregroundColor(.orange)
-                                            .font(.system(size: 14))
-                                        
-                                        // Badge showing number of orphaned files
-                                        Text("\(orphanedFileCount)")
-                                            .font(.system(size: 8, weight: .bold))
-                                            .foregroundColor(.white)
-                                            .frame(width: 12, height: 12)
-                                            .background(Color.red)
-                                            .clipShape(Circle())
-                                            .offset(x: 6, y: -6)
-                                    }
-                                    .frame(width: 20, height: 20)
-                                    .accessibilityLabel("Orphaned files")
-                                    .accessibilityValue("\(orphanedFileCount) orphaned files")
-                                }
-                                .buttonStyle(.plain)
-                                .help("Orphaned Files: \(orphanedFileCount) files found in iCloud but not in library")
-                            }
                             
                             Button {
                                 showInspector.toggle()
@@ -291,10 +244,6 @@ struct MainView: View {
             CreateFolderView(parentFolderID: nil) // Always create top-level user folders
                 .environmentObject(folderStore)
         }
-        .sheet(isPresented: $showOrphanedFilesSheet) {
-            OrphanedFilesView(orphanManager: orphanManager, libraryManager: libraryManager)
-                .frame(width: 700, height: 600)
-        }
         .navigationTitle(libraryManager.currentLibrary?.name ?? "Pangolin")
         .onChange(of: folderStore.selectedSidebarItem) { _, newSelection in
             if case .search = newSelection {
@@ -304,14 +253,6 @@ struct MainView: View {
             }
         }
         .pangolinAlert(error: $libraryManager.error)
-        .task {
-            await checkForOrphanedFiles()
-        }
-        .onChange(of: libraryManager.currentLibrary) { _, _ in
-            Task {
-                await checkForOrphanedFiles()
-            }
-        }
     }
     
     
@@ -338,22 +279,6 @@ struct MainView: View {
         }
     }
     
-    /// Check for orphaned files in the current library
-    private func checkForOrphanedFiles() async {
-        guard let library = libraryManager.currentLibrary,
-              let context = libraryManager.viewContext else {
-            await MainActor.run {
-                orphanedFileCount = 0
-            }
-            return
-        }
-        
-        let count = await orphanManager.getOrphanedFileCount(library: library, context: context)
-        
-        await MainActor.run {
-            orphanedFileCount = count
-        }
-    }
 }
 
 

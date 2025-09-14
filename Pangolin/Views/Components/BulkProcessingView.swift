@@ -15,7 +15,7 @@ struct BulkProcessingView: View {
                 Divider()
                 
                 // Task list
-                if processingManager.queue.tasks.isEmpty {
+                if processingManager.queue.isEmpty {
                     emptyStateView
                 } else {
                     taskListView
@@ -120,7 +120,7 @@ struct BulkProcessingView: View {
     // MARK: - Task List View
     
     private var taskListView: some View {
-        List(processingManager.queue.getTasksSortedByPriority(), id: \.id, selection: $selectedTasks) { task in
+        List(processingManager.queue, id: \.id, selection: $selectedTasks) { task in
             TaskRowView(task: task, processingManager: processingManager)
                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
         }
@@ -158,8 +158,8 @@ struct BulkProcessingView: View {
     private var controlButtonsView: some View {
         HStack {
             // Pause/Resume button
-            Button(processingManager.queue.isPaused ? "Resume Processing" : "Pause Processing") {
-                processingManager.queue.togglePause()
+            Button(processingManager.isPaused ? "Resume Processing" : "Pause Processing") {
+                processingManager.togglePause()
             }
             .disabled(processingManager.activeTasks == 0)
             
@@ -190,7 +190,7 @@ struct BulkProcessingView: View {
     
     @ViewBuilder
     private func taskContextMenu(for selection: Set<UUID>) -> some View {
-        let tasks = processingManager.queue.tasks.filter { selection.contains($0.id) }
+        let tasks = processingManager.queue.filter { selection.contains($0.id) }
         let failedTasks = tasks.filter { $0.status == .failed }
         let cancelableTasks = tasks.filter { $0.status.isActive }
         
@@ -220,7 +220,7 @@ struct BulkProcessingView: View {
     // MARK: - Computed Properties
     
     private var statusDescription: String {
-        if processingManager.queue.isPaused {
+        if processingManager.isPaused {
             return "Processing paused"
         } else if processingManager.activeTasks > 0 {
             return "Processing \(processingManager.activeTasks) task\(processingManager.activeTasks == 1 ? "" : "s")"
@@ -288,7 +288,7 @@ struct TaskRowView: View {
             HStack(spacing: 8) {
                 if task.status == .failed {
                     Button("Retry") {
-                        processingManager.retryTask(task)
+                        processingManager.retryTask(id: task.id)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
