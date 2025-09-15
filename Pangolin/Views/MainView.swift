@@ -80,46 +80,13 @@ struct MainView: View {
                 .environmentObject(searchManager)
                 .applyManagedObjectContext(libraryManager.viewContext)
         } detail: {
-            Group {
-                if folderStore.isSearchMode {
-                    DetailContentView()
-                        .environmentObject(folderStore)
-                        .environmentObject(searchManager)
-                        .environmentObject(libraryManager)
-                } else {
-                    DetailContentView()
-                        .environmentObject(folderStore)
-                        .environmentObject(searchManager)
-                        .environmentObject(libraryManager)
-                }
-            }
-            .navigationSplitViewColumnWidth(min: 700, ideal: 900)
+            DetailContentView()
+                .environmentObject(folderStore)
+                .environmentObject(searchManager)
+                .environmentObject(libraryManager)
+                .navigationSplitViewColumnWidth(min: 700, ideal: 900)
                 .toolbar {
-                    if folderStore.isSearchMode {
-                        // Search Mode: Wide centered search field
-                        ToolbarItem(placement: .principal) {
-                            HStack(spacing: 12) {
-                                Image(systemName: "magnifyingglass")
-                                    .foregroundColor(.secondary)
-                                    .font(.system(size: 16))
-                                
-                                TextField("Search videos, transcripts, and summaries", text: $searchManager.searchText)
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(maxWidth: 800) // Much wider search field
-                                
-                                // Search scope picker
-                                Picker("Scope", selection: $searchManager.searchScope) {
-                                    ForEach(SearchManager.SearchScope.allCases) { scope in
-                                        Text(scope.rawValue).tag(scope)
-                                    }
-                                }
-                                .pickerStyle(.menu)
-                                .frame(width: 100)
-                            }
-                            .padding(.horizontal, 16)
-                        }
-                    } else {
-                        // Only show normal toolbar items when NOT in search mode
+                    if !folderStore.isSearchMode {
                         // Normal Mode: Standard toolbar items
                         ToolbarItemGroup(placement: .navigation) {
                             Button {
@@ -244,6 +211,17 @@ struct MainView: View {
             CreateFolderView(parentFolderID: nil) // Always create top-level user folders
                 .environmentObject(folderStore)
         }
+        .searchable(
+            text: $searchManager.searchText,
+            isPresented: .constant(folderStore.isSearchMode),
+            placement: .automatic,
+            prompt: "Search videos, transcripts, and summaries"
+        )
+        .searchScopes($searchManager.searchScope) {
+            ForEach(SearchManager.SearchScope.allCases) { scope in
+                Text(scope.rawValue).tag(scope)
+            }
+        }
         .navigationTitle(libraryManager.currentLibrary?.name ?? "Pangolin")
         .onChange(of: folderStore.selectedSidebarItem) { _, newSelection in
             if case .search = newSelection {
@@ -251,6 +229,10 @@ struct MainView: View {
             } else {
                 searchManager.deactivateSearch()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("TriggerSearch"))) { _ in
+            // Activate search mode when Cmd+F is pressed
+            folderStore.selectedSidebarItem = .search
         }
         .pangolinAlert(error: $libraryManager.error)
     }
@@ -322,7 +304,7 @@ private struct DetailContentView: View {
     @EnvironmentObject private var folderStore: FolderNavigationStore
     @EnvironmentObject private var searchManager: SearchManager
     @EnvironmentObject private var libraryManager: LibraryManager
-    
+
     var body: some View {
         Group {
             if folderStore.isSearchMode {

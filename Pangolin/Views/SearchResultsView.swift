@@ -13,121 +13,171 @@ struct SearchResultsView: View {
     @EnvironmentObject private var folderStore: FolderNavigationStore
     @State private var selectedItems = Set<UUID>()
     @State private var sortOrder: [KeyPathComparator<HierarchicalContentItem>] = []
-    
+
+    // Stable computation to prevent rebuilds
     private var searchResultItems: [HierarchicalContentItem] {
-        searchManager.searchResults.map { video in
+        let results = searchManager.searchResults
+        // Only recompute when results actually change
+        return results.map { video in
             HierarchicalContentItem(video: video)
         }
+    }
+
+    // Stable computed properties to prevent rebuilds
+    private var isSearchTextEmpty: Bool {
+        searchManager.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var hasResults: Bool {
+        !searchManager.searchResults.isEmpty
     }
     
     var body: some View {
         Group {
             if searchManager.isSearching {
-                // Show loading state
-                VStack {
-                    ProgressView()
-                        .controlSize(.regular)
-                    Text("Searching...")
-                        .foregroundColor(.secondary)
-                        .padding(.top, 8)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if searchManager.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                // Empty search state
-                ContentUnavailableView(
-                    "Search Your Videos",
-                    systemImage: "magnifyingglass",
-                    description: Text("Enter search terms and press Return to search videos, transcripts, and summaries")
-                )
-            } else if searchManager.searchResults.isEmpty {
-                // No results state
-                ContentUnavailableView(
-                    "No Results",
-                    systemImage: "magnifyingglass",
-                    description: Text("Try different search terms or check your spelling")
-                )
+                // Show loading state - stable view that doesn't rebuild
+                LoadingStateView()
+            } else if isSearchTextEmpty {
+                // Empty search state - stable view
+                EmptySearchStateView()
+            } else if !hasResults {
+                // No results state - stable view
+                NoResultsStateView()
             } else {
-                // Results table
-                VStack(spacing: 0) {
-                    // Results header
-                    SearchResultsHeader(
-                        resultCount: searchManager.searchResults.count,
-                        query: searchManager.searchText,
-                        scope: searchManager.searchScope
-                    )
-                    
-                    // Results table
-                    Table(searchResultItems, selection: $selectedItems, sortOrder: $sortOrder) {
-                        TableColumn("Name", value: \.name) { item in
-                            SearchResultNameCell(
-                                item: item,
-                                query: searchManager.searchText,
-                                scope: searchManager.searchScope,
-                                searchManager: searchManager
-                            )
-                        }
-                        .width(min: 200, ideal: 300)
-                        
-                        TableColumn("Duration") { item in
-                            if let video = item.video {
-                                Text(video.formattedDuration)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        .width(80)
-                        
-                        TableColumn("Played") { item in
-                            if let video = item.video {
-                                Image(systemName: video.playbackPosition > 0 ? "play.circle.fill" : "play.circle")
-                                    .foregroundColor(video.playbackPosition > 0 ? .blue : .gray)
-                                    .font(.system(size: 14))
-                            }
-                        }
-                        .width(60)
-                        
-                        TableColumn("Favorite") { item in
-                            if let video = item.video {
-                                Button {
-                                    Task {
-                                        await toggleFavorite(video)
-                                    }
-                                } label: {
-                                    Image(systemName: video.isFavorite ? "heart.fill" : "heart")
-                                        .foregroundColor(video.isFavorite ? .red : .gray)
-                                        .font(.system(size: 14))
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .width(60)
-                    }
-                    #if os(macOS)
-                    .alternatingRowBackgrounds()
-                    #endif
-                    .onChange(of: selectedItems) { _, newSelection in
-                        handleSelectionChange(newSelection)
-                    }
-                    .onChange(of: sortOrder) { _, newSortOrder in
-                        // Handle sort order changes if needed
-                    }
-                }
+                // Results table - optimized for stability
+                SearchResultsTableView(
+                    searchResultItems: searchResultItems,
+                    selectedItems: $selectedItems,
+                    sortOrder: $sortOrder,
+                    searchManager: searchManager,
+                    folderStore: folderStore
+                )
             }
         }
         .animation(.easeInOut(duration: 0.2), value: searchManager.isSearching)
     }
-    
+}
+
+// MARK: - Stable Component Views
+
+private struct LoadingStateView: View {
+    var body: some View {
+        VStack {
+            ProgressView()
+                .controlSize(.regular)
+            Text("Searching...")
+                .foregroundColor(.secondary)
+                .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct EmptySearchStateView: View {
+    var body: some View {
+        ContentUnavailableView(
+            "Search Your Videos",
+            systemImage: "magnifyingglass",
+            description: Text("Enter search terms to search videos, transcripts, and summaries")
+        )
+    }
+}
+
+private struct NoResultsStateView: View {
+    var body: some View {
+        ContentUnavailableView(
+            "No Results",
+            systemImage: "magnifyingglass",
+            description: Text("Try different search terms or check your spelling")
+        )
+    }
+}
+
+private struct SearchResultsTableView: View {
+    let searchResultItems: [HierarchicalContentItem]
+    @Binding var selectedItems: Set<UUID>
+    @Binding var sortOrder: [KeyPathComparator<HierarchicalContentItem>]
+    let searchManager: SearchManager
+    let folderStore: FolderNavigationStore
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Results header
+            SearchResultsHeader(
+                resultCount: searchResultItems.count,
+                query: searchManager.searchText,
+                scope: searchManager.searchScope
+            )
+
+            // Results table
+            Table(searchResultItems, selection: $selectedItems, sortOrder: $sortOrder) {
+                TableColumn("Name", value: \.name) { item in
+                    SearchResultNameCell(
+                        item: item,
+                        query: searchManager.searchText,
+                        scope: searchManager.searchScope,
+                        searchManager: searchManager
+                    )
+                }
+                .width(min: 200, ideal: 300)
+
+                TableColumn("Duration") { item in
+                    if let video = item.video {
+                        Text(video.formattedDuration)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .width(80)
+
+                TableColumn("Played") { item in
+                    if let video = item.video {
+                        Image(systemName: video.playbackPosition > 0 ? "play.circle.fill" : "play.circle")
+                            .foregroundColor(video.playbackPosition > 0 ? .blue : .gray)
+                            .font(.system(size: 14))
+                    }
+                }
+                .width(60)
+
+                TableColumn("Favorite") { item in
+                    if let video = item.video {
+                        Button {
+                            Task {
+                                await toggleFavorite(video)
+                            }
+                        } label: {
+                            Image(systemName: video.isFavorite ? "heart.fill" : "heart")
+                                .foregroundColor(video.isFavorite ? .red : .gray)
+                                .font(.system(size: 14))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .width(60)
+            }
+            #if os(macOS)
+            .alternatingRowBackgrounds()
+            #endif
+            .onChange(of: selectedItems) { _, newSelection in
+                handleSelectionChange(newSelection)
+            }
+            .onChange(of: sortOrder) { _, newSortOrder in
+                // Handle sort order changes if needed
+            }
+        }
+    }
+
     private func handleSelectionChange(_ selection: Set<UUID>) {
         // Update selected video for the player
         if let firstSelectedID = selection.first,
-           let selectedVideo = searchManager.searchResults.first(where: { $0.id == firstSelectedID }) {
+           let selectedVideo = searchResultItems.first(where: { $0.id == firstSelectedID })?.video {
             folderStore.selectedVideo = selectedVideo
         }
     }
-    
+
     private func toggleFavorite(_ video: Video) async {
         guard let context = video.managedObjectContext else { return }
-        
+
         await context.perform {
             video.isFavorite.toggle()
             do {

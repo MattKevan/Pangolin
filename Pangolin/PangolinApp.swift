@@ -132,6 +132,14 @@ struct PangolinApp: App {
             }
 
             CommandGroup(after: .undoRedo) {
+                Button("Search") {
+                    triggerSearch()
+                }
+                .keyboardShortcut("f", modifiers: .command)
+                .disabled(!libraryManager.isLibraryOpen)
+
+                Divider()
+
                 Button("Rename") {
                     triggerRename()
                 }
@@ -191,6 +199,10 @@ struct PangolinApp: App {
 
     private func hasRenameableSelection() -> Bool {
         return libraryManager.isLibraryOpen
+    }
+
+    private func triggerSearch() {
+        NotificationCenter.default.post(name: NSNotification.Name("TriggerSearch"), object: nil)
     }
 
     private func triggerRename() {

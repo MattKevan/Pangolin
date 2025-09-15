@@ -18,9 +18,11 @@ class SearchManager: ObservableObject {
     @Published var searchScope: SearchScope = .all
     @Published var isSearching = false
     @Published var hasSearched = false // Track if search has been performed
-    
-    private var debounceTimer: Timer?
-    private let debounceDelay: TimeInterval = 0.3
+
+    // Improved search configuration
+    private var searchTask: Task<Void, Never>?
+    private let debounceDelay: TimeInterval = 0.5  // Increased for better performance
+    private let minimumQueryLength = 2  // Don't search until 2+ characters
     
     enum SearchScope: String, CaseIterable, Identifiable {
         case all = "All"
@@ -41,13 +43,11 @@ class SearchManager: ObservableObject {
     }
     
     init() {
-        // Apple-recommended approach: live search on text changes
+        // Apple-recommended approach: immediate response with proper task-based debouncing
         $searchText
-            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+            .removeDuplicates()
             .sink { [weak self] newText in
-                Task { @MainActor in
-                    await self?.performSearch(query: newText)
-                }
+                self?.scheduleSearch(query: newText)
             }
             .store(in: &cancellables)
     }
@@ -55,39 +55,77 @@ class SearchManager: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     
     private func scheduleSearch(query: String) {
-        debounceTimer?.invalidate()
-        
-        if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            searchResults = []
-            isSearching = false
+        // Cancel any existing search task
+        searchTask?.cancel()
+
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Handle empty queries immediately
+        if trimmedQuery.isEmpty {
+            Task { @MainActor in
+                searchResults = []
+                isSearching = false
+                hasSearched = false
+            }
             return
         }
-        
-        debounceTimer = Timer.scheduledTimer(withTimeInterval: debounceDelay, repeats: false) { [weak self] _ in
+
+        // Don't search until minimum length reached
+        if trimmedQuery.count < minimumQueryLength {
             Task { @MainActor in
-                await self?.performSearch(query: query)
+                searchResults = []
+                isSearching = false
+                hasSearched = false
+            }
+            return
+        }
+
+        // Create new search task with proper cancellation
+        searchTask = Task { @MainActor [weak self] in
+            // Set searching state on next run loop to avoid publishing during view update
+            self?.isSearching = true
+            do {
+                // Wait for debounce period
+                try await Task.sleep(for: .milliseconds(Int(self?.debounceDelay ?? 0.5 * 1000)))
+
+                // Check if cancelled during sleep
+                guard !Task.isCancelled else {
+                    await MainActor.run {
+                        self?.isSearching = false
+                    }
+                    return
+                }
+
+                // Perform the actual search
+                await self?.performSearch(query: trimmedQuery)
+            } catch {
+                // Task was cancelled
+                await MainActor.run {
+                    self?.isSearching = false
+                }
             }
         }
     }
     
     private func performSearch(query: String) async {
-        isSearching = true
-        
         guard let context = LibraryManager.shared.viewContext,
               !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             searchResults = []
             isSearching = false
+            hasSearched = false
             return
         }
-        
+
         do {
             let results = try await searchVideos(query: query, in: context)
             searchResults = results
+            hasSearched = true
         } catch {
             print("Search error: \(error)")
             searchResults = []
+            hasSearched = true
         }
-        
+
         isSearching = false
     }
     
@@ -150,26 +188,38 @@ class SearchManager: ObservableObject {
     }
     
     func clearSearch() {
-        searchText = ""
-        searchResults = []
-        isSearchActive = false
-        isSearching = false
-        debounceTimer?.invalidate()
+        searchTask?.cancel()
+        Task { @MainActor in
+            searchText = ""
+            searchResults = []
+            isSearchActive = false
+            isSearching = false
+            hasSearched = false
+        }
     }
     
     func activateSearch() {
-        isSearchActive = true
+        Task { @MainActor in
+            isSearchActive = true
+        }
     }
-    
+
     func deactivateSearch() {
-        isSearchActive = false
+        Task { @MainActor in
+            isSearchActive = false
+        }
         clearSearch()
     }
     
     // Manual search trigger (called on Return key press)
     func performManualSearch() {
+        let trimmedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else { return }
+
+        // Cancel any existing search and perform immediately
+        searchTask?.cancel()
         Task { @MainActor in
-            await performSearch(query: searchText)
+            await performSearch(query: trimmedQuery)
         }
     }
     
