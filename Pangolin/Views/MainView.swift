@@ -57,7 +57,6 @@ struct MainView: View {
     
     @State private var showInspector = false
     @State private var showingCreateFolder = false
-    @State private var showingImportPicker = false
     
     @State private var selectedInspectorTab: InspectorTab = .transcript
     
@@ -86,16 +85,44 @@ struct MainView: View {
                 .environmentObject(libraryManager)
                 .navigationSplitViewColumnWidth(min: 700, ideal: 900)
                 .toolbar {
-                    if !folderStore.isSearchMode {
+                    if folderStore.isSearchMode {
+                        // Search Mode: Centered wide search field
+                        ToolbarItem(placement: .principal) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "magnifyingglass")
+                                    .foregroundColor(.secondary)
+                                    .font(.system(size: 16))
+
+                                TextField("Search videos, transcripts, and summaries", text: $searchManager.searchText)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(maxWidth: 600) // Wider search field
+
+                                // Search scope picker
+                                Picker("Scope", selection: $searchManager.searchScope) {
+                                    ForEach(SearchManager.SearchScope.allCases) { scopeOption in
+                                        Text(scopeOption.rawValue).tag(scopeOption)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                .frame(width: 100)
+                            }
+                            .padding(.horizontal, 16)
+                        }
+                    } else {
                         // Normal Mode: Standard toolbar items
                         ToolbarItemGroup(placement: .navigation) {
                             Button {
-                                showingImportPicker = true
+                                PlatformUtilities.selectVideosForImport { urls in
+                                    guard !urls.isEmpty else { return }
+                                    print("📁 IMPORT: Got \(urls.count) URLs from file picker")
+                                    handleVideoImport(.success(urls))
+                                }
                             } label: {
                                 Image(systemName: "square.and.arrow.down")
                             }
                             .help("Import Videos")
                             .disabled(libraryManager.currentLibrary == nil)
+
                             
                             Button {
                                 showingCreateFolder = true
@@ -200,29 +227,19 @@ struct MainView: View {
                 }
                 // Removed auto-transcribe on selection change. Transcription must be user-initiated.
         }
-        .fileImporter(
-            isPresented: $showingImportPicker,
-            allowedContentTypes: [.movie, .video, .folder],
-            allowsMultipleSelection: true
-        ) { result in
-            handleVideoImport(result)
+        .onAppear {
+            print("🏗️ MAINVIEW: MainView appeared")
         }
         .sheet(isPresented: $showingCreateFolder) {
             CreateFolderView(parentFolderID: nil) // Always create top-level user folders
                 .environmentObject(folderStore)
         }
-        .searchable(
+        .conditionalSearchable(
+            isSearchMode: folderStore.isSearchMode,
             text: $searchManager.searchText,
-            isPresented: .constant(folderStore.isSearchMode),
-            placement: .automatic,
-            prompt: "Search videos, transcripts, and summaries"
+            scope: $searchManager.searchScope
         )
-        .searchScopes($searchManager.searchScope) {
-            ForEach(SearchManager.SearchScope.allCases) { scope in
-                Text(scope.rawValue).tag(scope)
-            }
-        }
-        .navigationTitle(libraryManager.currentLibrary?.name ?? "Pangolin")
+        .navigationTitle(folderStore.isSearchMode ? "" : (libraryManager.currentLibrary?.name ?? "Pangolin"))
         .onChange(of: folderStore.selectedSidebarItem) { _, newSelection in
             if case .search = newSelection {
                 searchManager.activateSearch()
@@ -233,6 +250,13 @@ struct MainView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("TriggerSearch"))) { _ in
             // Activate search mode when Cmd+F is pressed
             folderStore.selectedSidebarItem = .search
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("TriggerImport"))) { _ in
+            // Show import dialog when Cmd+I is pressed
+            PlatformUtilities.selectVideosForImport { urls in
+                guard !urls.isEmpty else { return }
+                handleVideoImport(.success(urls))
+            }
         }
         .pangolinAlert(error: $libraryManager.error)
     }
@@ -250,10 +274,18 @@ struct MainView: View {
     private func handleVideoImport(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
-            if let library = libraryManager.currentLibrary, let context = libraryManager.viewContext {
-                Task {
-                    let importer = VideoImporter()
+            guard let libraryID = libraryManager.currentLibrary?.objectID,
+                  let context = libraryManager.viewContext else { return }
+
+            Task {
+                let importer = VideoImporter()
+
+                // Fetch the library object in the correct context
+                do {
+                    let library = try context.existingObject(with: libraryID) as! Library
                     await importer.importFiles(urls, to: library, context: context)
+                } catch {
+                    print("❌ Failed to fetch library in context: \(error)")
                 }
             }
         case .failure(let error):
@@ -262,6 +294,7 @@ struct MainView: View {
     }
     
 }
+
 
 
 // MARK: - Inspector Container and other helpers
@@ -329,7 +362,7 @@ private struct DetailContentView: View {
     }
 }
 
-// MARK: - View Modifier helper to conditionally inject context
+// MARK: - View Modifier helpers
 
 private extension View {
     @ViewBuilder
@@ -339,5 +372,15 @@ private extension View {
         } else {
             self
         }
+    }
+
+    @ViewBuilder
+    func conditionalSearchable(
+        isSearchMode: Bool,
+        text: Binding<String>,
+        scope: Binding<SearchManager.SearchScope>
+    ) -> some View {
+        // No longer needed since we handle search in the main toolbar
+        self
     }
 }

@@ -165,11 +165,11 @@ extension Library {
         guard let libraryPath = libraryPath else { return nil }
         return URL(fileURLWithPath: libraryPath)
     }
-    
+
     var videoCount: Int {
         return videos?.count ?? 0
     }
-    
+
     var totalSize: Int64 {
         return videos?.reduce(into: 0) { result, video in
             if let video = video as? Video {
@@ -177,11 +177,30 @@ extension Library {
             }
         } ?? 0
     }
-    
+
     var formattedSize: String {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
         return formatter.string(fromByteCount: totalSize)
+    }
+
+    // MARK: - Auto-Processing Configuration
+
+    /// Get the effective translation target language (system language for now)
+    var translationTargetLanguage: String {
+        return Locale.current.language.languageCode?.identifier ?? "en"
+    }
+
+    /// Whether to automatically transcribe videos on import (configurable via preferences later)
+    var autoTranscribeOnImport: Bool {
+        // Default to true, will be made configurable via preferences UI later
+        return true
+    }
+
+    /// Whether to automatically translate transcripts when they don't match system language
+    var autoTranslateOnImport: Bool {
+        // Default to true, will be made configurable via preferences UI later
+        return true
     }
 }
 

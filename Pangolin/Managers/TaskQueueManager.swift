@@ -128,9 +128,11 @@ class TaskGroup: ObservableObject, Identifiable {
         case .importing:
             return "Importing \(totalItems) file\(totalItems == 1 ? "" : "s")"
         case .transcribing:
-            return "Transcribing \(totalItems) file\(totalItems == 1 ? "" : "s")"
+            return "Transcribing \(totalItems) video\(totalItems == 1 ? "" : "s")"
+        case .translating:
+            return "Translating \(totalItems) transcript\(totalItems == 1 ? "" : "s")"
         case .summarizing:
-            return "Summarizing \(totalItems) file\(totalItems == 1 ? "" : "s")"
+            return "Summarizing \(totalItems) video\(totalItems == 1 ? "" : "s")"
         case .generatingThumbnails:
             return "Generating thumbnails"
         case .fileOperations:
@@ -144,6 +146,8 @@ class TaskGroup: ObservableObject, Identifiable {
             return "square.and.arrow.down"
         case .transcribing:
             return "waveform"
+        case .translating:
+            return "globe.badge.chevron.backward"
         case .summarizing:
             return "doc.text"
         case .generatingThumbnails:
@@ -159,6 +163,7 @@ class TaskGroup: ObservableObject, Identifiable {
 enum TaskGroupType: String, CaseIterable {
     case importing
     case transcribing
+    case translating
     case summarizing
     case generatingThumbnails
     case fileOperations

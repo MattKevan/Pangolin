@@ -9,6 +9,7 @@ import SwiftUI
 import CoreData
 import Combine
 
+
 struct SidebarView: View {
     @EnvironmentObject private var store: FolderNavigationStore
     @EnvironmentObject private var libraryManager: LibraryManager
@@ -29,6 +30,7 @@ struct SidebarView: View {
             // Search item
             Section("Pangolin") {
                 Label("Search", systemImage: "magnifyingglass")
+                    .foregroundColor(.accentColor)
                     .contentShape(Rectangle())
                     .tag(SidebarSelection.search)
                 
@@ -191,7 +193,7 @@ private struct FolderRowView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         } icon: {
             Image(systemName: folder.isSmartFolder ? getSmartFolderIcon(folder.name!) : "folder")
-                .foregroundColor(folder.isSmartFolder ? .blue : .orange)
+                .foregroundColor(.accentColor)
         }
         .contentShape(Rectangle())
         .contextMenu {

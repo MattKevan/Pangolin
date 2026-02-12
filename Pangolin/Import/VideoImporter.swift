@@ -139,7 +139,7 @@ class VideoImporter: ObservableObject {
         
         // Complete import task group
         await TaskQueueManager.shared.completeTaskGroup(id: taskGroupId)
-        
+
         // Start thumbnail generation task group for imported videos
         let importedVideoCount = await MainActor.run {
             isImporting = false
@@ -147,7 +147,7 @@ class VideoImporter: ObservableObject {
             processedFiles = totalFiles
             return importedVideos.count
         }
-        
+
         if importedVideoCount > 0 {
             let thumbnailTaskGroupId = await MainActor.run {
                 TaskQueueManager.shared.startTaskGroup(
@@ -155,7 +155,7 @@ class VideoImporter: ObservableObject {
                     totalItems: importedVideoCount
                 )
             }
-            
+
             for (index, video) in importedVideos.enumerated() {
                 await TaskQueueManager.shared.updateTaskGroup(
                     id: thumbnailTaskGroupId,
@@ -165,11 +165,81 @@ class VideoImporter: ObservableObject {
                 // Thumbnail generation happens automatically in FileSystemManager.importVideo
                 // This just updates the progress display
             }
-            
+
             await TaskQueueManager.shared.completeTaskGroup(id: thumbnailTaskGroupId)
+
+            // Schedule automatic processing (transcription and translation) if enabled
+            await scheduleAutoProcessing(for: importedVideos, library: library)
         }
     }
     
+    // MARK: - Auto-Processing Scheduling
+
+    private func scheduleAutoProcessing(for videos: [Video], library: Library) async {
+        guard !videos.isEmpty else { return }
+
+        // Check if any auto-processing is enabled
+        let shouldTranscribe = library.autoTranscribeOnImport
+        let shouldTranslate = library.autoTranslateOnImport
+
+        guard shouldTranscribe || shouldTranslate else {
+            print("📋 AUTO-PROCESSING: Auto-processing disabled, skipping")
+            return
+        }
+
+        // Start task groups for UI progress tracking
+        var transcriptionTaskGroupId: UUID?
+        var translationTaskGroupId: UUID?
+
+        if shouldTranscribe {
+            transcriptionTaskGroupId = await MainActor.run {
+                TaskQueueManager.shared.startTaskGroup(
+                    type: .transcribing,
+                    totalItems: videos.count
+                )
+            }
+            print("📋 AUTO-PROCESSING: Started transcription task group for \(videos.count) videos")
+        }
+
+        if shouldTranslate {
+            translationTaskGroupId = await MainActor.run {
+                TaskQueueManager.shared.startTaskGroup(
+                    type: .translating,
+                    totalItems: videos.count
+                )
+            }
+            print("📋 AUTO-PROCESSING: Started translation task group for \(videos.count) videos")
+        }
+
+        // Add tasks to processing queue
+        await MainActor.run {
+            ProcessingQueueManager.shared.addAutoProcessingTasks(for: videos, library: library)
+        }
+
+        // Update task groups with initial status
+        for video in videos {
+            let videoTitle = video.title ?? video.fileName ?? "Unknown Video"
+
+            if let transcriptionId = transcriptionTaskGroupId {
+                await TaskQueueManager.shared.updateTaskGroup(
+                    id: transcriptionId,
+                    completedItems: 0,
+                    currentItem: "Queued: \(videoTitle)"
+                )
+            }
+
+            if let translationId = translationTaskGroupId {
+                await TaskQueueManager.shared.updateTaskGroup(
+                    id: translationId,
+                    completedItems: 0,
+                    currentItem: "Waiting for transcription: \(videoTitle)"
+                )
+            }
+        }
+
+        print("✅ AUTO-PROCESSING: Scheduled automatic processing for \(videos.count) imported videos")
+    }
+
     func resetImportState() {
         errors.removeAll()
         importedVideos.removeAll()

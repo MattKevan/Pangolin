@@ -125,7 +125,7 @@ struct PangolinApp: App {
                 Divider()
 
                 Button("Import Videos...") {
-                    // TODO: Show import dialog
+                    triggerImportDialog()
                 }
                 .keyboardShortcut("I", modifiers: .command)
                 .disabled(!libraryManager.isLibraryOpen)
@@ -207,6 +207,10 @@ struct PangolinApp: App {
 
     private func triggerRename() {
         NotificationCenter.default.post(name: NSNotification.Name("TriggerRename"), object: nil)
+    }
+
+    private func triggerImportDialog() {
+        NotificationCenter.default.post(name: NSNotification.Name("TriggerImport"), object: nil)
     }
 
     private func showNewLibraryPicker() {
