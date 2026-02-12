@@ -1,6 +1,7 @@
 import Foundation
 import Speech
 import AVFoundation
+import AudioToolbox
 import NaturalLanguage
 import Translation
 import FoundationModels
@@ -516,6 +517,116 @@ class SpeechTranscriptionService: ObservableObject {
         return tempAudioURL
     }
 
+    private func convertAudio(_ sourceURL: URL, to targetFormat: AVAudioFormat) throws -> URL {
+        let inputFile = try AVAudioFile(forReading: sourceURL)
+        // If the source already matches what the analyzer wants, skip conversion.
+        if formatsMatch(inputFile.processingFormat, targetFormat) {
+            return sourceURL
+        }
+
+        // Destination temp file (CAF for PCM)
+        let destURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("caf")
+
+        // Build an explicit PCM output format to avoid interleaving/processing mismatches.
+        guard let outputFormat = AVAudioFormat(
+            commonFormat: targetFormat.commonFormat,
+            sampleRate: targetFormat.sampleRate,
+            channels: targetFormat.channelCount,
+            interleaved: targetFormat.isInterleaved
+        ) else {
+            throw TranscriptionError.audioExtractionFailed
+        }
+
+        var outputSettings = outputFormat.settings
+        outputSettings[AVFormatIDKey] = kAudioFormatLinearPCM
+        outputSettings[AVSampleRateKey] = outputFormat.sampleRate
+        outputSettings[AVNumberOfChannelsKey] = outputFormat.channelCount
+        outputSettings[AVLinearPCMIsNonInterleaved] = !outputFormat.isInterleaved
+
+        let outputFile = try AVAudioFile(
+            forWriting: destURL,
+            settings: outputSettings,
+            commonFormat: outputFormat.commonFormat,
+            interleaved: outputFormat.isInterleaved
+        )
+
+        // Sanity check: ensure the file's processing format matches what we'll write.
+        if !formatsMatch(outputFile.processingFormat, outputFormat) {
+            throw TranscriptionError.analysisFailed("Output file format mismatch. Expected \(outputFormat), got \(outputFile.processingFormat)")
+        }
+
+        guard let converter = AVAudioConverter(from: inputFile.processingFormat, to: outputFormat) else {
+            throw TranscriptionError.audioExtractionFailed
+        }
+
+        let bufferCapacity: AVAudioFrameCount = 32_768
+        var inputFinished = false
+
+        let inputBlock: AVAudioConverterInputBlock = { inNumPackets, outStatus in
+            if inputFinished {
+                outStatus.pointee = .endOfStream
+                return nil
+            }
+            let buffer = AVAudioPCMBuffer(pcmFormat: inputFile.processingFormat, frameCapacity: bufferCapacity)!
+            do {
+                try inputFile.read(into: buffer, frameCount: bufferCapacity)
+            } catch {
+                outStatus.pointee = .noDataNow
+                return nil
+            }
+            if buffer.frameLength == 0 {
+                outStatus.pointee = .endOfStream
+                inputFinished = true
+                return nil
+            }
+            outStatus.pointee = .haveData
+            return buffer
+        }
+
+        // Use the file's actual processing format to avoid format mismatches.
+
+        while true {
+            var error: NSError?
+            // Allocate a fresh buffer each iteration to avoid stale state
+            guard let outBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: bufferCapacity) else {
+                throw TranscriptionError.analysisFailed("Failed to allocate output buffer.")
+            }
+
+            let status = converter.convert(to: outBuffer, error: &error, withInputFrom: inputBlock)
+
+            if let e = error {
+                throw TranscriptionError.analysisFailed(e.localizedDescription)
+            }
+
+            if outBuffer.frameLength > 0 {
+                try outputFile.write(from: outBuffer)
+            }
+
+            switch status {
+            case .haveData:
+                continue
+            case .inputRanDry:
+                // Wait for more input or continue; the input block will signal end when finished
+                continue
+            case .endOfStream:
+                break
+            @unknown default:
+                break
+            }
+        }
+
+        return destURL
+    }
+
+    private func formatsMatch(_ a: AVAudioFormat, _ b: AVAudioFormat) -> Bool {
+        return a.sampleRate == b.sampleRate &&
+            a.channelCount == b.channelCount &&
+            a.commonFormat == b.commonFormat &&
+            a.isInterleaved == b.isInterleaved
+    }
+
     private func detectLanguage(from sampleAudioURL: URL) async throws -> Locale {
         // Fallback to system-equivalent supported locale
         let systemLocale = Locale.current
@@ -550,9 +661,11 @@ class SpeechTranscriptionService: ObservableObject {
     private func performTranscription(fullAudioURL: URL, locale: Locale) async throws -> String {
         // Ensure model is prepared (fast if already installed or prepared this session)
         try await prepareModelIfNeeded(for: locale)
-        
+
         let transcriber = SpeechTranscriber(locale: locale, preset: .transcription)
-        let audioFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber])
+        guard let audioFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
+            throw TranscriptionError.analysisFailed("No compatible audio format available for the speech analyzer.")
+        }
         let analyzer = SpeechAnalyzer(modules: [transcriber])
         self.speechAnalyzer = analyzer
         try await analyzer.prepareToAnalyze(in: audioFormat)
@@ -562,15 +675,35 @@ class SpeechTranscriptionService: ObservableObject {
         let audioExtensions = ["m4a", "mp3", "wav", "aac", "caf", "aiff"]
         let asset = AVURLAsset(url: fullAudioURL)
         let duration = try await asset.load(.duration)
-        
+
         let audioURLToTranscribe: URL
         if audioExtensions.contains(fileExtension) {
             audioURLToTranscribe = fullAudioURL
         } else {
             audioURLToTranscribe = try await extractAudio(from: fullAudioURL, duration: CMTimeGetSeconds(duration))
         }
-        let audioFile = try AVAudioFile(forReading: audioURLToTranscribe)
-        
+
+        // Diagnostics: log source format and size
+        if let sourceFile = try? AVAudioFile(forReading: audioURLToTranscribe) {
+            print("🧪 Source audio format: \(sourceFile.processingFormat)")
+        }
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: audioURLToTranscribe.path),
+           let size = attrs[FileAttributeKey.size] as? NSNumber {
+            print("🧪 Source audio size (bytes): \(size)")
+        }
+        print("🧪 Analyzer target format: \(audioFormat)")
+
+        // Convert to analyzer's preferred format (typically PCM)
+        let pcmURL = try convertAudio(audioURLToTranscribe, to: audioFormat)
+        defer { try? FileManager.default.removeItem(at: pcmURL) }
+
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: pcmURL.path),
+           let size = attrs[FileAttributeKey.size] as? NSNumber {
+            print("🧪 Converted PCM size (bytes): \(size)")
+        }
+
+        let audioFile = try AVAudioFile(forReading: pcmURL)
+
         // Collect results concurrently
         let resultsTask = Task { () -> [String] in
             var transcriptParts: [String] = []
@@ -581,7 +714,7 @@ class SpeechTranscriptionService: ObservableObject {
             }
             return transcriptParts
         }
-        
+
         do {
             let lastSampleTime = try await analyzer.analyzeSequence(from: audioFile)
             if let lastSampleTime {
@@ -598,6 +731,10 @@ class SpeechTranscriptionService: ObservableObject {
             return combined
         } catch {
             resultsTask.cancel()
+            let desc = String(describing: error)
+            if desc.contains("nilError") || desc.contains("Foundation._GenericObjCError") {
+                throw TranscriptionError.analysisFailed("Audio decoding failed during transcription. Try re-encoding the source to uncompressed PCM (WAV/CAF) and retry.")
+            }
             throw error
         }
     }
