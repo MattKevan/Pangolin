@@ -181,32 +181,24 @@ class BackgroundProcessingCoordinator: ObservableObject {
     func executeTask(_ task: ProcessingTask) async {
         await MainActor.run { task.markAsStarted() }
 
-        do {
-            // Get video from Core Data
-            guard let video = await getVideo(for: task.videoID) else {
-                await MainActor.run {
-                    task.markAsFailed(error: "Video not found")
-                    ProcessingQueueManager.shared.processingQueue.markTaskAsFinished(task)
-                }
-                return
-            }
-
-            switch task.type {
-            case .transcribe:
-                await executeTranscription(task: task, video: video)
-            case .translate:
-                await executeTranslation(task: task, video: video)
-            case .summarize:
-                await executeSummarization(task: task, video: video)
-            case .iCloudDownload:
-                await executeDownload(task: task, video: video)
-            }
-
-        } catch {
+        // Get video from Core Data
+        guard let video = await getVideo(for: task.videoID) else {
             await MainActor.run {
-                task.markAsFailed(error: error.localizedDescription)
+                task.markAsFailed(error: "Video not found")
                 ProcessingQueueManager.shared.processingQueue.markTaskAsFinished(task)
             }
+            return
+        }
+
+        switch task.type {
+        case .transcribe:
+            await executeTranscription(task: task, video: video)
+        case .translate:
+            await executeTranslation(task: task, video: video)
+        case .summarize:
+            await executeSummarization(task: task, video: video)
+        case .iCloudDownload:
+            await executeDownload(task: task, video: video)
         }
     }
 
@@ -245,19 +237,15 @@ class BackgroundProcessingCoordinator: ObservableObject {
     }
 
     private func executeSummarization(task: ProcessingTask, video: Video) async {
-        do {
-            await summaryService.generateSummary(for: video, libraryManager: LibraryManager.shared)
+        await summaryService.generateSummary(for: video, libraryManager: LibraryManager.shared)
 
-            await MainActor.run {
+        await MainActor.run {
+            if let error = summaryService.errorMessage, !error.isEmpty {
+                task.markAsFailed(error: error)
+            } else {
                 task.markAsCompleted()
-                ProcessingQueueManager.shared.processingQueue.markTaskAsFinished(task)
             }
-
-        } catch {
-            await MainActor.run {
-                task.markAsFailed(error: error.localizedDescription)
-                ProcessingQueueManager.shared.processingQueue.markTaskAsFinished(task)
-            }
+            ProcessingQueueManager.shared.processingQueue.markTaskAsFinished(task)
         }
     }
 

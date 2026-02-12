@@ -1,5 +1,18 @@
 import Foundation
 
+private struct PersistedProcessingTask: Codable {
+    let id: UUID
+    let videoID: UUID
+    let type: ProcessingTaskType
+    let status: ProcessingTaskStatus
+    let progress: Double
+    let errorMessage: String?
+    let statusMessage: String
+    let createdAt: Date
+    let startedAt: Date?
+    let completedAt: Date?
+}
+
 @MainActor
 class ProcessingQueue: ObservableObject {
     @Published private(set) var tasks: [ProcessingTask] = []
@@ -223,21 +236,46 @@ class ProcessingQueue: ObservableObject {
     // MARK: - Persistence Support
     
     func getTasksData() -> Data? {
-        try? JSONEncoder().encode(tasks)
+        let persisted = tasks.map { task in
+            PersistedProcessingTask(
+                id: task.id,
+                videoID: task.videoID,
+                type: task.type,
+                status: task.status,
+                progress: task.progress,
+                errorMessage: task.errorMessage,
+                statusMessage: task.statusMessage,
+                createdAt: task.createdAt,
+                startedAt: task.startedAt,
+                completedAt: task.completedAt
+            )
+        }
+        return try? JSONEncoder().encode(persisted)
     }
     
     func loadTasksData(_ data: Data) {
-        if let loadedTasks = try? JSONDecoder().decode([ProcessingTask].self, from: data) {
-            tasks = loadedTasks
-            
-            // Reset any tasks that were processing when the app was closed
-            for task in tasks where task.status == .processing {
-                task.reset()
-            }
-            
-            processingTaskIDs.removeAll()
-            updateTaskDependencies()
+        guard let persisted = try? JSONDecoder().decode([PersistedProcessingTask].self, from: data) else {
+            return
         }
+
+        tasks = persisted.map { entry in
+            let task = ProcessingTask(id: entry.id, videoID: entry.videoID, type: entry.type, createdAt: entry.createdAt)
+            task.status = entry.status
+            task.progress = entry.progress
+            task.errorMessage = entry.errorMessage
+            task.statusMessage = entry.statusMessage
+            task.startedAt = entry.startedAt
+            task.completedAt = entry.completedAt
+            return task
+        }
+
+        // Reset any tasks that were processing when the app was closed
+        for task in tasks where task.status == .processing {
+            task.reset()
+        }
+
+        processingTaskIDs.removeAll()
+        updateTaskDependencies()
     }
 }
 

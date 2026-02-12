@@ -64,7 +64,7 @@ struct VideoFileStatusView: View {
         .task {
             await updateFileStatus()
         }
-        .onChange(of: video) { _ in
+        .onChange(of: video) { _, _ in
             Task {
                 await updateFileStatus()
             }
@@ -102,8 +102,6 @@ struct VideoFileStatusView: View {
     }
     
     private func downloadVideo() {
-        guard let videoId = video.id else { return }
-        
         Task {
             do {
                 _ = try await video.getAccessibleFileURL(downloadIfNeeded: true)

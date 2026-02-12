@@ -267,7 +267,9 @@ class VideoFileManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            self?.handleStorageChange(notification)
+            Task { @MainActor in
+                self?.handleStorageChange(notification)
+            }
         }
         
         NotificationCenter.default.addObserver(
@@ -275,7 +277,9 @@ class VideoFileManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            self?.handleStorageChange(notification)
+            Task { @MainActor in
+                self?.handleStorageChange(notification)
+            }
         }
     #else
         // External storage monitoring is not supported on this platform

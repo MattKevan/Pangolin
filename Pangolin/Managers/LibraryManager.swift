@@ -399,32 +399,27 @@ class LibraryManager: ObservableObject {
     
     /// Quick database health check (cross-platform compatible)
     private func isDatabaseHealthy(_ databaseURL: URL) async -> Bool {
-        do {
-            // Quick SQLite integrity check without full diagnostics
-            var sqlite: OpaquePointer?
-            let result = sqlite3_open_v2(databaseURL.path, &sqlite, SQLITE_OPEN_READONLY, nil)
-            
-            guard result == SQLITE_OK, let db = sqlite else {
-                if sqlite != nil { sqlite3_close(sqlite) }
-                return false
-            }
-            
-            // Quick pragma check
-            let testQuery = "PRAGMA integrity_check(1)"
-            var statement: OpaquePointer?
-            
-            let prepareResult = sqlite3_prepare_v2(db, testQuery, -1, &statement, nil)
-            if prepareResult == SQLITE_OK {
-                let stepResult = sqlite3_step(statement)
-                sqlite3_finalize(statement)
-                sqlite3_close(db)
-                return stepResult == SQLITE_ROW || stepResult == SQLITE_DONE
-            } else {
-                sqlite3_close(db)
-                return false
-            }
-        } catch {
-            print("⚠️ LIBRARY: Database health check failed: \(error)")
+        // Quick SQLite integrity check without full diagnostics
+        var sqlite: OpaquePointer?
+        let result = sqlite3_open_v2(databaseURL.path, &sqlite, SQLITE_OPEN_READONLY, nil)
+
+        guard result == SQLITE_OK, let db = sqlite else {
+            if sqlite != nil { sqlite3_close(sqlite) }
+            return false
+        }
+
+        // Quick pragma check
+        let testQuery = "PRAGMA integrity_check(1)"
+        var statement: OpaquePointer?
+
+        let prepareResult = sqlite3_prepare_v2(db, testQuery, -1, &statement, nil)
+        if prepareResult == SQLITE_OK {
+            let stepResult = sqlite3_step(statement)
+            sqlite3_finalize(statement)
+            sqlite3_close(db)
+            return stepResult == SQLITE_ROW || stepResult == SQLITE_DONE
+        } else {
+            sqlite3_close(db)
             return false
         }
     }
@@ -603,7 +598,7 @@ class LibraryManager: ObservableObject {
         let newLibrary = try await createLibrary(at: libraryURL, name: libraryName)
         
         // Open the new library to set up Core Data context
-        try await openLibrary(at: libraryURL)
+        _ = try await openLibrary(at: libraryURL)
 
         print("✅ LIBRARY: Fresh library created and opened successfully")
         

@@ -79,7 +79,7 @@ enum ProcessingTaskStatus: String, Codable {
 }
 
 @MainActor
-class ProcessingTask: ObservableObject, Identifiable, Codable {
+class ProcessingTask: ObservableObject, Identifiable {
     let id: UUID
     let videoID: UUID
     let type: ProcessingTaskType
@@ -103,42 +103,18 @@ class ProcessingTask: ObservableObject, Identifiable, Codable {
         self.startedAt = nil
         self.completedAt = nil
     }
-    
-    // MARK: - Codable Implementation
-    
-    enum CodingKeys: String, CodingKey {
-        case id, videoID, type, status, progress, errorMessage, statusMessage
-        case createdAt, startedAt, completedAt
-    }
-    
-    required init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        
-        id = try container.decode(UUID.self, forKey: .id)
-        videoID = try container.decode(UUID.self, forKey: .videoID)
-        type = try container.decode(ProcessingTaskType.self, forKey: .type)
-        status = try container.decode(ProcessingTaskStatus.self, forKey: .status)
-        progress = try container.decode(Double.self, forKey: .progress)
-        errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
-        statusMessage = try container.decode(String.self, forKey: .statusMessage)
-        createdAt = try container.decode(Date.self, forKey: .createdAt)
-        startedAt = try container.decodeIfPresent(Date.self, forKey: .startedAt)
-        completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
-    }
-    
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        
-        try container.encode(id, forKey: .id)
-        try container.encode(videoID, forKey: .videoID)
-        try container.encode(type, forKey: .type)
-        try container.encode(status, forKey: .status)
-        try container.encode(progress, forKey: .progress)
-        try container.encodeIfPresent(errorMessage, forKey: .errorMessage)
-        try container.encode(statusMessage, forKey: .statusMessage)
-        try container.encode(createdAt, forKey: .createdAt)
-        try container.encodeIfPresent(startedAt, forKey: .startedAt)
-        try container.encodeIfPresent(completedAt, forKey: .completedAt)
+
+    init(id: UUID, videoID: UUID, type: ProcessingTaskType, createdAt: Date) {
+        self.id = id
+        self.videoID = videoID
+        self.type = type
+        self.status = .pending
+        self.progress = 0.0
+        self.errorMessage = nil
+        self.statusMessage = "Waiting to start..."
+        self.createdAt = createdAt
+        self.startedAt = nil
+        self.completedAt = nil
     }
     
     // MARK: - Task Management

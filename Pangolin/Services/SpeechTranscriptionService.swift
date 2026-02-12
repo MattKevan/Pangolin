@@ -565,23 +565,18 @@ class SpeechTranscriptionService: ObservableObject {
         }
 
         let bufferCapacity: AVAudioFrameCount = 32_768
-        var inputFinished = false
 
-        let inputBlock: AVAudioConverterInputBlock = { inNumPackets, outStatus in
-            if inputFinished {
-                outStatus.pointee = .endOfStream
-                return nil
-            }
+        let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
             let buffer = AVAudioPCMBuffer(pcmFormat: inputFile.processingFormat, frameCapacity: bufferCapacity)!
             do {
                 try inputFile.read(into: buffer, frameCount: bufferCapacity)
             } catch {
-                outStatus.pointee = .noDataNow
+                // Treat read failures as end-of-stream to avoid tight inputRanDry loops.
+                outStatus.pointee = .endOfStream
                 return nil
             }
             if buffer.frameLength == 0 {
                 outStatus.pointee = .endOfStream
-                inputFinished = true
                 return nil
             }
             outStatus.pointee = .haveData
@@ -589,8 +584,7 @@ class SpeechTranscriptionService: ObservableObject {
         }
 
         // Use the file's actual processing format to avoid format mismatches.
-
-        while true {
+        conversionLoop: while true {
             var error: NSError?
             // Allocate a fresh buffer each iteration to avoid stale state
             guard let outBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: bufferCapacity) else {
@@ -614,9 +608,11 @@ class SpeechTranscriptionService: ObservableObject {
                 // Wait for more input or continue; the input block will signal end when finished
                 continue
             case .endOfStream:
-                break
+                break conversionLoop
+            case .error:
+                throw TranscriptionError.analysisFailed("Audio conversion failed with AVAudioConverter error status.")
             @unknown default:
-                break
+                throw TranscriptionError.analysisFailed("Audio conversion failed with unknown AVAudioConverter status.")
             }
         }
 
@@ -696,16 +692,9 @@ class SpeechTranscriptionService: ObservableObject {
         }
         print("🧪 Analyzer target format: \(audioFormat)")
 
-        // Convert to analyzer's preferred format (typically PCM)
-        let pcmURL = try convertAudio(audioURLToTranscribe, to: audioFormat)
-        defer { try? FileManager.default.removeItem(at: pcmURL) }
-
-        if let attrs = try? FileManager.default.attributesOfItem(atPath: pcmURL.path),
-           let size = attrs[FileAttributeKey.size] as? NSNumber {
-            print("🧪 Converted PCM size (bytes): \(size)")
-        }
-
-        let audioFile = try AVAudioFile(forReading: pcmURL)
+        // Use extracted audio directly; this was the stable path before 1bef0dc.
+        // Keep convertAudio(...) available for future targeted fallback work.
+        let audioFile = try AVAudioFile(forReading: audioURLToTranscribe)
 
         // Collect results concurrently
         let resultsTask = Task { () -> [String] in

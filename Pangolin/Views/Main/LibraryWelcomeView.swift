@@ -173,7 +173,7 @@ struct LibraryWelcomeView: View {
         #if os(macOS)
         // Use NSSavePanel so the user can name the .pangolin package and pick its location
         let panel = NSSavePanel()
-        panel.allowedFileTypes = ["pangolin"]
+        panel.allowedContentTypes = [.pangolinLibrary]
         panel.canCreateDirectories = true
         panel.isExtensionHidden = false
         panel.title = "Create New Pangolin Library"
@@ -206,7 +206,7 @@ struct LibraryWelcomeView: View {
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.allowedFileTypes = ["pangolin"]
+        panel.allowedContentTypes = [.pangolinLibrary]
         panel.title = "Open Pangolin Library"
         panel.prompt = "Open"
         
