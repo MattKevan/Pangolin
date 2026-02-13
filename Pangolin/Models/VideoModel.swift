@@ -24,29 +24,15 @@ extension Subtitle: @unchecked Sendable {}
 extension Video {
     // Computed properties
     var fileURL: URL? {
-        guard let library = library,
-              let relativePath = relativePath else { return nil }
-        
-        // For synchronous access, use basic library path construction
-        // For proper storage resolution, use getResolvedFileURL() async method
-        guard let libraryPath = library.url else { return nil }
-        
-        // Try to determine storage type and construct path accordingly
-        if let storageTypeString = library.videoStorageType,
-           let storageType = VideoStorageType(rawValue: storageTypeString) {
-            switch storageType {
-            case .iCloudDrive:
-                // For iCloud Drive, files are stored in the library's Videos directory
-                return libraryPath.appendingPathComponent("Videos").appendingPathComponent(relativePath)
-            case .localLibrary:
-                return libraryPath.appendingPathComponent("Videos").appendingPathComponent(relativePath)
-            default:
-                // For other storage types, async resolution needed - fall back to basic path
-                return libraryPath.appendingPathComponent("Videos").appendingPathComponent(relativePath)
-            }
+        if let cloudRelativePath, !cloudRelativePath.isEmpty,
+           let ubiquitousRoot = FileManager.default.url(forUbiquityContainerIdentifier: "iCloud.com.newindustries.pangolin") {
+            return ubiquitousRoot.appendingPathComponent(cloudRelativePath)
         }
-        
-        // Default fallback
+
+        // Import staging fallback before cloudRelativePath is set.
+        guard let library = library,
+              let relativePath = relativePath,
+              let libraryPath = library.url else { return nil }
         return libraryPath.appendingPathComponent("Videos").appendingPathComponent(relativePath)
     }
     
@@ -54,7 +40,7 @@ extension Video {
     var isVideoFileAccessible: Bool {
         Task {
             let status = await VideoFileManager.shared.isVideoFileAccessible(self)
-            return status == .available
+            return status == .local
         }
         // Synchronous fallback - just check if file exists
         guard let fileURL = fileURL else { return false }
@@ -68,16 +54,10 @@ extension Video {
     
     // Get properly resolved video file URL from library package
     func getResolvedFileURL() async throws -> URL {
-        guard let library = library,
-              let relativePath = relativePath else { 
+        guard let url = fileURL else {
             throw VideoFileError.invalidVideoPath 
         }
-        
-        guard let libraryURL = library.url else {
-            throw VideoFileError.invalidVideoPath
-        }
-        let storageURL = libraryURL.appendingPathComponent("Videos")
-        return storageURL.appendingPathComponent(relativePath)
+        return url
     }
     
     // Get video file URL with iCloud download if needed
@@ -276,4 +256,3 @@ struct LibraryDescriptor: Codable, Identifiable {
         return formatter.string(fromByteCount: totalSize)
     }
 }
-

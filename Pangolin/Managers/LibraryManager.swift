@@ -32,6 +32,7 @@ class LibraryManager: ObservableObject {
     // MARK: - Constants
     private let libraryExtension = "pangolin"
     private let currentVersion = "1.0.0"
+    private let storageSystemVersion = 2
     private let recentLibrariesKey = "RecentLibraries"
     private let lastOpenedLibraryKey = "LastOpenedLibrary"
     
@@ -177,8 +178,8 @@ class LibraryManager: ObservableObject {
         library.defaultPlaybackSpeed = 1.0
         library.rememberPlaybackPosition = true
         
-        // Set default video storage to local storage
-        library.videoStorageType = "local_library"
+        // Set default video storage to the new hybrid iCloud model
+        library.videoStorageType = "icloud_hybrid"
         
         print("All properties set successfully")
         
@@ -344,21 +345,16 @@ class LibraryManager: ObservableObject {
             print("👤 LIBRARY: New user detected - creating fresh library")
             return try await createNewUserLibrary(at: libraryURL, name: libraryName)
         }
-        
-        // FAST PATH 3: Check database validity quickly
-        let databaseURL = libraryURL.appendingPathComponent("Library.sqlite")
-        
-        let databaseExists = fileManager.fileExists(atPath: databaseURL.path)
-        let databaseHealthy = databaseExists ? await isDatabaseHealthy(databaseURL) : false
-        
-        if databaseExists && databaseHealthy {
-            print("✅ LIBRARY: Existing healthy library found - opening directly")
-            return try await openExistingLibrary(at: libraryURL)
+
+        // HARD CUTOVER: Replace any old/legacy library immediately.
+        if !isCurrentStorageSystem(at: libraryURL) {
+            print("🧨 LIBRARY: Legacy library detected - deleting for hard cutover.")
+            try fileManager.removeItem(at: libraryURL)
+            return try await createNewUserLibrary(at: libraryURL, name: libraryName)
         }
-        
-        // PROBLEM PATH: Only now do expensive operations
-        print("⚠️ LIBRARY: Database issue detected - analyzing situation...")
-        return try await handleDatabaseIssue(libraryURL: libraryURL, libraryName: libraryName)
+
+        // Open the current cloud-backed library directly.
+        return try await openExistingLibrary(at: libraryURL)
     }
     
     
@@ -648,6 +644,7 @@ class LibraryManager: ObservableObject {
         // Create Info.plist
         let info: [String: Any] = [
             "Version": currentVersion,
+            "StorageSystemVersion": storageSystemVersion,
             "CreatedDate": Date(),
             "BundleIdentifier": "com.pangolin.library",
             "LibraryType": "VideoLibrary"
@@ -707,6 +704,16 @@ class LibraryManager: ObservableObject {
     private func migrateLibrary(_ library: Library, from oldVersion: String, to newVersion: String) async throws {
         // Implement migration logic here
         library.version = newVersion
+    }
+
+    private func isCurrentStorageSystem(at libraryURL: URL) -> Bool {
+        let infoURL = libraryURL.appendingPathComponent("Info.plist")
+        guard let data = try? Data(contentsOf: infoURL),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let marker = plist["StorageSystemVersion"] as? Int else {
+            return false
+        }
+        return marker == storageSystemVersion
     }
     
     private func createDefaultSmartFolders(for library: Library, in context: NSManagedObjectContext) {

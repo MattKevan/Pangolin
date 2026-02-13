@@ -2,381 +2,240 @@
 //  VideoFileManager.swift
 //  Pangolin
 //
-//  Handles video file access, iCloud downloads, and missing storage scenarios
+//  Cloud-backed video file access and ubiquitous download/upload management.
 //
 
 import Foundation
 import Combine
-#if canImport(AppKit)
-import AppKit
-#endif
 
 @MainActor
 class VideoFileManager: ObservableObject {
     static let shared = VideoFileManager()
-    
+
     @Published var downloadingVideos: Set<UUID> = []
-    @Published var unavailableStorage: Set<String> = []
     @Published var downloadProgress: [UUID: Double] = [:]
-    
+
     private let fileManager = FileManager.default
-    private var downloadObservers: [UUID: Any] = [:]
-    
-    private init() {
-        setupStorageMonitoring()
+    private let cloudContainerIdentifier = "iCloud.com.newindustries.pangolin"
+
+    private init() {}
+
+    // MARK: - Public API
+
+    func cloudURL(for video: Video) -> URL? {
+        guard let relative = canonicalRelativePath(for: video),
+              let root = fileManager.url(forUbiquityContainerIdentifier: cloudContainerIdentifier) else {
+            return nil
+        }
+        return root.appendingPathComponent(relative)
     }
-    
-    // MARK: - Video File Access
-    
-    /// Get video file URL and handle iCloud download if needed
+
+    /// Canonical entrypoint for consumers that need a usable local URL.
     func getVideoFileURL(for video: Video, downloadIfNeeded: Bool = true) async throws -> URL {
-        print("📁 VideoFileManager: Getting URL for video '\(video.title ?? "Unknown")'")
-        print("📁 VideoFileManager: Video relativePath: '\(video.relativePath ?? "nil")'")
-        print("📁 VideoFileManager: Library path: '\(video.library?.libraryPath ?? "nil")'")
-        
-        guard let fileURL = video.fileURL else {
-            print("📁 VideoFileManager: Failed to get fileURL from video")
+        try await ensureLocalAvailability(for: video, downloadIfNeeded: downloadIfNeeded)
+    }
+
+    func ensureLocalAvailability(for video: Video) async throws -> URL {
+        try await ensureLocalAvailability(for: video, downloadIfNeeded: true)
+    }
+
+    func uploadImportedVideoToCloud(localURL: URL, for video: Video) async throws {
+        guard let videoID = video.id else {
             throw VideoFileError.invalidVideoPath
         }
-        
-        print("📁 VideoFileManager: Computed fileURL: \(fileURL)")
-        print("📁 VideoFileManager: File exists check: \(fileManager.fileExists(atPath: fileURL.path))")
-        
-        // Debug: Check what files actually exist in the Videos directory
-        let videosDir = fileURL.deletingLastPathComponent()
-        print("📁 VideoFileManager: Videos directory: \(videosDir)")
-        if fileManager.fileExists(atPath: videosDir.path) {
-            do {
-                let contents = try fileManager.contentsOfDirectory(at: videosDir, includingPropertiesForKeys: nil)
-                print("📁 VideoFileManager: Contents of Videos directory:")
-                for file in contents {
-                    print("   - \(file.lastPathComponent)")
-                }
-            } catch {
-                print("📁 VideoFileManager: Failed to list Videos directory: \(error)")
-            }
-        } else {
-            print("📁 VideoFileManager: Videos directory doesn't exist")
-            
-            // Check parent directories
-            let libraryDir = videosDir.deletingLastPathComponent()
-            print("📁 VideoFileManager: Library directory: \(libraryDir)")
-            if fileManager.fileExists(atPath: libraryDir.path) {
-                do {
-                    let contents = try fileManager.contentsOfDirectory(at: libraryDir, includingPropertiesForKeys: nil)
-                    print("📁 VideoFileManager: Contents of Library directory:")
-                    for file in contents {
-                        print("   - \(file.lastPathComponent)")
-                    }
-                } catch {
-                    print("📁 VideoFileManager: Failed to list Library directory: \(error)")
-                }
-            }
+        guard let root = fileManager.url(forUbiquityContainerIdentifier: cloudContainerIdentifier) else {
+            throw VideoFileError.cloudContainerUnavailable
         }
-        
-        // Check if file exists locally
-        if fileManager.fileExists(atPath: fileURL.path) {
-            return fileURL
+
+        let ext = localURL.pathExtension.isEmpty ? "mp4" : localURL.pathExtension
+        let relative = "Media/Videos/\(videoID.uuidString).\(ext)"
+        let cloudURL = root.appendingPathComponent(relative)
+        let cloudDir = cloudURL.deletingLastPathComponent()
+
+        try fileManager.createDirectory(at: cloudDir, withIntermediateDirectories: true)
+
+        if fileManager.fileExists(atPath: cloudURL.path) {
+            try fileManager.removeItem(at: cloudURL)
         }
-        
-        // Check if it's an iCloud file that needs downloading
-        let isiCloudFile = await isFileiCloudButNotDownloaded(fileURL)
-        print("📁 VideoFileManager: Is iCloud file: \(isiCloudFile)")
-        
-        if isiCloudFile {
-            if downloadIfNeeded {
-                print("📁 VideoFileManager: Attempting to download iCloud file")
-                return try await downloadiCloudFile(fileURL, for: video)
-            } else {
-                print("📁 VideoFileManager: iCloud file not downloaded and download not requested")
-                throw VideoFileError.iCloudFileNotDownloaded(fileURL)
-            }
+
+        if localURL.standardizedFileURL != cloudURL.standardizedFileURL {
+            try fileManager.moveItem(at: localURL, to: cloudURL)
         }
-        
-        // Check if storage location is unavailable
-        print("📁 VideoFileManager: Checking storage availability")
-        try checkStorageAvailability(for: video)
-        
-        print("📁 VideoFileManager: File not found and not iCloud file")
-        throw VideoFileError.fileNotFound(fileURL)
+
+        video.cloudRelativePath = relative
+        video.fileAvailabilityState = VideoFileStatus.local.rawValue
+        video.lastFileSyncDate = Date()
     }
-    
-    /// Check if video file is accessible without downloading
+
+    func evictLocalCopy(for video: Video) async throws {
+        guard let url = cloudURL(for: video) else {
+            throw VideoFileError.invalidVideoPath
+        }
+        try fileManager.evictUbiquitousItem(at: url)
+        video.fileAvailabilityState = VideoFileStatus.cloudOnly.rawValue
+        video.lastFileSyncDate = Date()
+    }
+
     func isVideoFileAccessible(_ video: Video) async -> VideoFileStatus {
-        guard let fileURL = video.fileURL else {
-            return .invalid
+        if let localURL = localStagingURL(for: video),
+           fileManager.fileExists(atPath: localURL.path) {
+            return .local
         }
         
-        // Check if file exists locally
-        if fileManager.fileExists(atPath: fileURL.path) {
-            return .available
+        guard let url = cloudURL(for: video) else {
+            return .error
         }
-        
-        // Check if it's in iCloud but not downloaded
-        if await isFileiCloudButNotDownloaded(fileURL) {
-            return .iCloudNotDownloaded
+
+        if fileManager.fileExists(atPath: url.path) {
+            return .local
         }
-        
-        // Check if storage location exists
+
         do {
-            try checkStorageAvailability(for: video)
-            return .storageUnavailable
-        } catch VideoFileError.storageLocationUnavailable(_) {
-            return .storageUnavailable
-        } catch {
-            return .notFound
-        }
-    }
-    
-    // MARK: - iCloud File Handling
-    
-    private func isFileiCloudButNotDownloaded(_ fileURL: URL) async -> Bool {
-        do {
-            let resourceValues = try fileURL.resourceValues(forKeys: [
-                .ubiquitousItemDownloadingStatusKey
-            ])
-            
-            guard let downloadStatus = resourceValues.ubiquitousItemDownloadingStatus else {
-                return false
-            }
-            
-            return downloadStatus != .current
-        } catch {
-            print("Failed to check iCloud status for \(fileURL): \(error)")
-            return false
-        }
-    }
-    
-    private func downloadiCloudFile(_ fileURL: URL, for video: Video) async throws -> URL {
-        guard let videoId = video.id else {
-            throw VideoFileError.invalidVideoPath
-        }
-        
-        // Add to downloading set for UI feedback
-        downloadingVideos.insert(videoId)
-        defer {
-            downloadingVideos.remove(videoId)
-        }
-        
-        // In simplified mode, all files are local - no iCloud downloading needed
-        return fileURL
-    }
-    
-    private func waitForDownloadCompletion(fileURL: URL) async throws -> URL {
-        return try await withCheckedThrowingContinuation { continuation in
-            Task {
-                var completed = false
-                
-                while !completed {
-                    do {
-                        let resourceValues = try fileURL.resourceValues(forKeys: [
-                            .ubiquitousItemDownloadingStatusKey,
-                            .ubiquitousItemDownloadingErrorKey
-                        ])
-                        
-                        // Check for download error
-                        if let error = resourceValues.ubiquitousItemDownloadingError {
-                            continuation.resume(throwing: VideoFileError.iCloudDownloadFailed(error))
-                            return
-                        }
-                        
-                        // Check download status
-                        if let downloadStatus = resourceValues.ubiquitousItemDownloadingStatus {
-                            switch downloadStatus {
-                            case .current:
-                                // Download complete
-                                continuation.resume(returning: fileURL)
-                                completed = true
-                                
-                            case .downloaded, .notDownloaded:
-                                // Still downloading, continue waiting
-                                break
-                                
-                            default:
-                                // Still downloading, continue waiting
-                                break
-                            }
-                        }
-                        
-                        if !completed {
-                            try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-                        }
-                        
-                    } catch {
-                        continuation.resume(throwing: error)
-                        return
-                    }
+            let values = try url.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey])
+            if values.isUbiquitousItem == true {
+                if values.ubiquitousItemDownloadingStatus == .current {
+                    return .local
                 }
+                return .cloudOnly
             }
+        } catch {
+            return .error
+        }
+
+        return .missing
+    }
+
+    func downloadAllVideos(in library: Library) async {
+        guard let context = library.managedObjectContext else { return }
+        let request = Video.fetchRequest()
+        request.predicate = NSPredicate(format: "library == %@", library)
+        let videos = (try? context.fetch(request)) ?? []
+
+        for video in videos {
+            _ = try? await ensureLocalAvailability(for: video, downloadIfNeeded: true)
         }
     }
-    
-    // MARK: - Storage Availability Checking
-    
-    private func checkStorageAvailability(for video: Video) throws {
-        guard let library = video.library,
-              let storageType = library.videoStorageType else {
+
+    func cancelDownload(for video: Video) {
+        guard let id = video.id else { return }
+        // Ubiquity downloads are system-managed; we only clear UI tracking state.
+        downloadingVideos.remove(id)
+        downloadProgress.removeValue(forKey: id)
+    }
+
+    // MARK: - Internal
+
+    private func ensureLocalAvailability(for video: Video, downloadIfNeeded: Bool) async throws -> URL {
+        if let localURL = localStagingURL(for: video),
+           fileManager.fileExists(atPath: localURL.path) {
+            video.fileAvailabilityState = VideoFileStatus.local.rawValue
+            return localURL
+        }
+        
+        guard let url = cloudURL(for: video) else {
+            throw VideoFileError.fileNotFound(localStagingURL(for: video) ?? URL(fileURLWithPath: "unknown"))
+        }
+
+        if fileManager.fileExists(atPath: url.path) {
+            video.fileAvailabilityState = VideoFileStatus.local.rawValue
+            return url
+        }
+
+        let values = try? url.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey])
+        let isUbiquitous = values?.isUbiquitousItem == true
+
+        guard isUbiquitous else {
+            video.fileAvailabilityState = VideoFileStatus.missing.rawValue
+            throw VideoFileError.fileNotFound(url)
+        }
+
+        guard downloadIfNeeded else {
+            video.fileAvailabilityState = VideoFileStatus.cloudOnly.rawValue
+            throw VideoFileError.fileNotDownloaded(url)
+        }
+
+        guard let videoID = video.id else {
             throw VideoFileError.invalidVideoPath
         }
-        
-        let videoStorageType = VideoStorageType(rawValue: storageType) ?? .iCloudDrive
-        
-        switch videoStorageType {
-        case .iCloudDrive:
-            if fileManager.url(forUbiquityContainerIdentifier: nil) == nil {
-                throw VideoFileError.storageLocationUnavailable("iCloud Drive")
-            }
-            
-        case .externalDrive, .customPath:
-            guard let customPath = library.customVideoStoragePath else {
-                throw VideoFileError.storageLocationUnavailable("Custom location not configured")
-            }
-            
-            let customURL = URL(fileURLWithPath: customPath)
-            if !fileManager.fileExists(atPath: customURL.path) {
-                unavailableStorage.insert(customPath)
-                throw VideoFileError.storageLocationUnavailable(customPath)
-            }
-            
-        case .dropbox, .googleDrive, .oneDrive:
-            // These are now handled through custom path selection
-            // Fall through to custom path validation
-            guard let customPath = library.customVideoStoragePath else {
-                throw VideoFileError.storageLocationUnavailable("Custom location not configured")
-            }
-            
-            let customURL = URL(fileURLWithPath: customPath)
-            if !fileManager.fileExists(atPath: customURL.path) {
-                unavailableStorage.insert(customPath)
-                throw VideoFileError.storageLocationUnavailable(customPath)
-            }
-            
-        case .localLibrary:
-            // Local library should always be available if library exists
-            break
+
+        downloadingVideos.insert(videoID)
+        video.fileAvailabilityState = VideoFileStatus.downloading.rawValue
+
+        do {
+            try fileManager.startDownloadingUbiquitousItem(at: url)
+        } catch {
+            downloadingVideos.remove(videoID)
+            video.fileAvailabilityState = VideoFileStatus.error.rawValue
+            throw VideoFileError.downloadFailed(error.localizedDescription)
         }
-    }
-    
-    // MARK: - Storage Monitoring
-    
-    private func setupStorageMonitoring() {
-    #if canImport(AppKit)
-        // Monitor for external drive connections/disconnections
-        NotificationCenter.default.addObserver(
-            forName: NSWorkspace.didMountNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            self?.handleStorageChange(notification)
-        }
-        
-        NotificationCenter.default.addObserver(
-            forName: NSWorkspace.didUnmountNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            self?.handleStorageChange(notification)
-        }
-    #else
-        // External storage monitoring is not supported on this platform
-    #endif
-    }
-    
-    private func handleStorageChange(_ notification: Notification) {
-        // Refresh storage availability status
-        Task { @MainActor in
-            // Clear unavailable storage cache
-            unavailableStorage.removeAll()
-            
-            // Notify observers that storage availability may have changed
-            NotificationCenter.default.post(
-                name: .videoStorageAvailabilityChanged,
-                object: nil
-            )
-        }
-    }
-    
-    // MARK: - Cross-Platform Path Resolution
-    
-    /// Get cloud service path for cross-platform compatibility
-    private func getCloudServicePath(for serviceName: String) -> URL? {
-        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
-        // On iOS and other platforms, cloud services are typically in Documents/CloudServices
-        // or accessible through Files app integration
-        let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
-        return documentsURL?.appendingPathComponent("CloudServices").appendingPathComponent(serviceName)
-        #else
-        // On macOS, check standard locations
-        let homeURL = fileManager.homeDirectoryForCurrentUser
-        return homeURL.appendingPathComponent(serviceName)
-        #endif
-    }
-    
-    /// Get platform-appropriate storage directory for app data
-    private func getPlatformStorageDirectory() -> URL? {
-        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
-        // Use Documents directory on iOS platforms per Apple guidelines
-        // This ensures files are backed up to iCloud and accessible to users
-        return fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
-        #else
-        // Use Application Support directory on macOS per Apple guidelines
-        // This is for app-specific data that doesn't need user access
-        return fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("Pangolin")
-        #endif
-    }
-    
-    // MARK: - Utility Methods
-    
-    /// Force download all videos in a library
-    func downloadAllVideos(in library: Library) async {
-        // Get all videos in library
-        // This would need to be implemented with a fetch request
-        // For now, placeholder
-    }
-    
-    /// Cancel download for a specific video
-    func cancelDownload(for video: Video) {
-        guard let videoId = video.id else { return }
-        
-        if let observer = downloadObservers[videoId] {
-            if let timer = observer as? Timer {
-                timer.invalidate()
+
+        let timeout: TimeInterval = 300
+        let start = Date()
+
+        while Date().timeIntervalSince(start) < timeout {
+            if fileManager.fileExists(atPath: url.path) {
+                downloadingVideos.remove(videoID)
+                downloadProgress[videoID] = 1.0
+                video.fileAvailabilityState = VideoFileStatus.local.rawValue
+                video.lastFileSyncDate = Date()
+                return url
             }
-            downloadObservers.removeValue(forKey: videoId)
+
+            let elapsed = Date().timeIntervalSince(start)
+            downloadProgress[videoID] = min(0.95, elapsed / timeout)
+            try await Task.sleep(nanoseconds: 500_000_000)
         }
-        
-        downloadingVideos.remove(videoId)
-        downloadProgress.removeValue(forKey: videoId)
+
+        downloadingVideos.remove(videoID)
+        downloadProgress.removeValue(forKey: videoID)
+        video.fileAvailabilityState = VideoFileStatus.error.rawValue
+        throw VideoFileError.downloadFailed("Timed out waiting for iCloud file download.")
+    }
+
+    private func canonicalRelativePath(for video: Video) -> String? {
+        if let cloudRelativePath = video.cloudRelativePath, !cloudRelativePath.isEmpty {
+            return cloudRelativePath
+        }
+        return nil
+    }
+    
+    private func localStagingURL(for video: Video) -> URL? {
+        guard let library = video.library,
+              let libraryURL = library.url,
+              let relativePath = video.relativePath,
+              !relativePath.isEmpty else {
+            return nil
+        }
+        return libraryURL.appendingPathComponent("Videos").appendingPathComponent(relativePath)
     }
 }
 
 // MARK: - Video File Status
 
-enum VideoFileStatus {
-    case available
-    case iCloudNotDownloaded
-    case storageUnavailable
-    case notFound
-    case invalid
-    
+enum VideoFileStatus: String {
+    case local = "local"
+    case cloudOnly = "cloud_only"
+    case downloading = "downloading"
+    case missing = "missing"
+    case error = "error"
+
     var displayName: String {
         switch self {
-        case .available: return "Available"
-        case .iCloudNotDownloaded: return "In iCloud"
-        case .storageUnavailable: return "Storage Unavailable"
-        case .notFound: return "Not Found"
-        case .invalid: return "Invalid Path"
+        case .local: return "Available"
+        case .cloudOnly: return "In iCloud"
+        case .downloading: return "Downloading"
+        case .missing: return "Missing"
+        case .error: return "Error"
         }
     }
-    
+
     var systemImage: String {
         switch self {
-        case .available: return "checkmark.circle.fill"
-        case .iCloudNotDownloaded: return "icloud.and.arrow.down"
-        case .storageUnavailable: return "externaldrive.badge.exclamationmark"
-        case .notFound: return "questionmark.circle"
-        case .invalid: return "exclamationmark.triangle"
+        case .local: return "checkmark.circle.fill"
+        case .cloudOnly: return "icloud.and.arrow.down"
+        case .downloading: return "arrow.down.circle"
+        case .missing: return "questionmark.circle"
+        case .error: return "exclamationmark.triangle"
         }
     }
 }
@@ -385,78 +244,26 @@ enum VideoFileStatus {
 
 enum VideoFileError: LocalizedError {
     case invalidVideoPath
+    case cloudContainerUnavailable
     case fileNotFound(URL)
-    case iCloudFileNotDownloaded(URL)
-    case iCloudDownloadFailed(Error)
-    case storageLocationUnavailable(String)
-    
+    case fileNotDownloaded(URL)
+    case downloadFailed(String)
+
     var errorDescription: String? {
         switch self {
         case .invalidVideoPath:
             return "Invalid video file path"
+        case .cloudContainerUnavailable:
+            return "iCloud container is unavailable. Ensure iCloud Drive is enabled."
         case .fileNotFound(let url):
             return "Video file not found at \(url.lastPathComponent)"
-        case .iCloudFileNotDownloaded(let url):
+        case .fileNotDownloaded(let url):
             return "Video file \(url.lastPathComponent) is in iCloud but not downloaded"
-        case .iCloudDownloadFailed(let error):
-            return "Failed to download from iCloud: \(error.localizedDescription)"
-        case .storageLocationUnavailable(let location):
-            return "Storage location '\(location)' is not available"
-        }
-    }
-    
-    var recoverySuggestion: String? {
-        switch self {
-        case .iCloudFileNotDownloaded:
-            return "The video will be downloaded automatically when you try to play it"
-        case .iCloudDownloadFailed:
-            return "Check your internet connection and iCloud settings"
-        case .storageLocationUnavailable(let location):
-            if location.contains("Drive") {
-                return "Connect the external drive or select a different storage location"
-            } else {
-                return "Make sure the storage location is accessible"
-            }
-        default:
-            return nil
+        case .downloadFailed(let reason):
+            return "Failed to download from iCloud: \(reason)"
         }
     }
 }
-
-// MARK: - Video Storage Type
-
-enum VideoStorageType: String, CaseIterable, Codable {
-    case iCloudDrive = "icloud_drive"
-    case localLibrary = "local_library"
-    case externalDrive = "external_drive"
-    case customPath = "custom_path"
-    case dropbox = "dropbox"
-    case googleDrive = "google_drive"
-    case oneDrive = "onedrive"
-    
-    var displayName: String {
-        switch self {
-        case .iCloudDrive: return "iCloud Drive"
-        case .localLibrary: return "Local Library Package"
-        case .externalDrive: return "External Drive"
-        case .customPath: return "Custom Location"
-        case .dropbox: return "Dropbox Folder"
-        case .googleDrive: return "Google Drive Folder"
-        case .oneDrive: return "OneDrive Folder"
-        }
-    }
-    
-    var requiresCustomPath: Bool {
-        switch self {
-        case .externalDrive, .customPath, .dropbox, .googleDrive, .oneDrive:
-            return true
-        case .iCloudDrive, .localLibrary:
-            return false
-        }
-    }
-}
-
-// MARK: - Notifications
 
 extension Notification.Name {
     static let videoStorageAvailabilityChanged = Notification.Name("videoStorageAvailabilityChanged")

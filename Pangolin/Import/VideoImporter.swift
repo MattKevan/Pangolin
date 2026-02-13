@@ -23,6 +23,7 @@ class VideoImporter: ObservableObject {
     @Published var skippedFolders: [String] = []
     
     private let fileSystemManager = FileSystemManager.shared
+    private let videoFileManager = VideoFileManager.shared
     private let subtitleMatcher = SubtitleMatcher()
     private var cancellables = Set<AnyCancellable>()
     
@@ -138,6 +139,18 @@ class VideoImporter: ObservableObject {
                 } catch {
                     print("❌ IMPORT: Failed to import subtitle \(subtitleURL.lastPathComponent): \(error)")
                 }
+            }
+        }
+
+        // Move imported local staging file to ubiquitous iCloud media root.
+        if let libraryURL = library.url,
+           let relativePath = video.relativePath {
+            let localStagingURL = libraryURL.appendingPathComponent("Videos").appendingPathComponent(relativePath)
+            do {
+                try await videoFileManager.uploadImportedVideoToCloud(localURL: localStagingURL, for: video)
+            } catch {
+                print("❌ IMPORT: Failed to upload video to iCloud media root: \(error)")
+                throw error
             }
         }
         

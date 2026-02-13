@@ -10,7 +10,7 @@ import SwiftUI
 struct VideoFileStatusView: View {
     let video: Video
     @EnvironmentObject var videoFileManager: VideoFileManager
-    @State private var fileStatus: VideoFileStatus = .available
+    @State private var fileStatus: VideoFileStatus = .local
     @State private var showingDownloadAlert = false
     
     var body: some View {
@@ -41,19 +41,10 @@ struct VideoFileStatusView: View {
                     .buttonStyle(.plain)
                     .foregroundColor(.red)
                     
-                } else if fileStatus == .iCloudNotDownloaded {
+                } else if fileStatus == .cloudOnly {
                     // Download button
                     Button("Download") {
                         downloadVideo()
-                    }
-                    .font(.caption2)
-                    .buttonStyle(.bordered)
-                    .controlSize(.mini)
-                    
-                } else if fileStatus == .storageUnavailable {
-                    // Show warning
-                    Button("Fix") {
-                        showingDownloadAlert = true
                     }
                     .font(.caption2)
                     .buttonStyle(.bordered)
@@ -83,15 +74,15 @@ struct VideoFileStatusView: View {
     
     private var statusColor: Color {
         switch fileStatus {
-        case .available:
+        case .local:
             return .green
-        case .iCloudNotDownloaded:
+        case .cloudOnly:
             return .blue
-        case .storageUnavailable:
+        case .downloading:
             return .orange
-        case .notFound:
+        case .missing:
             return .red
-        case .invalid:
+        case .error:
             return .gray
         }
     }

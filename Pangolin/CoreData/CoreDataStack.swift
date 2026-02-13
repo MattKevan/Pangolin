@@ -1,12 +1,14 @@
 // CoreData/CoreDataStack.swift
 import Foundation
 import CoreData
+import CloudKit
 
 /// Singleton Core Data stack that ensures only one instance per database
-/// Local-only Core Data stack for .pangolin library packages
+/// Cloud-backed Core Data stack for .pangolin library packages
 class CoreDataStack {
     private let modelName = "Pangolin"
     private let libraryURL: URL
+    private let cloudContainerIdentifier = "iCloud.com.newindustries.pangolin"
     
     // MARK: - Singleton Management
     private static var instances: [String: CoreDataStack] = [:]
@@ -43,10 +45,11 @@ class CoreDataStack {
     }
     
     // MARK: - Core Data Properties
-    private var _persistentContainer: NSPersistentContainer?
+    private var _persistentContainer: NSPersistentCloudKitContainer?
+    private var cloudEventObserver: NSObjectProtocol?
     private let containerQueue = DispatchQueue(label: "com.pangolin.coredata.container")
 
-    lazy var persistentContainer: NSPersistentContainer = {
+    lazy var persistentContainer: NSPersistentCloudKitContainer = {
         return containerQueue.sync {
             if let existing = _persistentContainer {
                 return existing
@@ -74,10 +77,10 @@ class CoreDataStack {
     }
     
     // MARK: - Container Creation
-    private func createPersistentContainer() -> NSPersistentContainer {
-        print("🏗️ STACK: Creating NSPersistentContainer for local storage...")
+    private func createPersistentContainer() -> NSPersistentCloudKitContainer {
+        print("🏗️ STACK: Creating NSPersistentCloudKitContainer...")
 
-        let container = NSPersistentContainer(name: modelName)
+        let container = NSPersistentCloudKitContainer(name: modelName)
         
         // Set up database file location
         let storeURL = libraryURL.appendingPathComponent("Library.sqlite")
@@ -121,7 +124,9 @@ class CoreDataStack {
         // Configure view context
         configureViewContext(container.viewContext)
 
-        print("✅ STACK: Core Data container configured for local storage")
+        registerCloudEventObserver(for: container)
+
+        print("✅ STACK: Core Data container configured for CloudKit sync")
         
         return container
     }
@@ -145,11 +150,33 @@ class CoreDataStack {
         storeDescription.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
         storeDescription.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
 
+        // CloudKit metadata sync
+        storeDescription.cloudKitContainerOptions = NSPersistentCloudKitContainerOptions(containerIdentifier: cloudContainerIdentifier)
+
         // Additional options for better stability
         storeDescription.setOption(10000 as NSNumber, forKey: "busy_timeout")
 
-        print("📦 STACK: Core Data store configured with WAL mode")
+        print("📦 STACK: Core Data store configured with WAL mode + CloudKit container \(cloudContainerIdentifier)")
         return storeDescription
+    }
+
+    private func registerCloudEventObserver(for container: NSPersistentCloudKitContainer) {
+        cloudEventObserver = NotificationCenter.default.addObserver(
+            forName: NSPersistentCloudKitContainer.eventChangedNotification,
+            object: container,
+            queue: .main
+        ) { notification in
+            guard let event = notification.userInfo?[NSPersistentCloudKitContainer.eventNotificationUserInfoKey]
+                    as? NSPersistentCloudKitContainer.Event else {
+                return
+            }
+
+            if let error = event.error {
+                print("☁️ STACK: CloudKit event \(event.type) failed: \(error.localizedDescription)")
+            } else {
+                print("☁️ STACK: CloudKit event \(event.type) completed")
+            }
+        }
     }
     
     private func configureViewContext(_ context: NSManagedObjectContext) {
@@ -273,6 +300,11 @@ class CoreDataStack {
     // MARK: - Cleanup
     private func cleanup() {
         print("🧹 STACK: Cleaning up CoreDataStack...")
+
+        if let cloudEventObserver {
+            NotificationCenter.default.removeObserver(cloudEventObserver)
+            self.cloudEventObserver = nil
+        }
 
         // Clear container reference
         containerQueue.sync {

@@ -6,10 +6,13 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct FolderContentView: View {
     @EnvironmentObject private var store: FolderNavigationStore
     @EnvironmentObject private var libraryManager: LibraryManager
+    @StateObject private var importer = VideoImporter()
+    @State private var isExternalDropTargeted = false
 
     private var items: [ContentType] {
         store.flatContent
@@ -23,6 +26,11 @@ struct FolderContentView: View {
             return true
         }
         return false
+    }
+    
+    private var isAllVideosView: Bool {
+        guard let folder = store.currentFolder else { return false }
+        return folder.isSmartFolder && folder.name == "All Videos"
     }
 
     var body: some View {
@@ -78,6 +86,59 @@ struct FolderContentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onDrop(of: [.fileURL], isTargeted: $isExternalDropTargeted) { providers in
+            handleExternalFileDrop(providers: providers)
+        }
+        .overlay(alignment: .top) {
+            if isAllVideosView && isExternalDropTargeted {
+                Text("Drop videos or folders to import")
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(.top, 12)
+            }
+        }
+    }
+    
+    private func handleExternalFileDrop(providers: [NSItemProvider]) -> Bool {
+        guard isAllVideosView,
+              let library = libraryManager.currentLibrary,
+              let context = libraryManager.viewContext else {
+            return false
+        }
+        
+        let matchingProviders = providers.filter {
+            $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
+        }
+        guard !matchingProviders.isEmpty else { return false }
+        
+        let lock = NSLock()
+        var droppedURLs: [URL] = []
+        let group = DispatchGroup()
+        
+        for provider in matchingProviders {
+            group.enter()
+            let _ = provider.loadDataRepresentation(forTypeIdentifier: UTType.fileURL.identifier) { data, _ in
+                defer { group.leave() }
+                guard let data,
+                      let url = URL(dataRepresentation: data, relativeTo: nil) else {
+                    return
+                }
+                lock.lock()
+                droppedURLs.append(url)
+                lock.unlock()
+            }
+        }
+        
+        group.notify(queue: .main) {
+            guard !droppedURLs.isEmpty else { return }
+            Task {
+                await importer.importFiles(droppedURLs, to: library, context: context)
+            }
+        }
+        
+        return true
     }
 }
 

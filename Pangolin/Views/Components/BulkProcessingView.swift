@@ -332,7 +332,7 @@ struct TaskRowView: View {
         case .transcribe: return .blue
         case .translate: return .green
         case .summarize: return .purple
-        case .iCloudDownload: return .cyan
+        case .ensureLocalAvailability: return .cyan
         case .fileOperation: return .gray
         }
     }

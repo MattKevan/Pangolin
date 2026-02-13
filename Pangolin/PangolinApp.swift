@@ -2,15 +2,12 @@
 
 import SwiftUI
 import Combine
-import UniformTypeIdentifiers
 
 @main
 struct PangolinApp: App {
     @StateObject private var libraryManager = LibraryManager.shared
     @StateObject private var videoFileManager = VideoFileManager.shared
-    @State private var hasAttemptedAutoOpen = false
-    @State private var showingNewLibraryPicker = false
-    @State private var showingOpenLibraryPicker = false
+    @State private var hasAttemptedStartup = false
 
     var body: some Scene {
         WindowGroup {
@@ -20,112 +17,31 @@ struct PangolinApp: App {
                         .environmentObject(libraryManager)
                         .environmentObject(videoFileManager)
                 } else {
-                    LibraryPickerView()
-                        .environmentObject(libraryManager)
-
-                    if let error = libraryManager.error {
-                        VStack(spacing: 15) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 50))
-                                .foregroundColor(.red)
-
-                            Text("Library Error")
-                                .font(.title2)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.red)
-
-                            Text(error.localizedDescription)
-                                .multilineTextAlignment(.center)
-
-                            if let recovery = error.recoverySuggestion {
-                                Text(recovery)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .multilineTextAlignment(.center)
-                            }
-
-                            switch error {
-                            case .databaseCorrupted(_), .invalidLibrary(_):
-                                VStack(spacing: 10) {
-                                    Text("Your library database is corrupted, but it can be fixed.")
-                                        .font(.body)
-                                        .multilineTextAlignment(.center)
-                                        .foregroundColor(.primary)
-
-                                    Text("This will create a fresh library.")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                        .multilineTextAlignment(.center)
-
-                                    HStack(spacing: 10) {
-                                        Button("Reset Library") {
-                                            resetCorruptedLibrary()
-                                        }
-                                        .buttonStyle(.borderedProminent)
-                                        .foregroundColor(.white)
-                                        .tint(.red)
-
-                                        Button("Retry") {
-                                            retryLibraryOpen()
-                                        }
-                                        .buttonStyle(.bordered)
-                                    }
-                                }
-                            default:
-                                Button("Retry") {
-                                    retryLibraryOpen()
-                                }
-                                .buttonStyle(.borderedProminent)
-                            }
-                        }
-                        .padding(30)
-                        #if os(macOS)
-                        .background(Color(.controlBackgroundColor))
-                        #else
-                        .background(Color(.systemGray6))
-                        #endif
-                        .cornerRadius(12)
-                        .padding(.horizontal, 40)
-                    }
+                    StartupStatusView(
+                        error: libraryManager.error,
+                        retryAction: retryLibraryOpen,
+                        resetAction: resetCorruptedLibrary
+                    )
                 }
             }
             .frame(minWidth: 600, minHeight: 500)
             .onAppear {
-                if !hasAttemptedAutoOpen {
-                    attemptOpenLastLibrary()
+                if !hasAttemptedStartup {
+                    startLibraryStartup()
                 }
-            }
-            .fileExporter(
-                isPresented: $showingNewLibraryPicker,
-                document: LibraryDocument(),
-                contentType: .pangolinLibrary,
-                defaultFilename: "My Video Library"
-            ) { result in
-                handleNewLibraryCreation(result)
-            }
-            .fileImporter(
-                isPresented: $showingOpenLibraryPicker,
-                allowedContentTypes: [.pangolinLibrary]
-            ) { result in
-                handleOpenLibrarySelection(result)
             }
         }
         .commands {
             CommandGroup(after: .newItem) {
-                Button("New Library...") {
-                    showNewLibraryPicker()
+                Button("Reload Library") {
+                    retryLibraryOpen()
                 }
-                .keyboardShortcut("N", modifiers: [.command, .shift])
-
-                Button("Open Library...") {
-                    showOpenLibraryPicker()
-                }
-                .keyboardShortcut("O", modifiers: [.command, .shift])
+                .keyboardShortcut("R", modifiers: [.command, .shift])
 
                 Divider()
 
                 Button("Import Videos...") {
-                    // TODO: Show import dialog
+                    triggerImportVideos()
                 }
                 .keyboardShortcut("I", modifiers: .command)
                 .disabled(!libraryManager.isLibraryOpen)
@@ -156,22 +72,23 @@ struct PangolinApp: App {
         }
     }
 
-    private func attemptOpenLastLibrary() {
-        hasAttemptedAutoOpen = true
+    private func startLibraryStartup() {
+        hasAttemptedStartup = true
 
         Task {
             do {
-                try await libraryManager.openLastLibrary()
+                _ = try await libraryManager.smartStartup()
             } catch {
-                print("No last library found, showing picker")
+                print("❌ APP: Startup failed: \(error)")
+                libraryManager.error = error as? LibraryError
             }
         }
     }
 
     private func retryLibraryOpen() {
         libraryManager.error = nil
-        hasAttemptedAutoOpen = false
-        attemptOpenLastLibrary()
+        hasAttemptedStartup = false
+        startLibraryStartup()
     }
 
     private func resetCorruptedLibrary() {
@@ -211,48 +128,59 @@ struct PangolinApp: App {
     private func triggerRename() {
         NotificationCenter.default.post(name: NSNotification.Name("TriggerRename"), object: nil)
     }
-
-    private func showNewLibraryPicker() {
-        showingNewLibraryPicker = true
+    
+    private func triggerImportVideos() {
+        NotificationCenter.default.post(name: NSNotification.Name("TriggerImportVideos"), object: nil)
     }
+}
 
-    private func showOpenLibraryPicker() {
-        showingOpenLibraryPicker = true
-    }
+private struct StartupStatusView: View {
+    let error: LibraryError?
+    let retryAction: () -> Void
+    let resetAction: () -> Void
 
-    private func handleNewLibraryCreation(_ result: Result<URL, Error>) {
-        switch result {
-        case .success(let url):
-            Task {
-                do {
-                    let parentDirectory = url.deletingLastPathComponent()
-                    let libraryName = url.deletingPathExtension().lastPathComponent
-                    _ = try await libraryManager.createLibrary(at: parentDirectory, name: libraryName)
-                    print("✅ Successfully created new library at: \(url.path)")
-                } catch {
-                    print("❌ Failed to create new library: \(error)")
-                    libraryManager.error = error as? LibraryError
+    var body: some View {
+        VStack(spacing: 16) {
+            if let error {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 42))
+                    .foregroundColor(.red)
+
+                Text("Couldn’t Open Library")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+
+                Text(error.localizedDescription)
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(.secondary)
+
+                if let recovery = error.recoverySuggestion {
+                    Text(recovery)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
                 }
-            }
-        case .failure(let error):
-            print("❌ Library creation cancelled or failed: \(error)")
-        }
-    }
 
-    private func handleOpenLibrarySelection(_ result: Result<URL, Error>) {
-        switch result {
-        case .success(let url):
-            Task {
-                do {
-                    _ = try await libraryManager.openLibrary(at: url)
-                    print("✅ Successfully opened library at: \(url.path)")
-                } catch {
-                    print("❌ Failed to open library: \(error)")
-                    libraryManager.error = error as? LibraryError
+                HStack(spacing: 10) {
+                    Button("Retry", action: retryAction)
+                        .buttonStyle(.borderedProminent)
+
+                    if case .databaseCorrupted = error {
+                        Button("Reset Library", action: resetAction)
+                            .buttonStyle(.bordered)
+                    }
                 }
+            } else {
+                ProgressView()
+                    .controlSize(.large)
+                Text("Preparing iCloud Library…")
+                    .font(.headline)
+                Text("Setting up your cloud-backed library in Documents/Pangolin.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
-        case .failure(let error):
-            print("❌ Library opening cancelled or failed: \(error)")
         }
+        .padding(24)
+        .frame(maxWidth: 520)
     }
 }

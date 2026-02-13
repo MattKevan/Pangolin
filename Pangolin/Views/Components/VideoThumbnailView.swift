@@ -11,7 +11,7 @@ struct VideoThumbnailView: View {
     let video: Video
     let size: CGSize
     @StateObject private var videoFileManager = VideoFileManager.shared
-    @State private var fileStatus: VideoFileStatus = .available
+    @State private var fileStatus: VideoFileStatus = .local
     
     init(video: Video, size: CGSize = CGSize(width: 160, height: 90)) {
         self.video = video
@@ -92,7 +92,7 @@ struct VideoThumbnailView: View {
     @ViewBuilder
     private var cloudStatusIcon: some View {
         switch fileStatus {
-        case .iCloudNotDownloaded:
+        case .cloudOnly:
             Image(systemName: "icloud")
                 .font(.caption)
                 .foregroundColor(.white)
@@ -100,15 +100,15 @@ struct VideoThumbnailView: View {
                 .frame(width: 16, height: 16)
                 .help("File is in iCloud - tap to download")
                 
-        case .storageUnavailable:
-            Image(systemName: "icloud.slash")
+        case .downloading:
+            Image(systemName: "icloud.and.arrow.down")
                 .font(.caption)
                 .foregroundColor(.white)
-                .background(Circle().fill(.orange))
+                .background(Circle().fill(.blue))
                 .frame(width: 16, height: 16)
-                .help("Storage unavailable")
+                .help("Downloading from iCloud")
                 
-        case .notFound:
+        case .missing:
             Image(systemName: "exclamationmark.icloud")
                 .font(.caption)
                 .foregroundColor(.white)
@@ -116,7 +116,7 @@ struct VideoThumbnailView: View {
                 .frame(width: 16, height: 16)
                 .help("File not found")
                 
-        case .available:
+        case .local:
             // Show checkmark for downloaded files, similar to Finder
             if videoFileManager.downloadingVideos.contains(video.id ?? UUID()) {
                 // Show download progress
@@ -131,7 +131,7 @@ struct VideoThumbnailView: View {
                 EmptyView()
             }
             
-        case .invalid:
+        case .error:
             Image(systemName: "questionmark.diamond")
                 .font(.caption)
                 .foregroundColor(.white)

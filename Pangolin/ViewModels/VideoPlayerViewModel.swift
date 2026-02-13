@@ -59,8 +59,6 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     
     func loadVideo(_ video: Video, autoPlay: Bool = false) {
         currentVideo = video
-        guard let url = video.fileURL else { return }
-        
         isLoading = true
         let shouldAutoPlay = autoPlay
         
@@ -75,35 +73,40 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         buildTask?.cancel()
         buildTask = Task { @MainActor in
             do {
-                let item = try await buildPlayerItem(for: url, with: selectedSubtitle)
-                let newPlayer = AVPlayer(playerItem: item)
-                newPlayer.volume = volume
-                player = newPlayer
-                
-                // Also ensure duration is updated (in case builder didn't)
-                await updateDuration(from: item)
-                
-                // Restore playback position
-                if video.playbackPosition > 0 {
-                    await player?.seek(to: CMTime(seconds: video.playbackPosition, preferredTimescale: 600))
-                }
-                
-                await setupTimeObserverIfAsync()
-                await setupNotificationsIfAsync()
-                if shouldAutoPlay {
-                    play()
+                let resolvedURL = try await video.getAccessibleFileURL(downloadIfNeeded: true)
+                do {
+                    let item = try await buildPlayerItem(for: resolvedURL, with: selectedSubtitle)
+                    let newPlayer = AVPlayer(playerItem: item)
+                    newPlayer.volume = volume
+                    player = newPlayer
+                    
+                    // Also ensure duration is updated (in case builder didn't)
+                    await updateDuration(from: item)
+                    
+                    // Restore playback position
+                    if video.playbackPosition > 0 {
+                        await player?.seek(to: CMTime(seconds: video.playbackPosition, preferredTimescale: 600))
+                    }
+                    
+                    await setupTimeObserverIfAsync()
+                    await setupNotificationsIfAsync()
+                    if shouldAutoPlay {
+                        play()
+                    }
+                } catch {
+                    // Fallback to simple item on failure
+                    let item = AVPlayerItem(url: resolvedURL)
+                    player = AVPlayer(playerItem: item)
+                    await updateDuration(from: item)
+                    await setupTimeObserverIfAsync()
+                    await setupNotificationsIfAsync()
+                    if shouldAutoPlay {
+                        play()
+                    }
+                    print("⚠️ Failed to build composed player item: \(error)")
                 }
             } catch {
-                // Fallback to simple item on failure
-                let item = AVPlayerItem(url: url)
-                player = AVPlayer(playerItem: item)
-                await updateDuration(from: item)
-                await setupTimeObserverIfAsync()
-                await setupNotificationsIfAsync()
-                if shouldAutoPlay {
-                    play()
-                }
-                print("⚠️ Failed to build composed player item: \(error)")
+                print("🚨 Failed to resolve playable video URL: \(error)")
             }
             isLoading = false
         }

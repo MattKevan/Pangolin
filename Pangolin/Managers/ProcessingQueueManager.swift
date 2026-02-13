@@ -129,11 +129,11 @@ class ProcessingQueueManager: ObservableObject {
     }
 
     func enqueueFullWorkflow(for videos: [Video]) {
-        enqueueVideoTasks(for: videos, types: [.iCloudDownload, .generateThumbnail, .transcribe, .translate, .summarize], force: false)
+        enqueueVideoTasks(for: videos, types: [.ensureLocalAvailability, .generateThumbnail, .transcribe, .translate, .summarize], force: false)
     }
 
     func enqueueTranscriptionAndSummary(for videos: [Video]) {
-        enqueueVideoTasks(for: videos, types: [.iCloudDownload, .transcribe, .summarize], force: false)
+        enqueueVideoTasks(for: videos, types: [.ensureLocalAvailability, .transcribe, .summarize], force: false)
     }
 
     private func enqueueVideoTasks(for videos: [Video], types: [ProcessingTaskType], force: Bool, preferredLocale: Locale? = nil, targetLocale: Locale? = nil) {
@@ -285,8 +285,8 @@ class ProcessingQueueManager: ObservableObject {
             switch task.type {
             case .importVideo:
                 try await executeImport(task)
-            case .iCloudDownload:
-                try await executeiCloudDownload(task)
+            case .ensureLocalAvailability:
+                try await executeEnsureLocalAvailability(task)
             case .generateThumbnail:
                 try await executeThumbnail(task)
             case .transcribe:
@@ -349,11 +349,11 @@ class ProcessingQueueManager: ObservableObject {
         refreshStats()
     }
 
-    private func executeiCloudDownload(_ task: ProcessingTask) async throws {
+    private func executeEnsureLocalAvailability(_ task: ProcessingTask) async throws {
         guard let video = fetchVideo(for: task) else {
             throw FileSystemError.fileNotFound
         }
-        _ = try await videoFileManager.getVideoFileURL(for: video, downloadIfNeeded: true)
+        _ = try await videoFileManager.ensureLocalAvailability(for: video)
     }
 
     private func executeThumbnail(_ task: ProcessingTask) async throws {
@@ -464,7 +464,7 @@ class ProcessingQueueManager: ObservableObject {
         switch type {
         case .importVideo:
             return false
-        case .iCloudDownload:
+        case .ensureLocalAvailability:
             if let url = video.fileURL {
                 return FileManager.default.fileExists(atPath: url.path)
             }

@@ -261,6 +261,7 @@ private struct RootContainerView<Content: View>: View {
                 folderStore: folderStore,
                 searchManager: searchManager,
                 libraryManager: libraryManager,
+                showingImportPicker: $showingImportPicker,
                 updateColumnVisibility: updateColumnVisibility,
                 handleAutoTranscribe: handleAutoTranscribe
             ))
@@ -314,6 +315,7 @@ private struct RootEventsModifier: ViewModifier {
     @ObservedObject var folderStore: FolderNavigationStore
     @ObservedObject var searchManager: SearchManager
     @ObservedObject var libraryManager: LibraryManager
+    @Binding var showingImportPicker: Bool
     let updateColumnVisibility: () -> Void
     let handleAutoTranscribe: () -> Void
 
@@ -337,6 +339,9 @@ private struct RootEventsModifier: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("TriggerSearch"))) { _ in
                 // Activate search mode when Cmd+F is pressed
                 folderStore.selectedSidebarItem = .search
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("TriggerImportVideos"))) { _ in
+                showingImportPicker = true
             }
     }
 }
