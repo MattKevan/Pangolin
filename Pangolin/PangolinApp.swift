@@ -89,7 +89,10 @@ struct PangolinApp: App {
                     }
                 }
             }
-            .frame(minWidth: 600, minHeight: 500)
+            .frame(
+                minWidth: libraryManager.isLibraryOpen ? 1200 : 600,
+                minHeight: libraryManager.isLibraryOpen ? 700 : 500
+            )
             .onAppear {
                 if !hasAttemptedAutoOpen {
                     attemptOpenLastLibrary()
@@ -110,6 +113,12 @@ struct PangolinApp: App {
                 handleOpenLibrarySelection(result)
             }
         }
+        WindowGroup("Video Player", id: "video-player-window", for: String.self) { $videoID in
+            DetachedVideoPlayerWindowView(videoID: videoID)
+                .environmentObject(libraryManager)
+                .environmentObject(videoFileManager)
+        }
+        .defaultSize(width: 900, height: 520)
         .commands {
             CommandGroup(after: .newItem) {
                 Button("New Library...") {

@@ -47,6 +47,8 @@ class FolderNavigationStore: ObservableObject {
     // Reactive data sources for the UI
     @Published var hierarchicalContent: [HierarchicalContentItem] = []
     @Published var flatContent: [ContentType] = []
+    @Published var sidebarTreeContent: [HierarchicalContentItem] = []
+    @Published var systemSidebarFolders: [Folder] = []
 
     // MARK: - UI State
     @Published var currentSortOption: SortOption = .foldersFirst {
@@ -168,6 +170,7 @@ class FolderNavigationStore: ObservableObject {
               let folderID = currentFolderID else {
             self.hierarchicalContent = []
             self.flatContent = []
+            self.refreshSidebarTree()
             return
         }
         
@@ -238,6 +241,80 @@ class FolderNavigationStore: ObservableObject {
         } else {
             print("🎯 STORE: Keeping existing selection: \(selectedVideo?.title ?? "unknown")")
         }
+
+        refreshSidebarTree()
+    }
+
+    private func refreshSidebarTree() {
+        guard let context = libraryManager.viewContext,
+              let library = libraryManager.currentLibrary else {
+            sidebarTreeContent = []
+            systemSidebarFolders = []
+            return
+        }
+
+        let request = Folder.fetchRequest()
+        request.predicate = NSPredicate(format: "library == %@ AND isTopLevel == YES", library)
+        request.sortDescriptors = [NSSortDescriptor(keyPath: \Folder.name, ascending: true)]
+
+        do {
+            let topLevelFolders = try context.fetch(request)
+            let smartByName = Dictionary(uniqueKeysWithValues: topLevelFolders
+                .filter { $0.isSmartFolder }
+                .map { (($0.name ?? "").lowercased(), $0) })
+
+            var orderedSmartFolders: [Folder] = []
+            for key in ["all videos", "favorites", "recent"] {
+                if let folder = smartByName[key] {
+                    orderedSmartFolders.append(folder)
+                }
+            }
+            systemSidebarFolders = orderedSmartFolders
+
+            sidebarTreeContent = topLevelFolders
+                .filter { !$0.isSmartFolder }
+                .map { HierarchicalContentItem(folder: $0) }
+        } catch {
+            errorMessage = "Failed to build sidebar tree: \(error.localizedDescription)"
+            sidebarTreeContent = []
+            systemSidebarFolders = []
+        }
+    }
+
+    func handleSidebarTreeSelection(_ item: HierarchicalContentItem?) {
+        guard let item else { return }
+
+        switch item.contentType {
+        case .folder(let folder):
+            selectedSidebarItem = .folder(folder)
+            selectedTopLevelFolder = folder
+            currentFolderID = folder.id
+
+            // Keep player active by selecting a first video when folder changes.
+            let firstVideo = item.children?.compactMap { child -> Video? in
+                if case .video(let video) = child.contentType { return video }
+                return nil
+            }.first
+            if let firstVideo {
+                selectedVideo = firstVideo
+            } else {
+                selectedVideo = nil
+            }
+
+        case .video(let video):
+            selectedVideo = video
+            if let folder = video.folder {
+                selectedSidebarItem = .folder(folder)
+                selectedTopLevelFolder = folder
+                currentFolderID = folder.id
+            }
+        }
+    }
+
+    func selectSystemFolder(_ folder: Folder) {
+        selectedSidebarItem = .folder(folder)
+        selectedTopLevelFolder = folder
+        currentFolderID = folder.id
     }
     
     // MARK: - Content Access (for Sidebar)
@@ -737,4 +814,3 @@ class FolderNavigationStore: ObservableObject {
         }
     }
 }
-

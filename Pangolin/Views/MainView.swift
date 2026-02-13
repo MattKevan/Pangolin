@@ -3,235 +3,139 @@
 import SwiftUI
 import CoreData
 
-#if os(macOS)
-import AppKit
-#endif
-
-// MARK: - Inspector Tab Definition
-
-private enum InspectorTab: CaseIterable, Hashable {
-    case transcript
-    case translation
-    case summary
-    case info
-    
-    var title: String {
-        switch self {
-        case .transcript: return "Transcript"
-        case .translation: return "Translation"
-        case .summary: return "Summary"
-        case .info: return "Info"
-        }
-    }
-    
-    var systemImage: String {
-        switch self {
-        case .transcript: return "doc.text"
-        case .translation: return "globe.badge.chevron.backward"
-        case .summary: return "doc.text.below.ecg"
-        case .info: return "info.circle"
-        }
-    }
-}
-
-private struct ToggleSidebarButton: View {
-    var body: some View {
-        Button {
-            #if os(macOS)
-            // Toggles the sidebar in the current window
-            NSApp.keyWindow?.firstResponder?.tryToPerform(#selector(NSSplitViewController.toggleSidebar(_:)), with: nil)
-            #endif
-        } label: {
-            Image(systemName: "sidebar.leading")
-        }
-        .help("Toggle Sidebar")
-    }
-}
-
 struct MainView: View {
     @EnvironmentObject var libraryManager: LibraryManager
     @StateObject private var folderStore: FolderNavigationStore
     @StateObject private var searchManager = SearchManager()
     @StateObject private var transcriptionService = SpeechTranscriptionService()
     @StateObject private var taskQueueManager = TaskQueueManager.shared
-    
-    @State private var showInspector = false
+
     @State private var showingCreateFolder = false
-    
-    @State private var selectedInspectorTab: InspectorTab = .transcript
-    
-    // Prevent duplicate auto-triggers during rapid selection changes
-    @State private var isAutoTranscribing = false
-    
-    // Popover state for task indicator
     @State private var showTaskPopover = false
-    
+    @State private var selectedDetailTab: DetailContentTab = .transcript
+    @State private var isInspectorPresented = true
+
     init(libraryManager: LibraryManager) {
         self._folderStore = StateObject(wrappedValue: FolderNavigationStore(libraryManager: libraryManager))
     }
-    
+
     var body: some View {
         NavigationSplitView {
             SidebarView()
-                .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 350)
+                .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 420)
                 .environmentObject(folderStore)
                 .environmentObject(libraryManager)
                 .environmentObject(searchManager)
                 .applyManagedObjectContext(libraryManager.viewContext)
         } detail: {
-            DetailContentView()
+            DetailContentView(selectedTab: $selectedDetailTab)
                 .environmentObject(folderStore)
                 .environmentObject(searchManager)
                 .environmentObject(libraryManager)
-                .navigationSplitViewColumnWidth(min: 700, ideal: 900)
-                .toolbar {
-                    if folderStore.isSearchMode {
-                        // Search Mode: Centered wide search field
-                        ToolbarItem(placement: .principal) {
-                            HStack(spacing: 12) {
-                                Image(systemName: "magnifyingglass")
-                                    .foregroundColor(.secondary)
-                                    .font(.system(size: 16))
+                .environmentObject(transcriptionService)
+                .navigationSplitViewColumnWidth(min: 520, ideal: 900, max: nil)
+        }
+        .navigationSplitViewStyle(.balanced)
+        .toolbar {
+            ToolbarItemGroup(placement: .navigation) {
+                Button {
+                    PlatformUtilities.selectVideosForImport { urls in
+                        guard !urls.isEmpty else { return }
+                        handleVideoImport(.success(urls))
+                    }
+                } label: {
+                    Image(systemName: "square.and.arrow.down")
+                }
+                .help("Import Videos")
+                .disabled(libraryManager.currentLibrary == nil)
 
-                                TextField("Search videos, transcripts, and summaries", text: $searchManager.searchText)
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(maxWidth: 600) // Wider search field
+                Button {
+                    showingCreateFolder = true
+                } label: {
+                    Image(systemName: "folder.badge.plus")
+                }
+                .help("Add Folder")
+                .disabled(libraryManager.currentLibrary == nil)
+            }
 
-                                // Search scope picker
-                                Picker("Scope", selection: $searchManager.searchScope) {
-                                    ForEach(SearchManager.SearchScope.allCases) { scopeOption in
-                                        Text(scopeOption.rawValue).tag(scopeOption)
-                                    }
-                                }
-                                .pickerStyle(.menu)
-                                .frame(width: 100)
-                            }
-                            .padding(.horizontal, 16)
-                        }
-                    } else {
-                        // Normal Mode: Standard toolbar items
-                        ToolbarItemGroup(placement: .navigation) {
-                            Button {
-                                PlatformUtilities.selectVideosForImport { urls in
-                                    guard !urls.isEmpty else { return }
-                                    print("📁 IMPORT: Got \(urls.count) URLs from file picker")
-                                    handleVideoImport(.success(urls))
-                                }
-                            } label: {
-                                Image(systemName: "square.and.arrow.down")
-                            }
-                            .help("Import Videos")
-                            .disabled(libraryManager.currentLibrary == nil)
+            if folderStore.isSearchMode {
+                ToolbarItem(placement: .principal) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundColor(.secondary)
+                            .font(.system(size: 16))
 
-                            
-                            Button {
-                                showingCreateFolder = true
-                            } label: {
-                                Image(systemName: "folder.badge.plus")
+                        TextField("Search videos, transcripts, and summaries", text: $searchManager.searchText)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(maxWidth: 600)
+
+                        Picker("Scope", selection: $searchManager.searchScope) {
+                            ForEach(SearchManager.SearchScope.allCases) { scopeOption in
+                                Text(scopeOption.rawValue).tag(scopeOption)
                             }
-                            .help("Add Folder")
-                            .disabled(libraryManager.currentLibrary == nil)
                         }
-                        
-                        // Trailing actions
-                        ToolbarItemGroup(placement: .primaryAction) {
-                            // Task Queue Progress Indicator
-                            if taskQueueManager.hasActiveTasks {
-                                Button {
-                                    showTaskPopover.toggle()
-                                } label: {
-                                    ZStack {
-                                        ProgressView(value: taskQueueManager.overallProgress)
-                                            .progressViewStyle(.circular)
-                                            .controlSize(.small)
-                                            .frame(width: 14, height: 14)
-                                        
-                                        // Badge showing number of active tasks
-                                        if taskQueueManager.activeTaskCount > 1 {
-                                            Text("\(taskQueueManager.activeTaskCount)")
-                                                .font(.system(size: 8, weight: .bold))
-                                                .foregroundColor(.white)
-                                                .frame(width: 12, height: 12)
-                                                .background(Color.red)
-                                                .clipShape(Circle())
-                                                .offset(x: 6, y: -6)
-                                        }
-                                    }
-                                    .frame(width: 20, height: 20) // hit target
-                                    .accessibilityLabel("Background tasks")
-                                    .accessibilityValue("\(taskQueueManager.activeTaskCount) active tasks")
-                                }
-                                .buttonStyle(.plain)
-                                .popover(isPresented: $showTaskPopover, arrowEdge: .top) {
-                                    TaskQueuePopoverView()
-                                }
+                        .pickerStyle(.menu)
+                        .frame(width: 110)
+                    }
+                    .padding(.horizontal, 16)
+                }
+            } else {
+                ToolbarItemGroup(placement: .principal) {
+                    toolbarTabButton(.transcript)
+                    toolbarTabButton(.translation)
+                    toolbarTabButton(.summary)
+                    toolbarTabButton(.info)
+                }
+            }
+
+            ToolbarItemGroup(placement: .primaryAction) {
+                if taskQueueManager.hasActiveTasks {
+                    Button {
+                        showTaskPopover.toggle()
+                    } label: {
+                        ZStack {
+                            ProgressView(value: taskQueueManager.overallProgress)
+                                .progressViewStyle(.circular)
+                                .controlSize(.small)
+                                .frame(width: 14, height: 14)
+
+                            if taskQueueManager.activeTaskCount > 1 {
+                                Text("\(taskQueueManager.activeTaskCount)")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundColor(.white)
+                                    .frame(width: 12, height: 12)
+                                    .background(Color.red)
+                                    .clipShape(Circle())
+                                    .offset(x: 6, y: -6)
                             }
-                            
-                            
-                            
-                            Button {
-                                showInspector.toggle()
-                            } label: {
-                                Image(systemName: "sidebar.right")
-                            }
-                            .keyboardShortcut("i", modifiers: [.command, .option])
-                            .help("Show Inspector")
                         }
+                        .frame(width: 20, height: 20)
+                        .accessibilityLabel("Background tasks")
+                        .accessibilityValue("\(taskQueueManager.activeTaskCount) active tasks")
+                    }
+                    .buttonStyle(.plain)
+                    .popover(isPresented: $showTaskPopover, arrowEdge: .top) {
+                        TaskQueuePopoverView()
                     }
                 }
-                .inspector(isPresented: $showInspector) {
-                    InspectorContainer {
-                        Picker("Inspector Section", selection: $selectedInspectorTab) {
-                            ForEach(InspectorTab.allCases, id: \.self) { tab in
-                                Label(tab.title, systemImage: tab.systemImage).tag(tab)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .controlSize(.large)
-                        .frame(maxWidth: .infinity, minHeight: 28)
-                        .padding(.horizontal, 8)
-                        .labelsHidden()
-                    } content: {
-                        if let selected = folderStore.selectedVideo {
-                            switch selectedInspectorTab {
-                            case .transcript:
-                                TranscriptionView(video: selected)
-                                    .environmentObject(libraryManager)
-                                    .environmentObject(transcriptionService)
-                                    .background(.clear)
-                            case .translation:
-                                TranslationView(video: selected)
-                                    .environmentObject(libraryManager)
-                                    .environmentObject(transcriptionService)
-                                    .background(.clear)
-                            case .summary:
-                                SummaryView(video: selected)
-                                    .environmentObject(libraryManager)
-                                    .environmentObject(transcriptionService)
-                                    .background(.clear)
-                            case .info:
-                                VideoInfoView(video: selected)
-                                    .environmentObject(libraryManager)
-                                    .background(.clear)
-                            }
-                        } else {
-                            ContentUnavailableView(
-                                "No Video Selected",
-                                systemImage: "sidebar.right",
-                                description: Text("Select a video to view transcript, summary and info")
-                            )
-                            .background(.clear)
-                        }
-                    }
-                    .inspectorColumnWidth(min: 280, ideal: 400, max: 600)
+
+                Button {
+                    isInspectorPresented.toggle()
+                } label: {
+                    Image(systemName: "sidebar.right")
                 }
-                // Removed auto-transcribe on selection change. Transcription must be user-initiated.
+                .help(isInspectorPresented ? "Hide Inspector" : "Show Inspector")
+            }
+        }
+        .inspector(isPresented: $isInspectorPresented) {
+            InspectorVideoPanel(video: folderStore.selectedVideo, allowOpenInNewWindow: true)
+                .inspectorColumnWidth(min: 320, ideal: 360, max: 420)
         }
         .onAppear {
             print("🏗️ MAINVIEW: MainView appeared")
         }
         .sheet(isPresented: $showingCreateFolder) {
-            CreateFolderView(parentFolderID: nil) // Always create top-level user folders
+            CreateFolderView(parentFolderID: nil)
                 .environmentObject(folderStore)
         }
         .conditionalSearchable(
@@ -239,7 +143,7 @@ struct MainView: View {
             text: $searchManager.searchText,
             scope: $searchManager.searchScope
         )
-        .navigationTitle(folderStore.isSearchMode ? "" : (libraryManager.currentLibrary?.name ?? "Pangolin"))
+        .navigationTitle("")
         .onChange(of: folderStore.selectedSidebarItem) { _, newSelection in
             if case .search = newSelection {
                 searchManager.activateSearch()
@@ -248,11 +152,9 @@ struct MainView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("TriggerSearch"))) { _ in
-            // Activate search mode when Cmd+F is pressed
             folderStore.selectedSidebarItem = .search
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("TriggerImport"))) { _ in
-            // Show import dialog when Cmd+I is pressed
             PlatformUtilities.selectVideosForImport { urls in
                 guard !urls.isEmpty else { return }
                 handleVideoImport(.success(urls))
@@ -260,17 +162,7 @@ struct MainView: View {
         }
         .pangolinAlert(error: $libraryManager.error)
     }
-    
-    
-    private func hasTranscript(_ video: Video) -> Bool {
-        if let t = video.transcriptText {
-            return !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
-        return false
-    }
-    
-    // MARK: - Helpers
-    
+
     private func handleVideoImport(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
@@ -280,7 +172,6 @@ struct MainView: View {
             Task {
                 let importer = VideoImporter()
 
-                // Fetch the library object in the correct context
                 do {
                     let library = try context.existingObject(with: libraryID) as! Library
                     await importer.importFiles(urls, to: library, context: context)
@@ -292,77 +183,60 @@ struct MainView: View {
             print("Error importing files: \(error)")
         }
     }
-    
-}
 
-
-
-// MARK: - Inspector Container and other helpers
-
-private struct InspectorContainer<ToolbarContent: View, Content: View>: View {
-    @ViewBuilder var toolbarContent: ToolbarContent
-    @ViewBuilder var content: Content
-    
-    var body: some View {
-        VStack(spacing: 0) {
-            // Full-width toolbar area
-            VStack(spacing: 0) {
-                toolbarContent
-                    .padding(.vertical, 8)
+    @ViewBuilder
+    private func toolbarTabButton(_ tab: DetailContentTab) -> some View {
+        if selectedDetailTab == tab {
+            Button {
+                selectedDetailTab = tab
+            } label: {
+                Text(tab.toolbarTitle)
+                    .lineLimit(1)
             }
-            
-            // Content area with padding
-            content
-                .padding(.horizontal, 8)
-                .padding(.top, 8)
-            
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        #if os(macOS)
-        .background(.regularMaterial)
-        #else
-        .background(Color(.tertiarySystemBackground))
-        #endif
-        .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(Color.secondary.opacity(0.25))
-                .frame(width: 1)
+            .buttonStyle(BorderedProminentButtonStyle())
+            .controlSize(.small)
+        } else {
+            Button {
+                selectedDetailTab = tab
+            } label: {
+                Text(tab.toolbarTitle)
+                    .lineLimit(1)
+            }
+            .buttonStyle(BorderedButtonStyle())
+            .controlSize(.small)
         }
     }
 }
 
-// MARK: - Detail Content View
 private struct DetailContentView: View {
     @EnvironmentObject private var folderStore: FolderNavigationStore
     @EnvironmentObject private var searchManager: SearchManager
     @EnvironmentObject private var libraryManager: LibraryManager
+    @EnvironmentObject private var transcriptionService: SpeechTranscriptionService
+    @Binding var selectedTab: DetailContentTab
 
     var body: some View {
         Group {
             if folderStore.isSearchMode {
-                // Search Mode: Always show search results view
                 SearchResultsView()
                     .environmentObject(searchManager)
                     .environmentObject(folderStore)
                     .environmentObject(libraryManager)
+            } else if let selectedVideo = folderStore.selectedVideo {
+                DetailView(video: selectedVideo, selectedTab: $selectedTab)
+                    .environmentObject(folderStore)
+                    .environmentObject(libraryManager)
+                    .environmentObject(transcriptionService)
             } else {
-                // Normal Mode: Show regular detail view or hierarchical content
-                if let selectedVideo = folderStore.selectedVideo {
-                    DetailView(video: selectedVideo)
-                        .environmentObject(folderStore)
-                        .environmentObject(libraryManager)
-                } else {
-                    HierarchicalContentView(searchText: "")
-                        .environmentObject(folderStore)
-                        .environmentObject(libraryManager)
-                }
+                ContentUnavailableView(
+                    "No Video Selected",
+                    systemImage: "video",
+                    description: Text("Select a file from the sidebar tree.")
+                )
             }
         }
     }
 }
-
-// MARK: - View Modifier helpers
 
 private extension View {
     @ViewBuilder
@@ -380,7 +254,6 @@ private extension View {
         text: Binding<String>,
         scope: Binding<SearchManager.SearchScope>
     ) -> some View {
-        // No longer needed since we handle search in the main toolbar
         self
     }
 }
