@@ -34,16 +34,7 @@ class FolderNavigationStore: ObservableObject {
             handleSidebarSelectionChange()
         }
     }
-    @Published var selectedTopLevelFolder: Folder? {
-        didSet {
-            // Avoid clearing the selected video when we're revealing a video's location.
-            guard !isRevealingVideoLocation else { return }
-            // For explicit folder switches, clear the detail selection.
-            Task { @MainActor in
-                self.selectedVideo = nil
-            }
-        }
-    }
+    @Published var selectedTopLevelFolder: Folder?
     @Published var selectedVideo: Video?
     @Published var isSearchMode = false
     
@@ -127,35 +118,37 @@ class FolderNavigationStore: ObservableObject {
     
     // MARK: - Search Support
     private func handleSidebarSelectionChange() {
-        Task { @MainActor in
-            switch selectedSidebarItem {
-            case .search:
-                isSearchMode = true
-                // Don't change currentFolderID when in search mode
-                // Content will be managed by SearchManager
-            case .folder(let folder):
-                isSearchMode = false
-                // When revealing a video's location, revealVideoLocation(_:) sets
-                // selectedTopLevelFolder/currentFolderID/navigationPath explicitly.
-                // Avoid clobbering that state from this sidebar selection callback.
-                if isRevealingVideoLocation {
-                    break
-                }
-                if folder.isTopLevel {
-                    navigationPath = NavigationPath()
-                }
-                selectedTopLevelFolder = folder
-                currentFolderID = folder.id
-                if folder.isSmartFolder && !isRevealingVideoLocation {
-                    selectedVideo = nil
-                }
-            case .video(let video):
-                isSearchMode = false
-                selectedVideo = video
-            case .none:
-                isSearchMode = false
-                // Keep current state
+        switch selectedSidebarItem {
+        case .search:
+            isSearchMode = true
+            // Don't change currentFolderID when in search mode
+            // Content will be managed by SearchManager
+        case .folder(let folder):
+            isSearchMode = false
+            // When revealing a video's location, revealVideoLocation(_:) sets
+            // selectedTopLevelFolder/currentFolderID/navigationPath explicitly.
+            // Avoid clobbering that state from this sidebar selection callback.
+            if isRevealingVideoLocation {
+                return
             }
+            applyFolderSelection(folder, clearSelectedVideo: true)
+        case .video(let video):
+            isSearchMode = false
+            selectedVideo = video
+        case .none:
+            isSearchMode = false
+            // Keep current state
+        }
+    }
+
+    private func applyFolderSelection(_ folder: Folder, clearSelectedVideo: Bool) {
+        if folder.isTopLevel {
+            navigationPath = NavigationPath()
+        }
+        selectedTopLevelFolder = folder
+        currentFolderID = folder.id
+        if clearSelectedVideo {
+            selectedVideo = nil
         }
     }
     
