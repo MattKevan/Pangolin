@@ -1,39 +1,54 @@
 import Foundation
 
 enum ProcessingTaskType: String, CaseIterable, Codable {
+    case importVideo = "import_video"
+    case generateThumbnail = "generate_thumbnail"
     case transcribe = "transcribe"
     case translate = "translate"
     case summarize = "summarize"
     case iCloudDownload = "icloud_download"
+    case fileOperation = "file_operation"
     
     var displayName: String {
         switch self {
+        case .importVideo: return "Import"
+        case .generateThumbnail: return "Thumbnail"
         case .transcribe: return "Transcription"
         case .translate: return "Translation"
         case .summarize: return "Summary"
         case .iCloudDownload: return "iCloud Download"
+        case .fileOperation: return "File Operation"
         }
     }
     
     var systemImage: String {
         switch self {
+        case .importVideo: return "square.and.arrow.down"
+        case .generateThumbnail: return "photo"
         case .transcribe: return "waveform"
         case .translate: return "translate"
         case .summarize: return "doc.text.below.ecg"
         case .iCloudDownload: return "icloud.and.arrow.down"
+        case .fileOperation: return "folder"
         }
     }
     
     var dependencies: [ProcessingTaskType] {
         switch self {
-        case .transcribe:
+        case .importVideo:
             return []
+        case .generateThumbnail:
+            return [.iCloudDownload]
+        case .transcribe:
+            return [.iCloudDownload]
         case .translate:
             return [.transcribe]
         case .summarize:
             return [.transcribe] // Can work with either original or translated text
         case .iCloudDownload:
             return [] // iCloud downloads are independent
+        case .fileOperation:
+            return []
         }
     }
 }
@@ -81,8 +96,15 @@ enum ProcessingTaskStatus: String, Codable {
 @MainActor
 class ProcessingTask: ObservableObject, Identifiable, Codable {
     let id: UUID
-    let videoID: UUID
+    let videoID: UUID?
+    let sourceURLPath: String?
+    let libraryID: UUID?
     let type: ProcessingTaskType
+    let itemName: String?
+    let force: Bool
+    let followUpTypes: [ProcessingTaskType]
+    let preferredLocaleIdentifier: String?
+    let targetLocaleIdentifier: String?
     @Published var status: ProcessingTaskStatus
     @Published var progress: Double
     @Published var errorMessage: String?
@@ -91,10 +113,37 @@ class ProcessingTask: ObservableObject, Identifiable, Codable {
     @Published var startedAt: Date?
     @Published var completedAt: Date?
     
-    init(videoID: UUID, type: ProcessingTaskType) {
+    init(videoID: UUID, type: ProcessingTaskType, itemName: String? = nil, force: Bool = false, followUpTypes: [ProcessingTaskType] = [], preferredLocaleIdentifier: String? = nil, targetLocaleIdentifier: String? = nil) {
         self.id = UUID()
         self.videoID = videoID
+        self.sourceURLPath = nil
+        self.libraryID = nil
         self.type = type
+        self.itemName = itemName
+        self.force = force
+        self.followUpTypes = followUpTypes
+        self.preferredLocaleIdentifier = preferredLocaleIdentifier
+        self.targetLocaleIdentifier = targetLocaleIdentifier
+        self.status = .pending
+        self.progress = 0.0
+        self.errorMessage = nil
+        self.statusMessage = "Waiting to start..."
+        self.createdAt = Date()
+        self.startedAt = nil
+        self.completedAt = nil
+    }
+
+    init(sourceURL: URL, libraryID: UUID?, type: ProcessingTaskType, itemName: String? = nil, force: Bool = false, followUpTypes: [ProcessingTaskType] = []) {
+        self.id = UUID()
+        self.videoID = nil
+        self.sourceURLPath = sourceURL.path
+        self.libraryID = libraryID
+        self.type = type
+        self.itemName = itemName
+        self.force = force
+        self.followUpTypes = followUpTypes
+        self.preferredLocaleIdentifier = nil
+        self.targetLocaleIdentifier = nil
         self.status = .pending
         self.progress = 0.0
         self.errorMessage = nil
@@ -107,7 +156,7 @@ class ProcessingTask: ObservableObject, Identifiable, Codable {
     // MARK: - Codable Implementation
     
     enum CodingKeys: String, CodingKey {
-        case id, videoID, type, status, progress, errorMessage, statusMessage
+        case id, videoID, sourceURLPath, libraryID, type, itemName, force, followUpTypes, preferredLocaleIdentifier, targetLocaleIdentifier, status, progress, errorMessage, statusMessage
         case createdAt, startedAt, completedAt
     }
     
@@ -115,8 +164,15 @@ class ProcessingTask: ObservableObject, Identifiable, Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         
         id = try container.decode(UUID.self, forKey: .id)
-        videoID = try container.decode(UUID.self, forKey: .videoID)
+        videoID = try container.decodeIfPresent(UUID.self, forKey: .videoID)
+        sourceURLPath = try container.decodeIfPresent(String.self, forKey: .sourceURLPath)
+        libraryID = try container.decodeIfPresent(UUID.self, forKey: .libraryID)
         type = try container.decode(ProcessingTaskType.self, forKey: .type)
+        itemName = try container.decodeIfPresent(String.self, forKey: .itemName)
+        force = try container.decodeIfPresent(Bool.self, forKey: .force) ?? false
+        followUpTypes = try container.decodeIfPresent([ProcessingTaskType].self, forKey: .followUpTypes) ?? []
+        preferredLocaleIdentifier = try container.decodeIfPresent(String.self, forKey: .preferredLocaleIdentifier)
+        targetLocaleIdentifier = try container.decodeIfPresent(String.self, forKey: .targetLocaleIdentifier)
         status = try container.decode(ProcessingTaskStatus.self, forKey: .status)
         progress = try container.decode(Double.self, forKey: .progress)
         errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
@@ -130,8 +186,15 @@ class ProcessingTask: ObservableObject, Identifiable, Codable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         
         try container.encode(id, forKey: .id)
-        try container.encode(videoID, forKey: .videoID)
+        try container.encodeIfPresent(videoID, forKey: .videoID)
+        try container.encodeIfPresent(sourceURLPath, forKey: .sourceURLPath)
+        try container.encodeIfPresent(libraryID, forKey: .libraryID)
         try container.encode(type, forKey: .type)
+        try container.encodeIfPresent(itemName, forKey: .itemName)
+        try container.encode(force, forKey: .force)
+        try container.encode(followUpTypes, forKey: .followUpTypes)
+        try container.encodeIfPresent(preferredLocaleIdentifier, forKey: .preferredLocaleIdentifier)
+        try container.encodeIfPresent(targetLocaleIdentifier, forKey: .targetLocaleIdentifier)
         try container.encode(status, forKey: .status)
         try container.encode(progress, forKey: .progress)
         try container.encodeIfPresent(errorMessage, forKey: .errorMessage)
@@ -188,14 +251,30 @@ class ProcessingTask: ObservableObject, Identifiable, Codable {
     
     var estimatedDuration: TimeInterval {
         switch type {
+        case .importVideo: return 20.0
+        case .generateThumbnail: return 5.0
         case .transcribe: return 30.0 // Depends on video length
         case .translate: return 10.0
         case .summarize: return 15.0
         case .iCloudDownload: return 20.0 // Depends on file size and network speed
+        case .fileOperation: return 10.0
         }
     }
     
     var displayTitle: String {
+        if let itemName, !itemName.isEmpty {
+            return "\(type.displayName): \(itemName)"
+        }
         return "\(type.displayName)"
+    }
+
+    var uniqueKey: String {
+        if let videoID {
+            return "video:\(videoID.uuidString):\(type.rawValue)"
+        }
+        if let sourceURLPath {
+            return "source:\(sourceURLPath):\(type.rawValue)"
+        }
+        return "task:\(id.uuidString):\(type.rawValue)"
     }
 }

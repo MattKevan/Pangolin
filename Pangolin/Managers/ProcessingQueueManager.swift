@@ -1,113 +1,487 @@
 // ProcessingQueueManager.swift
-// Simplified stub for compatibility
+// Unified processing queue manager
 
 import Foundation
-import SwiftUI
+import CoreData
+import Combine
 
-// Simple stub to replace the complex processing queue
+@MainActor
 class ProcessingQueueManager: ObservableObject {
     static let shared = ProcessingQueueManager()
 
-    @Published var activeTaskCount: Int = 0
-    @Published var totalTaskCount: Int = 0
+    private let processingQueue = ProcessingQueue()
+    private var cancellables = Set<AnyCancellable>()
+    private var workerTask: Task<Void, Never>?
+    private var importFolderMaps: [UUID: [String: Folder]] = [:]
+
+    let transcriptionService = SpeechTranscriptionService()
+    private let fileSystemManager = FileSystemManager.shared
+    private let videoFileManager = VideoFileManager.shared
+    private let importer = VideoImporter()
+
     @Published var queue: [ProcessingTask] = []
     @Published var isPaused: Bool = false
     @Published var overallProgress: Double = 0.0
+    @Published var activeTaskCount: Int = 0
+    @Published var totalTaskCount: Int = 0
+    @Published var completedTasks: Int = 0
+    @Published var failedTasks: Int = 0
 
-    // Additional computed properties for compatibility
     var totalTasks: Int { totalTaskCount }
     var activeTasks: Int { activeTaskCount }
-    var completedTasks: Int { 0 }
-    var failedTasks: Int { 0 }
 
-    private init() {}
+    private init() {
+        processingQueue.hasRequiredDataProvider = { [weak self] videoID, type in
+            guard let self else { return false }
+            return self.hasRequiredData(videoID: videoID, type: type)
+        }
 
-    // Stub methods for compatibility
-    func addTask(for video: Any, type: TaskType) {
-        // No-op in simplified version
+        processingQueue.$tasks
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] tasks in
+                guard let self else { return }
+                self.queue = tasks
+                self.refreshStats()
+            }
+            .store(in: &cancellables)
     }
 
-    func removeTask(id: UUID) {
-        // No-op in simplified version
-    }
+    // MARK: - Queue Controls
 
-    func clearAllTasks() {
-        // No-op in simplified version
-    }
-
-    func addTranscriptionOnly(for videos: [Any]) {
-        // No-op in simplified version
-    }
-
-    func addTranslationOnly(for videos: [Any]) {
-        // No-op in simplified version
-    }
-
-    func addThumbnailsOnly(for videos: [Any]) {
-        // No-op in simplified version
-    }
-
-    func resumeProcessing() {
-        isPaused = false
-    }
-
-    func pauseProcessing() {
+    func pause() {
         isPaused = true
+        processingQueue.pauseProcessing()
     }
 
-    func clearCompleted() {
-        // No-op in simplified version
+    func resume() {
+        isPaused = false
+        processingQueue.resumeProcessing()
+        startProcessingIfNeeded()
+    }
+
+    func pauseProcessing() { pause() }
+    func resumeProcessing() { resume() }
+
+    func togglePause() {
+        if isPaused {
+            resume()
+        } else {
+            pause()
+        }
+    }
+
+    // MARK: - Enqueue Helpers
+
+    func enqueueImport(urls: [URL], library: Library, context: NSManagedObjectContext) async {
+        if library.id == nil {
+            library.id = UUID()
+        }
+        let plan = await importer.prepareImportPlan(from: urls, library: library, context: context)
+        let libraryID = library.id
+        if let libraryID {
+            importFolderMaps[libraryID] = plan.createdFolders
+        }
+
+        for fileURL in plan.videoFiles {
+            let task = ProcessingTask(
+                sourceURL: fileURL,
+                libraryID: libraryID,
+                type: .importVideo,
+                itemName: fileURL.lastPathComponent
+            )
+            processingQueue.addTask(task)
+        }
+        refreshStats()
+        startProcessingIfNeeded()
+    }
+
+    func enqueueThumbnails(for videos: [Video], force: Bool = false) {
+        let videoIDs = videos.compactMap { $0.id }
+        for video in videos {
+            guard let id = video.id else { continue }
+            ensureDependencies(for: video, type: .generateThumbnail)
+            if let existing = processingQueue.taskForVideo(id, type: .generateThumbnail) {
+                if force {
+                    processingQueue.removeTask(existing)
+                } else {
+                    continue
+                }
+            }
+            let task = ProcessingTask(videoID: id, type: .generateThumbnail, itemName: video.title ?? video.fileName, force: force)
+            processingQueue.addTask(task)
+        }
+        refreshStats()
+        if !videoIDs.isEmpty {
+            startProcessingIfNeeded()
+        }
+    }
+
+    func enqueueTranscription(for videos: [Video], preferredLocale: Locale? = nil, force: Bool = false) {
+        enqueueVideoTasks(for: videos, types: [.transcribe], force: force, preferredLocale: preferredLocale)
+    }
+
+    func enqueueTranslation(for videos: [Video], targetLocale: Locale? = nil, force: Bool = false) {
+        enqueueVideoTasks(for: videos, types: [.translate], force: force, targetLocale: targetLocale)
+    }
+
+    func enqueueSummarization(for videos: [Video], force: Bool = false) {
+        enqueueVideoTasks(for: videos, types: [.summarize], force: force)
+    }
+
+    func enqueueFullWorkflow(for videos: [Video]) {
+        enqueueVideoTasks(for: videos, types: [.iCloudDownload, .generateThumbnail, .transcribe, .translate, .summarize], force: false)
+    }
+
+    func enqueueTranscriptionAndSummary(for videos: [Video]) {
+        enqueueVideoTasks(for: videos, types: [.iCloudDownload, .transcribe, .summarize], force: false)
+    }
+
+    private func enqueueVideoTasks(for videos: [Video], types: [ProcessingTaskType], force: Bool, preferredLocale: Locale? = nil, targetLocale: Locale? = nil) {
+        let videoIDs = videos.compactMap { $0.id }
+        for video in videos {
+            guard let id = video.id else { continue }
+            for type in types {
+                ensureDependencies(for: video, type: type)
+                if let existing = processingQueue.taskForVideo(id, type: type) {
+                    if force {
+                        processingQueue.removeTask(existing)
+                    } else {
+                        continue
+                    }
+                }
+                let task = ProcessingTask(
+                    videoID: id,
+                    type: type,
+                    itemName: video.title ?? video.fileName,
+                    force: force,
+                    preferredLocaleIdentifier: preferredLocale?.identifier,
+                    targetLocaleIdentifier: targetLocale?.identifier
+                )
+                processingQueue.addTask(task)
+            }
+        }
+        refreshStats()
+        if !videoIDs.isEmpty {
+            startProcessingIfNeeded()
+        }
+    }
+
+    // Backwards-compatible aliases used by views
+    func addTranscriptionOnly(for videos: [Video]) { enqueueTranscription(for: videos) }
+    func addTranslationOnly(for videos: [Video]) { enqueueTranslation(for: videos) }
+    func addSummaryOnly(for videos: [Video]) { enqueueSummarization(for: videos) }
+    func addFullProcessingWorkflow(for videos: [Video]) { enqueueFullWorkflow(for: videos) }
+    func addTranscriptionAndSummary(for videos: [Video]) { enqueueTranscriptionAndSummary(for: videos) }
+    func addThumbnailsOnly(for videos: [Video]) { enqueueThumbnails(for: videos) }
+
+    // MARK: - Task Management
+
+    func retryTask(_ task: ProcessingTask) {
+        processingQueue.retryTask(task)
+        refreshStats()
+        startProcessingIfNeeded()
     }
 
     func retryTask(id: UUID) {
-        // No-op in simplified version
-    }
-
-    func retryTask(_ task: ProcessingTask) {
-        retryTask(id: task.id)
-    }
-
-    func clearFailed() {
-        // No-op in simplified version
+        if let task = queue.first(where: { $0.id == id }) {
+            retryTask(task)
+        }
     }
 
     func cancelTask(_ task: ProcessingTask) {
-        // No-op in simplified version
+        processingQueue.cancelTask(task)
+        refreshStats()
+        if task.type == .transcribe {
+            Task {
+                await transcriptionService.cancelCurrentTranscription()
+            }
+        }
     }
 
     func cancelTask(id: UUID) {
-        // No-op in simplified version
+        if let task = queue.first(where: { $0.id == id }) {
+            cancelTask(task)
+        }
     }
 
     func removeTask(_ task: ProcessingTask) {
-        removeTask(id: task.id)
+        processingQueue.removeTask(task)
+        refreshStats()
+    }
+
+    func removeTask(id: UUID) {
+        if let task = queue.first(where: { $0.id == id }) {
+            removeTask(task)
+        }
+    }
+
+    func clearCompleted() {
+        processingQueue.clearCompleted()
+        refreshStats()
+    }
+
+    func clearFailed() {
+        processingQueue.clearFailed()
+        refreshStats()
     }
 
     func clearAll() {
-        // No-op in simplified version
+        processingQueue.clearAll()
+        refreshStats()
     }
 
-    func addSummaryOnly(for videos: [Any]) {
-        // No-op in simplified version
+    // MARK: - Lookup Helpers
+
+    func task(for video: Video, type: ProcessingTaskType) -> ProcessingTask? {
+        guard let id = video.id else { return nil }
+        return processingQueue.taskForVideo(id, type: type)
     }
 
-    func togglePause() {
-        isPaused.toggle()
+    func isProcessing(video: Video, type: ProcessingTaskType) -> Bool {
+        guard let task = task(for: video, type: type) else { return false }
+        return task.status == .processing
     }
 
-    func addFullProcessingWorkflow(for videos: [Any]) {
-        // No-op in simplified version
+    // MARK: - Execution Loop
+
+    private func startProcessingIfNeeded() {
+        guard workerTask == nil, !isPaused else { return }
+        workerTask = Task { [weak self] in
+            await self?.runLoop()
+        }
     }
 
-    func addTranscriptionAndSummary(for videos: [Any]) {
-        // No-op in simplified version
-    }
-}
+    private func runLoop() async {
+        while !Task.isCancelled {
+            if isPaused {
+                workerTask = nil
+                return
+            }
 
-// Simple task type enum
-enum TaskType {
-    case iCloudDownload
-    case thumbnailGeneration
-    case transcription
-    case constant // For compatibility
+            let readyTasks = processingQueue.getReadyTasks()
+            guard let task = readyTasks.first else {
+                workerTask = nil
+                return
+            }
+
+            await execute(task)
+        }
+        workerTask = nil
+    }
+
+    private func execute(_ task: ProcessingTask) async {
+        processingQueue.markTaskAsProcessing(task)
+        refreshStats()
+
+        if shouldSkip(task) {
+            task.markAsCompleted()
+            task.statusMessage = "Skipped (already generated)"
+            processingQueue.markTaskAsFinished(task)
+            refreshStats()
+            return
+        }
+
+        do {
+            switch task.type {
+            case .importVideo:
+                try await executeImport(task)
+            case .iCloudDownload:
+                try await executeiCloudDownload(task)
+            case .generateThumbnail:
+                try await executeThumbnail(task)
+            case .transcribe:
+                try await executeTranscription(task)
+            case .translate:
+                try await executeTranslation(task)
+            case .summarize:
+                try await executeSummarization(task)
+            case .fileOperation:
+                task.markAsCompleted()
+            }
+            if task.status != .failed && task.status != .cancelled {
+                task.markAsCompleted()
+            }
+        } catch {
+            task.markAsFailed(error: error.localizedDescription)
+        }
+
+        processingQueue.markTaskAsFinished(task)
+        refreshStats()
+    }
+
+    // MARK: - Task Implementations
+
+    private func executeImport(_ task: ProcessingTask) async throws {
+        guard let sourcePath = task.sourceURLPath else {
+            throw FileSystemError.importFailed("Missing source path.")
+        }
+        guard let library = LibraryManager.shared.currentLibrary,
+              let context = LibraryManager.shared.viewContext else {
+            throw FileSystemError.invalidLibraryPath
+        }
+        if library.id == nil {
+            library.id = UUID()
+        }
+
+        let fileURL = URL(fileURLWithPath: sourcePath)
+        let folderMap = importFolderMaps[library.id ?? UUID()] ?? [:]
+
+        task.statusMessage = "Importing \(fileURL.lastPathComponent)..."
+        task.updateProgress(0.1, message: task.statusMessage)
+
+        let video = try await importer.importSingleFile(fileURL, library: library, context: context, createdFolders: folderMap)
+
+        try context.save()
+
+        // Enqueue thumbnail if missing
+        if video.thumbnailPath == nil, let id = video.id {
+            let thumbTask = ProcessingTask(videoID: id, type: .generateThumbnail, itemName: video.title ?? video.fileName)
+            processingQueue.addTask(thumbTask)
+        }
+
+        // Enqueue follow-ups if requested
+        if !task.followUpTypes.isEmpty, let id = video.id {
+            for type in task.followUpTypes {
+                let followUp = ProcessingTask(videoID: id, type: type, itemName: video.title ?? video.fileName)
+                processingQueue.addTask(followUp)
+            }
+        }
+        refreshStats()
+    }
+
+    private func executeiCloudDownload(_ task: ProcessingTask) async throws {
+        guard let video = fetchVideo(for: task) else {
+            throw FileSystemError.fileNotFound
+        }
+        _ = try await videoFileManager.getVideoFileURL(for: video, downloadIfNeeded: true)
+    }
+
+    private func executeThumbnail(_ task: ProcessingTask) async throws {
+        guard let video = fetchVideo(for: task),
+              let library = video.library else {
+            throw FileSystemError.fileNotFound
+        }
+
+        let thumbnailPath = try await fileSystemManager.generateThumbnail(for: video, in: library)
+        video.thumbnailPath = thumbnailPath
+        if let context = LibraryManager.shared.viewContext {
+            try context.save()
+        }
+    }
+
+    private func executeTranscription(_ task: ProcessingTask) async throws {
+        guard let video = fetchVideo(for: task) else {
+            throw FileSystemError.fileNotFound
+        }
+        let preferredLocale: Locale? = {
+            if let id = task.preferredLocaleIdentifier {
+                return Locale(identifier: id)
+            }
+            return nil
+        }()
+        await transcriptionService.transcribeVideo(video, libraryManager: LibraryManager.shared, preferredLocale: preferredLocale)
+        if let error = transcriptionService.errorMessage {
+            throw TranscriptionError.analysisFailed(error)
+        }
+    }
+
+    private func executeTranslation(_ task: ProcessingTask) async throws {
+        guard let video = fetchVideo(for: task) else {
+            throw FileSystemError.fileNotFound
+        }
+        let targetLanguage: Locale.Language? = {
+            if let id = task.targetLocaleIdentifier {
+                return Locale(identifier: id).language
+            }
+            return nil
+        }()
+        await transcriptionService.translateVideo(video, libraryManager: LibraryManager.shared, targetLanguage: targetLanguage)
+        if let error = transcriptionService.errorMessage {
+            throw TranscriptionError.translationFailed(error)
+        }
+    }
+
+    private func executeSummarization(_ task: ProcessingTask) async throws {
+        guard let video = fetchVideo(for: task) else {
+            throw FileSystemError.fileNotFound
+        }
+        await transcriptionService.summarizeVideo(video, libraryManager: LibraryManager.shared, preset: .detailed)
+        if let error = transcriptionService.errorMessage {
+            throw TranscriptionError.summarizationFailed(error)
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func ensureDependencies(for video: Video, type: ProcessingTaskType) {
+        guard let id = video.id else { return }
+        for dependency in type.dependencies {
+            if processingQueue.taskForVideo(id, type: dependency) == nil {
+                let depTask = ProcessingTask(videoID: id, type: dependency, itemName: video.title ?? video.fileName)
+                processingQueue.addTask(depTask)
+            }
+        }
+    }
+
+    private func refreshStats() {
+        let tasks = processingQueue.tasks
+        totalTaskCount = tasks.count
+        completedTasks = tasks.filter { $0.status == .completed }.count
+        failedTasks = tasks.filter { $0.status == .failed }.count
+        activeTaskCount = tasks.filter { $0.status.isActive }.count
+        overallProgress = processingQueue.overallProgress
+    }
+
+    private func fetchVideo(for task: ProcessingTask) -> Video? {
+        guard let videoID = task.videoID,
+              let context = LibraryManager.shared.viewContext else { return nil }
+        let request = Video.fetchRequest()
+        request.predicate = NSPredicate(format: "id == %@", videoID as CVarArg)
+        request.fetchLimit = 1
+        return (try? context.fetch(request))?.first
+    }
+
+    private func shouldSkip(_ task: ProcessingTask) -> Bool {
+        if task.force { return false }
+        guard let videoID = task.videoID else { return false }
+        if task.type == .translate, let target = task.targetLocaleIdentifier, let video = fetchVideo(for: task) {
+            if let translatedLanguage = video.translatedLanguage, translatedLanguage == target,
+               let text = video.translatedText, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return true
+            }
+            return false
+        }
+        return hasRequiredData(videoID: videoID, type: task.type)
+    }
+
+    private func hasRequiredData(videoID: UUID, type: ProcessingTaskType) -> Bool {
+        guard let context = LibraryManager.shared.viewContext else { return false }
+        let request = Video.fetchRequest()
+        request.predicate = NSPredicate(format: "id == %@", videoID as CVarArg)
+        request.fetchLimit = 1
+        guard let video = (try? context.fetch(request))?.first else { return false }
+
+        switch type {
+        case .importVideo:
+            return false
+        case .iCloudDownload:
+            if let url = video.fileURL {
+                return FileManager.default.fileExists(atPath: url.path)
+            }
+            return false
+        case .generateThumbnail:
+            return video.thumbnailPath != nil
+        case .transcribe:
+            if let text = video.transcriptText { return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            return false
+        case .translate:
+            if let text = video.translatedText { return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            return false
+        case .summarize:
+            if let text = video.transcriptSummary { return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            return false
+        case .fileOperation:
+            return false
+        }
+    }
 }

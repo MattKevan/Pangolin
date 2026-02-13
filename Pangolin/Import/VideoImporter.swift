@@ -31,6 +31,11 @@ class VideoImporter: ObservableObject {
         let fileName: String
         let error: Error
     }
+
+    struct ImportPlan {
+        let videoFiles: [URL]
+        let createdFolders: [String: Folder]
+    }
     
     func importFiles(_ urls: [URL], to library: Library, context: NSManagedObjectContext) async {
         await MainActor.run {
@@ -40,19 +45,11 @@ class VideoImporter: ObservableObject {
             progress = 0
         }
         
-        // Analyze import structure to create folders
-        let folderStructure = analyzeFolderStructure(from: urls)
-        let createdFolders = await createFoldersFromStructure(folderStructure, library: library, context: context)
-        
-        // Gather all video files
-        let videoFiles = gatherVideoFiles(from: urls)
-        let taskGroupId = await MainActor.run {
+        let plan = await prepareImportPlan(from: urls, library: library, context: context)
+        let createdFolders = plan.createdFolders
+        let videoFiles = plan.videoFiles
+        await MainActor.run {
             totalFiles = videoFiles.count
-            // Register with task queue
-            return TaskQueueManager.shared.startTaskGroup(
-                type: .importing, 
-                totalItems: videoFiles.count
-            )
         }
         
         // Import each file  
@@ -65,51 +62,10 @@ class VideoImporter: ObservableObject {
                 progress = Double(index) / Double(videoFiles.count)
             }
             
-            // Update task queue (this handles main thread dispatch internally)
-            await TaskQueueManager.shared.updateTaskGroup(
-                id: taskGroupId,
-                completedItems: index,
-                currentItem: fileURL.lastPathComponent
-            )
-            
             print("📹 IMPORT: Processing file \(index + 1)/\(videoFiles.count): \(fileURL.lastPathComponent)")
             
             do {
-                // Import video
-                let video = try await fileSystemManager.importVideo(
-                    from: fileURL,
-                    to: library,
-                    context: context,
-                    copyFile: library.copyFilesOnImport
-                )
-                print("✅ IMPORT: Successfully imported video: \(video.title ?? "Unknown")")
-                
-                // Add video to appropriate folder based on its original folder path
-                assignVideoToFolder(video: video, originalPath: fileURL, createdFolders: createdFolders)
-                
-                // Find and import matching subtitles
-                if library.autoMatchSubtitles {
-                    let subtitles = subtitleMatcher.findMatchingSubtitles(
-                        for: fileURL,
-                        in: fileURL.deletingLastPathComponent()
-                    )
-                    print("📄 IMPORT: Found \(subtitles.count) subtitle files for \(fileURL.lastPathComponent)")
-                    
-                    for subtitleURL in subtitles {
-                        do {
-                            let subtitle = try await importSubtitle(
-                                from: subtitleURL,
-                                for: video,
-                                to: library,
-                                context: context
-                            )
-                            print("✅ IMPORT: Successfully imported subtitle: \(subtitle.fileName ?? "Unknown")")
-                        } catch {
-                            print("❌ IMPORT: Failed to import subtitle \(subtitleURL.lastPathComponent): \(error)")
-                        }
-                    }
-                }
-                
+                let video = try await importSingleFile(fileURL, library: library, context: context, createdFolders: createdFolders)
                 await MainActor.run {
                     importedVideos.append(video)
                 }
@@ -137,37 +93,55 @@ class VideoImporter: ObservableObject {
             }
         }
         
-        // Complete import task group
-        await TaskQueueManager.shared.completeTaskGroup(id: taskGroupId)
-        
-        // Start thumbnail generation task group for imported videos
         let importedVideoCount = await MainActor.run {
             isImporting = false
             progress = 1.0
             processedFiles = totalFiles
             return importedVideos.count
         }
+    }
+
+    func prepareImportPlan(from urls: [URL], library: Library, context: NSManagedObjectContext) async -> ImportPlan {
+        let folderStructure = analyzeFolderStructure(from: urls)
+        let createdFolders = await createFoldersFromStructure(folderStructure, library: library, context: context)
+        let videoFiles = gatherVideoFiles(from: urls)
+        return ImportPlan(videoFiles: videoFiles, createdFolders: createdFolders)
+    }
+
+    func importSingleFile(_ fileURL: URL, library: Library, context: NSManagedObjectContext, createdFolders: [String: Folder]) async throws -> Video {
+        let video = try await fileSystemManager.importVideo(
+            from: fileURL,
+            to: library,
+            context: context,
+            copyFile: library.copyFilesOnImport
+        )
+        print("✅ IMPORT: Successfully imported video: \(video.title ?? "Unknown")")
         
-        if importedVideoCount > 0 {
-            let thumbnailTaskGroupId = await MainActor.run {
-                TaskQueueManager.shared.startTaskGroup(
-                    type: .generatingThumbnails,
-                    totalItems: importedVideoCount
-                )
-            }
+        assignVideoToFolder(video: video, originalPath: fileURL, createdFolders: createdFolders)
+        
+        if library.autoMatchSubtitles {
+            let subtitles = subtitleMatcher.findMatchingSubtitles(
+                for: fileURL,
+                in: fileURL.deletingLastPathComponent()
+            )
+            print("📄 IMPORT: Found \(subtitles.count) subtitle files for \(fileURL.lastPathComponent)")
             
-            for (index, video) in importedVideos.enumerated() {
-                await TaskQueueManager.shared.updateTaskGroup(
-                    id: thumbnailTaskGroupId,
-                    completedItems: index,
-                    currentItem: video.title ?? video.fileName ?? "Unknown Video"
-                )
-                // Thumbnail generation happens automatically in FileSystemManager.importVideo
-                // This just updates the progress display
+            for subtitleURL in subtitles {
+                do {
+                    let subtitle = try await importSubtitle(
+                        from: subtitleURL,
+                        for: video,
+                        to: library,
+                        context: context
+                    )
+                    print("✅ IMPORT: Successfully imported subtitle: \(subtitle.fileName ?? "Unknown")")
+                } catch {
+                    print("❌ IMPORT: Failed to import subtitle \(subtitleURL.lastPathComponent): \(error)")
+                }
             }
-            
-            await TaskQueueManager.shared.completeTaskGroup(id: thumbnailTaskGroupId)
         }
+        
+        return video
     }
     
     func resetImportState() {
@@ -180,7 +154,7 @@ class VideoImporter: ObservableObject {
         currentFile = ""
     }
     
-    private func gatherVideoFiles(from urls: [URL]) -> [URL] {
+    func gatherVideoFiles(from urls: [URL]) -> [URL] {
         var videoFiles: [URL] = []
         
         for url in urls {
@@ -203,7 +177,7 @@ class VideoImporter: ObservableObject {
         return videoFiles
     }
     
-    private func findVideoFiles(in directory: URL) -> [URL] {
+    func findVideoFiles(in directory: URL) -> [URL] {
         var videoFiles: [URL] = []
         
         // Start accessing security-scoped resource
@@ -328,7 +302,7 @@ class VideoImporter: ObservableObject {
         }
     }
     
-    private func analyzeFolderStructure(from urls: [URL]) -> [FolderNode] {
+    func analyzeFolderStructure(from urls: [URL]) -> [FolderNode] {
         var rootNodes: [FolderNode] = []
         
         for url in urls {
@@ -348,7 +322,7 @@ class VideoImporter: ObservableObject {
         return rootNodes
     }
     
-    private func buildFolderTree(from folderURL: URL) -> FolderNode {
+    func buildFolderTree(from folderURL: URL) -> FolderNode {
         let folderName = folderURL.lastPathComponent
         var node = FolderNode(url: folderURL, name: folderName, isRoot: true)
         
@@ -401,7 +375,7 @@ class VideoImporter: ObservableObject {
         return node
     }
     
-    private func createFoldersFromStructure(_ folderNodes: [FolderNode], library: Library, context: NSManagedObjectContext) async -> [String: Folder] {
+    func createFoldersFromStructure(_ folderNodes: [FolderNode], library: Library, context: NSManagedObjectContext) async -> [String: Folder] {
         var createdFolders: [String: Folder] = [:]
         
         for folderNode in folderNodes {
@@ -414,7 +388,7 @@ class VideoImporter: ObservableObject {
         return createdFolders
     }
     
-    private func createFolderFromNode(_ node: FolderNode, parent: Folder?, library: Library, context: NSManagedObjectContext) async -> Folder? {
+    func createFolderFromNode(_ node: FolderNode, parent: Folder?, library: Library, context: NSManagedObjectContext) async -> Folder? {
         // Only create folder if there are videos in this folder or subfolders
         guard !node.videoFiles.isEmpty || !node.children.isEmpty else { 
             return nil 
@@ -437,7 +411,7 @@ class VideoImporter: ObservableObject {
         return folder
     }
     
-    private func addChildFolders(for node: FolderNode, parentFolder: Folder, library: Library, context: NSManagedObjectContext, createdFolders: inout [String: Folder]) async {
+    func addChildFolders(for node: FolderNode, parentFolder: Folder, library: Library, context: NSManagedObjectContext, createdFolders: inout [String: Folder]) async {
         for childNode in node.children {
             if let childFolder = await createFolderFromNode(childNode, parent: parentFolder, library: library, context: context) {
                 createdFolders[childNode.url.path] = childFolder
@@ -446,7 +420,7 @@ class VideoImporter: ObservableObject {
         }
     }
     
-    private func assignVideoToFolder(video: Video, originalPath: URL, createdFolders: [String: Folder]) {
+    func assignVideoToFolder(video: Video, originalPath: URL, createdFolders: [String: Folder]) {
         // Find the folder that corresponds to the video's original folder
         let videoDirectory = originalPath.deletingLastPathComponent()
         

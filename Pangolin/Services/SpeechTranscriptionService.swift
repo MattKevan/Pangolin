@@ -84,6 +84,12 @@ class SpeechTranscriptionService: ObservableObject {
     private var speechAnalyzer: SpeechAnalyzer?
     private var translationSession: TranslationSession?
     
+    private let minAnalysisTimeoutSeconds: TimeInterval = 60
+    private let analysisTimeoutMultiplier: Double = 3.0
+    private let maxAnalysisTimeoutSeconds: TimeInterval = 600
+    private var shouldPreferAssetPipelineTranscode = true
+    private let transcodePreferenceLock = NSLock()
+
     // Session cache: locales we’ve verified/installed during this app run
     private var preparedLocales = Set<String>()
     private let preparedLocalesLock = NSLock()
@@ -160,27 +166,10 @@ class SpeechTranscriptionService: ObservableObject {
         await setProgress(0.0)
         await setStatus("Starting transcription...")
         
-        // Register with task queue
-        let taskGroupId = await MainActor.run {
-            TaskQueueManager.shared.startTaskGroup(
-                type: .transcribing,
-                totalItems: 1
-            )
-        }
-        
         do {
-            try await Task.detached(priority: .userInitiated) { [weak self] in
-                guard let self else {
-                    throw TranscriptionError.analysisFailed("Transcription service unavailable.")
-                }
             // Use the async method to get accessible video file URL, downloading if needed
             await setStatus("Accessing video file...")
-            // Update task queue (this handles main thread dispatch internally)
-            await TaskQueueManager.shared.updateTaskGroup(
-                id: taskGroupId,
-                completedItems: 0,
-                currentItem: video.title ?? "Unknown Video"
-            )
+            try Task.checkCancellation()
             
             let videoURL: URL
             do {
@@ -192,6 +181,7 @@ class SpeechTranscriptionService: ObservableObject {
             }
             
             await setStatus("Checking permissions...")
+            try Task.checkCancellation()
             try await requestSpeechRecognitionPermission()
             await setProgress(0.1)
             
@@ -207,6 +197,7 @@ class SpeechTranscriptionService: ObservableObject {
                 await setProgress(0.2)
             } else {
                 await setStatus("Extracting audio sample...")
+                try Task.checkCancellation()
                 let sampleAudioURL = try await extractAudio(from: videoURL, duration: 30.0)
                 defer { try? FileManager.default.removeItem(at: sampleAudioURL) }
                 await setProgress(0.2)
@@ -219,10 +210,12 @@ class SpeechTranscriptionService: ObservableObject {
             
             // Ensure model is present for the final chosen locale
             await setStatus("Preparing language model (\(usedLocale.identifier))...")
+            try Task.checkCancellation()
             try await prepareModelIfNeeded(for: usedLocale)
             await setProgress(max(await getProgressOnMain(), 0.35))
             
             await setStatus("Transcribing main audio...")
+            try Task.checkCancellation()
             let transcriptText = try await performTranscription(
                 fullAudioURL: videoURL,
                 locale: usedLocale
@@ -253,7 +246,6 @@ class SpeechTranscriptionService: ObservableObject {
             
             await setProgress(1.0)
             await setStatus("Transcription complete!")
-            }.value
         } catch {
             let localizedError = error as? LocalizedError
             await setErrorMessage(localizedError?.errorDescription ?? "An unknown error occurred.")
@@ -262,14 +254,6 @@ class SpeechTranscriptionService: ObservableObject {
         
         await setTranscribingState(isTranscribing: false, isSummarizing: false)
         
-        // Complete or remove task group based on success/failure (handles main thread internally)
-        if await getErrorMessageOnMain() == nil {
-            await TaskQueueManager.shared.completeTaskGroup(id: taskGroupId)
-        } else {
-            await MainActor.run {
-                TaskQueueManager.shared.removeTaskGroup(id: taskGroupId)
-            }
-        }
     }
 
     func translateVideo(_ video: Video, libraryManager: LibraryManager, targetLanguage: Locale.Language? = nil) async {
@@ -472,6 +456,16 @@ class SpeechTranscriptionService: ObservableObject {
     private func transcriber(for locale: Locale) -> SpeechTranscriber {
         SpeechTranscriber(locale: locale, preset: .transcription)
     }
+
+    private func getShouldPreferAssetPipelineTranscode() -> Bool {
+        transcodePreferenceLock.withLock { shouldPreferAssetPipelineTranscode }
+    }
+
+    private func setShouldPreferAssetPipelineTranscode(_ value: Bool) {
+        transcodePreferenceLock.withLock {
+            shouldPreferAssetPipelineTranscode = value
+        }
+    }
     
     // Returns true if all required assets for the transcriber are already installed.
     private func isModelInstalled(for locale: Locale) async -> Bool {
@@ -536,6 +530,90 @@ class SpeechTranscriptionService: ObservableObject {
         return tempAudioURL
     }
 
+    // Fallback transcoder used when AVAudioFile streaming reads fail on extracted audio.
+    // This path uses AVAssetReader/Writer to produce analyzer-compatible PCM directly.
+    private func transcodeAudioWithAssetPipeline(from sourceURL: URL, to targetFormat: AVAudioFormat) async throws -> URL {
+        let asset = AVURLAsset(url: sourceURL)
+        let tracks = try await asset.loadTracks(withMediaType: .audio)
+        guard let audioTrack = tracks.first else {
+            throw TranscriptionError.audioExtractionFailed
+        }
+
+        let outputSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: targetFormat.sampleRate,
+            AVNumberOfChannelsKey: Int(targetFormat.channelCount),
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsNonInterleaved: !targetFormat.isInterleaved
+        ]
+
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("caf")
+
+        let reader = try AVAssetReader(asset: asset)
+        let readerOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: outputSettings)
+        readerOutput.alwaysCopiesSampleData = false
+        guard reader.canAdd(readerOutput) else {
+            throw TranscriptionError.audioExtractionFailed
+        }
+        reader.add(readerOutput)
+
+        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .caf)
+        let writerInput = AVAssetWriterInput(mediaType: .audio, outputSettings: outputSettings)
+        writerInput.expectsMediaDataInRealTime = false
+        guard writer.canAdd(writerInput) else {
+            throw TranscriptionError.audioExtractionFailed
+        }
+        writer.add(writerInput)
+
+        guard writer.startWriting() else {
+            throw TranscriptionError.analysisFailed(writer.error?.localizedDescription ?? "Failed to start audio writer.")
+        }
+        writer.startSession(atSourceTime: .zero)
+
+        guard reader.startReading() else {
+            writer.cancelWriting()
+            throw TranscriptionError.analysisFailed(reader.error?.localizedDescription ?? "Failed to start audio reader.")
+        }
+
+        while reader.status == .reading {
+            try Task.checkCancellation()
+            if writerInput.isReadyForMoreMediaData {
+                if let sampleBuffer = readerOutput.copyNextSampleBuffer() {
+                    if !writerInput.append(sampleBuffer) {
+                        reader.cancelReading()
+                        writer.cancelWriting()
+                        throw TranscriptionError.analysisFailed(writer.error?.localizedDescription ?? "Failed while writing transcoded audio.")
+                    }
+                } else {
+                    break
+                }
+            } else {
+                try await Task.sleep(nanoseconds: 5_000_000)
+            }
+        }
+
+        writerInput.markAsFinished()
+        await withCheckedContinuation { continuation in
+            writer.finishWriting {
+                continuation.resume()
+            }
+        }
+
+        if reader.status == .failed || writer.status == .failed {
+            throw TranscriptionError.analysisFailed(
+                reader.error?.localizedDescription ??
+                writer.error?.localizedDescription ??
+                "Asset pipeline transcoding failed."
+            )
+        }
+
+        return outputURL
+    }
+
     private func convertAudio(_ sourceURL: URL, to targetFormat: AVAudioFormat) throws -> URL {
         let inputFile = try AVAudioFile(forReading: sourceURL)
         // If the source already matches what the analyzer wants, skip conversion.
@@ -582,6 +660,7 @@ class SpeechTranscriptionService: ObservableObject {
 
         let bufferCapacity: AVAudioFrameCount = 32_768
         var inputFinished = false
+        var sourceReadError: Error?
 
         let inputBlock: AVAudioConverterInputBlock = { inNumPackets, outStatus in
             if inputFinished {
@@ -592,7 +671,9 @@ class SpeechTranscriptionService: ObservableObject {
             do {
                 try inputFile.read(into: buffer, frameCount: bufferCapacity)
             } catch {
-                outStatus.pointee = .noDataNow
+                sourceReadError = error
+                inputFinished = true
+                outStatus.pointee = .endOfStream
                 return nil
             }
             if buffer.frameLength == 0 {
@@ -606,7 +687,12 @@ class SpeechTranscriptionService: ObservableObject {
 
         // Use the file's actual processing format to avoid format mismatches.
 
-        while true {
+        var inputRanDryCount = 0
+        let maxInputRanDry = 100
+        conversionLoop: while true {
+            if Task.isCancelled {
+                throw TranscriptionError.analysisFailed("Audio conversion cancelled.")
+            }
             var error: NSError?
             // Allocate a fresh buffer each iteration to avoid stale state
             guard let outBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: bufferCapacity) else {
@@ -627,13 +713,21 @@ class SpeechTranscriptionService: ObservableObject {
             case .haveData:
                 continue
             case .inputRanDry:
-                // Wait for more input or continue; the input block will signal end when finished
+                inputRanDryCount += 1
+                if inputRanDryCount > maxInputRanDry {
+                    throw TranscriptionError.analysisFailed("Audio conversion stalled (input ran dry).")
+                }
+                Thread.sleep(forTimeInterval: 0.01)
                 continue
             case .endOfStream:
-                break
+                break conversionLoop
             @unknown default:
-                break
+                break conversionLoop
             }
+        }
+
+        if let sourceReadError {
+            throw TranscriptionError.analysisFailed("Audio conversion source read failed: \(sourceReadError.localizedDescription)")
         }
 
         return destURL
@@ -681,15 +775,7 @@ class SpeechTranscriptionService: ObservableObject {
         // Ensure model is prepared (fast if already installed or prepared this session)
         try await prepareModelIfNeeded(for: locale)
 
-        let transcriber = SpeechTranscriber(locale: locale, preset: .transcription)
-        guard let audioFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
-            throw TranscriptionError.analysisFailed("No compatible audio format available for the speech analyzer.")
-        }
-        let analyzer = SpeechAnalyzer(modules: [transcriber])
-        await MainActor.run {
-            self.speechAnalyzer = analyzer
-        }
-        try await analyzer.prepareToAnalyze(in: audioFormat)
+        let preset: SpeechTranscriber.Preset = .transcription
 
         // If video, extract audio; if audio already, use directly
         let fileExtension = fullAudioURL.pathExtension.lowercased()
@@ -712,52 +798,193 @@ class SpeechTranscriptionService: ObservableObject {
            let size = attrs[FileAttributeKey.size] as? NSNumber {
             print("🧪 Source audio size (bytes): \(size)")
         }
-        print("🧪 Analyzer target format: \(audioFormat)")
-
-        // Convert to analyzer's preferred format (typically PCM)
-        let pcmURL = try convertAudio(audioURLToTranscribe, to: audioFormat)
-        defer { try? FileManager.default.removeItem(at: pcmURL) }
-
-        if let attrs = try? FileManager.default.attributesOfItem(atPath: pcmURL.path),
-           let size = attrs[FileAttributeKey.size] as? NSNumber {
-            print("🧪 Converted PCM size (bytes): \(size)")
+        let formatTranscriber = SpeechTranscriber(locale: locale, preset: preset)
+        guard let targetFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [formatTranscriber]) else {
+            throw TranscriptionError.analysisFailed("No compatible audio format available for the speech analyzer.")
         }
+        print("🧪 Analyzer target format: \(targetFormat)")
 
-        let audioFile = try AVAudioFile(forReading: pcmURL)
-
-        // Collect results concurrently
-        let resultsTask = Task { () -> [String] in
-            var transcriptParts: [String] = []
-            for try await result in transcriber.results {
-                if result.isFinal {
-                    transcriptParts.append(String(result.text.characters))
+        // Convert to analyzer's preferred format (typically PCM). If decoding fails for the
+        // intermediate source file, fall back to using the source format directly.
+        var workingAudioURL: URL?
+        var convertedPCMURL: URL?
+        let preferAssetPipeline = getShouldPreferAssetPipelineTranscode()
+        if preferAssetPipeline {
+            print("🧪 Using preferred asset-pipeline transcode path")
+            do {
+                let pcmURL = try await transcodeAudioWithAssetPipeline(from: audioURLToTranscribe, to: targetFormat)
+                convertedPCMURL = pcmURL
+                workingAudioURL = pcmURL
+                let recoveredFile = try AVAudioFile(forReading: pcmURL)
+                print("🧪 Asset-pipeline transcode format: \(recoveredFile.processingFormat)")
+            } catch {
+                print("⚠️ Preferred asset-pipeline transcode failed; retrying direct converter path...")
+                let pcmURL = try convertAudio(audioURLToTranscribe, to: targetFormat)
+                convertedPCMURL = pcmURL
+                workingAudioURL = pcmURL
+            }
+        } else {
+            do {
+                let pcmURL = try convertAudio(audioURLToTranscribe, to: targetFormat)
+                convertedPCMURL = pcmURL
+                workingAudioURL = pcmURL
+                if let attrs = try? FileManager.default.attributesOfItem(atPath: pcmURL.path),
+                   let size = attrs[FileAttributeKey.size] as? NSNumber {
+                    print("🧪 Converted PCM size (bytes): \(size)")
+                }
+            } catch let conversionError as TranscriptionError {
+                switch conversionError {
+                case .analysisFailed(let reason) where reason.contains("Audio conversion source read failed"):
+                    print("⚠️ Conversion decode failed; attempting asset-pipeline transcode fallback...")
+                    let recoveredPCMURL = try await transcodeAudioWithAssetPipeline(from: audioURLToTranscribe, to: targetFormat)
+                    convertedPCMURL = recoveredPCMURL
+                    workingAudioURL = recoveredPCMURL
+                    let recoveredFile = try AVAudioFile(forReading: recoveredPCMURL)
+                    print("⚠️ Asset-pipeline fallback succeeded: \(recoveredFile.processingFormat)")
+                    setShouldPreferAssetPipelineTranscode(true)
+                default:
+                    throw conversionError
                 }
             }
-            return transcriptParts
+        }
+        guard let workingAudioURL else {
+            throw TranscriptionError.analysisFailed("Failed to prepare working audio URL for transcription.")
         }
 
-        do {
-            let lastSampleTime = try await analyzer.analyzeSequence(from: audioFile)
-            if let lastSampleTime {
-                try await analyzer.finalizeAndFinish(through: lastSampleTime)
-            } else {
-                await analyzer.cancelAndFinishNow()
+        defer {
+            if let convertedPCMURL {
+                try? FileManager.default.removeItem(at: convertedPCMURL)
             }
-            let parts = try await resultsTask.value
-            let combined = parts.joined(separator: " ")
-            if combined.isEmpty { throw TranscriptionError.noSpeechDetected }
-            if !audioExtensions.contains(fileExtension) {
-                try? FileManager.default.removeItem(at: audioURLToTranscribe)
-            }
-            return combined
-        } catch {
-            resultsTask.cancel()
-            let desc = String(describing: error)
-            if desc.contains("nilError") || desc.contains("Foundation._GenericObjCError") {
-                throw TranscriptionError.analysisFailed("Audio decoding failed during transcription. Try re-encoding the source to uncompressed PCM (WAV/CAF) and retry.")
-            }
-            throw error
         }
+
+        let probeAudioFile = try AVAudioFile(forReading: workingAudioURL)
+        let audioDurationSeconds = Double(probeAudioFile.length) / probeAudioFile.fileFormat.sampleRate
+        let analysisTimeout = min(
+            maxAnalysisTimeoutSeconds,
+            max(minAnalysisTimeoutSeconds, audioDurationSeconds * analysisTimeoutMultiplier)
+        )
+
+        var lastError: Error?
+        for attempt in 0...1 {
+            try Task.checkCancellation()
+            let audioFile = try AVAudioFile(forReading: workingAudioURL)
+            let transcriber = SpeechTranscriber(locale: locale, preset: preset)
+            let audioFormat = audioFile.processingFormat
+            print("🧪 Analyzer input format for attempt \(attempt + 1): \(audioFormat)")
+
+            let analyzer = SpeechAnalyzer(modules: [transcriber])
+            await MainActor.run {
+                self.speechAnalyzer = analyzer
+            }
+
+            await setStatus("Preparing speech analyzer...")
+            let prepareStart = Date()
+            try await analyzer.prepareToAnalyze(in: audioFormat)
+            print("⏱️ prepareToAnalyze: \(Date().timeIntervalSince(prepareStart))s")
+
+            let resultsTask = Task { () -> [String] in
+                try await collectFinalResults(from: transcriber)
+            }
+
+            do {
+                await setStatus("Analyzing audio (\(Int(analysisTimeout))s timeout cap)...")
+                let analyzeStart = Date()
+                let lastSampleTime = try await analyzeSequenceWithTimeout(analyzer: analyzer, audioFile: audioFile, timeoutSeconds: analysisTimeout)
+                print("⏱️ analyzeSequence: \(Date().timeIntervalSince(analyzeStart))s")
+
+                let finalizeStart = Date()
+                if let lastSampleTime {
+                    try await analyzer.finalizeAndFinish(through: lastSampleTime)
+                } else {
+                    await analyzer.cancelAndFinishNow()
+                }
+                print("⏱️ finalizeAndFinish: \(Date().timeIntervalSince(finalizeStart))s")
+
+                let resultsStart = Date()
+                let parts = try await awaitResultsWithTimeout(resultsTask, timeoutSeconds: max(30, analysisTimeout / 2), analyzer: analyzer)
+                print("⏱️ resultsTask completion: \(Date().timeIntervalSince(resultsStart))s")
+
+                let combined = parts.joined(separator: " ")
+                if combined.isEmpty { throw TranscriptionError.noSpeechDetected }
+                if !audioExtensions.contains(fileExtension) {
+                    try? FileManager.default.removeItem(at: audioURLToTranscribe)
+                }
+                return combined
+            } catch {
+                lastError = error
+                resultsTask.cancel()
+                _ = try? await resultsTask.value
+                await analyzer.cancelAndFinishNow()
+                if attempt == 0 {
+                    print("⚠️ Transcription attempt \(attempt + 1) failed: \(error). Retrying once...")
+                    continue
+                }
+                let desc = String(describing: error)
+                if desc.contains("nilError") || desc.contains("Foundation._GenericObjCError") {
+                    throw TranscriptionError.analysisFailed("Audio decoding failed during transcription. Try re-encoding the source to uncompressed PCM (WAV/CAF) and retry.")
+                }
+                if desc.contains("Reporter disconnected") {
+                    throw TranscriptionError.analysisFailed("Speech analyzer disconnected during transcription. Please retry.")
+                }
+                throw error
+            }
+        }
+
+        throw lastError ?? TranscriptionError.analysisFailed("Transcription failed unexpectedly.")
+    }
+
+    private func collectFinalResults(from transcriber: SpeechTranscriber) async throws -> [String] {
+        var transcriptParts: [String] = []
+        for try await result in transcriber.results {
+            if Task.isCancelled {
+                throw TranscriptionError.analysisFailed("Transcription cancelled.")
+            }
+            if result.isFinal {
+                transcriptParts.append(String(result.text.characters))
+            }
+        }
+        return transcriptParts
+    }
+
+    private func awaitResultsWithTimeout(_ task: Task<[String], Error>, timeoutSeconds: TimeInterval, analyzer: SpeechAnalyzer) async throws -> [String] {
+        try await withThrowingTaskGroup(of: [String].self) { group in
+            group.addTask {
+                return try await task.value
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
+                task.cancel()
+                await analyzer.cancelAndFinishNow()
+                throw TranscriptionError.analysisFailed("Transcription results stalled (timeout).")
+            }
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
+        }
+    }
+
+    private func analyzeSequenceWithTimeout(analyzer: SpeechAnalyzer, audioFile: AVAudioFile, timeoutSeconds: TimeInterval) async throws -> CMTime? {
+        try await withThrowingTaskGroup(of: CMTime?.self) { group in
+            group.addTask {
+                return try await analyzer.analyzeSequence(from: audioFile)
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
+                await analyzer.cancelAndFinishNow()
+                throw TranscriptionError.analysisFailed("Transcription analysis stalled (timeout).")
+            }
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
+        }
+    }
+
+    func cancelCurrentTranscription() async {
+        let analyzer = await MainActor.run { self.speechAnalyzer }
+        if let analyzer {
+            await analyzer.cancelAndFinishNow()
+        }
+        await setErrorMessage("Transcription cancelled.")
     }
 
     private func translateText(_ text: String, from sourceLanguage: Locale.Language, to targetLanguage: Locale.Language) async throws -> String {

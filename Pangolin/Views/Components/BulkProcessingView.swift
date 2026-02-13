@@ -252,7 +252,7 @@ struct TaskRowView: View {
         HStack(spacing: 12) {
             // Task icon
             Image(systemName: task.type.systemImage)
-                .foregroundColor(task.type == .transcribe ? .blue : task.type == .translate ? .green : .purple)
+                .foregroundColor(taskTypeColor)
                 .frame(width: 20)
             
             VStack(alignment: .leading, spacing: 4) {
@@ -322,6 +322,18 @@ struct TaskRowView: View {
             return .blue
         case .pending, .waitingForDependencies:
             return .orange
+        }
+    }
+
+    private var taskTypeColor: Color {
+        switch task.type {
+        case .importVideo: return .orange
+        case .generateThumbnail: return .pink
+        case .transcribe: return .blue
+        case .translate: return .green
+        case .summarize: return .purple
+        case .iCloudDownload: return .cyan
+        case .fileOperation: return .gray
         }
     }
 }

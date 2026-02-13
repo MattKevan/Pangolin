@@ -25,8 +25,7 @@ struct MainView: View {
     @EnvironmentObject var libraryManager: LibraryManager
     @StateObject private var folderStore: FolderNavigationStore
     @StateObject private var searchManager = SearchManager()
-    @StateObject private var transcriptionService = SpeechTranscriptionService()
-    @StateObject private var taskQueueManager = TaskQueueManager.shared
+    @StateObject private var processingQueueManager = ProcessingQueueManager.shared
     
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showingCreateFolder = false
@@ -44,14 +43,18 @@ struct MainView: View {
     
     var body: some View { rootView }
 
+    private var transcriptionService: SpeechTranscriptionService {
+        processingQueueManager.transcriptionService
+    }
+
     private var rootView: some View {
         RootContainerView(
             content: rootNavigationSplitView,
             folderStore: folderStore,
             searchManager: searchManager,
             libraryManager: libraryManager,
-            transcriptionService: transcriptionService,
-            taskQueueManager: taskQueueManager,
+            transcriptionService: processingQueueManager.transcriptionService,
+            processingQueueManager: processingQueueManager,
             showingImportPicker: $showingImportPicker,
             showingCreateFolder: $showingCreateFolder,
             showTaskPopover: $showTaskPopover,
@@ -98,8 +101,8 @@ struct MainView: View {
             .environmentObject(searchManager)
             .environmentObject(libraryManager)
             .navigationSplitViewColumnWidth(
-                min: isTwoColumnMode ? 0 : 360,
-                ideal: isTwoColumnMode ? 0 : 480,
+                min: isTwoColumnMode ? 0 : 260,
+                ideal: isTwoColumnMode ? 0 : 380,
                 max: isTwoColumnMode ? 0 : 800
             )
     }
@@ -110,7 +113,7 @@ struct MainView: View {
             .environmentObject(searchManager)
             .environmentObject(libraryManager)
             .environmentObject(transcriptionService)
-            .navigationSplitViewColumnWidth(min: 520, ideal: 760)
+            .navigationSplitViewColumnWidth(min: 420, ideal: 760)
     }
 
     private var detailColumn: some View {
@@ -119,7 +122,7 @@ struct MainView: View {
             .environmentObject(searchManager)
             .environmentObject(libraryManager)
             .environmentObject(transcriptionService)
-            .navigationSplitViewColumnWidth(min: 520, ideal: 760)
+            .navigationSplitViewColumnWidth(min: 420, ideal: 760)
             .toolbar {
                 if !folderStore.isSearchMode {
                     // Normal Mode: Standard toolbar items
@@ -144,19 +147,19 @@ struct MainView: View {
                     // Trailing actions
                     ToolbarItemGroup(placement: .primaryAction) {
                         // Task Queue Progress Indicator
-                        if taskQueueManager.hasActiveTasks {
+                        if processingQueueManager.activeTaskCount > 0 {
                             Button {
                                 showTaskPopover.toggle()
                             } label: {
                                 ZStack {
-                                    ProgressView(value: taskQueueManager.overallProgress)
+                                    ProgressView(value: processingQueueManager.overallProgress)
                                         .progressViewStyle(.circular)
                                         .controlSize(.small)
                                         .frame(width: 14, height: 14)
 
                                     // Badge showing number of active tasks
-                                    if taskQueueManager.activeTaskCount > 1 {
-                                        Text("\(taskQueueManager.activeTaskCount)")
+                                    if processingQueueManager.activeTaskCount > 1 {
+                                        Text("\(processingQueueManager.activeTaskCount)")
                                             .font(.system(size: 8, weight: .bold))
                                             .foregroundColor(.white)
                                             .frame(width: 12, height: 12)
@@ -167,11 +170,11 @@ struct MainView: View {
                                 }
                                 .frame(width: 20, height: 20) // hit target
                                 .accessibilityLabel("Background tasks")
-                                .accessibilityValue("\(taskQueueManager.activeTaskCount) active tasks")
+                                .accessibilityValue("\(processingQueueManager.activeTaskCount) active tasks")
                             }
                             .buttonStyle(.plain)
                             .popover(isPresented: $showTaskPopover, arrowEdge: .top) {
-                                TaskQueuePopoverView()
+                                ProcessingPopoverView(processingManager: processingQueueManager)
                             }
                         }
                     }
@@ -195,8 +198,7 @@ struct MainView: View {
         case .success(let urls):
             if let library = libraryManager.currentLibrary, let context = libraryManager.viewContext {
                 Task {
-                    let importer = VideoImporter()
-                    await importer.importFiles(urls, to: library, context: context)
+                    await processingQueueManager.enqueueImport(urls: urls, library: library, context: context)
                 }
             }
         case .failure(let error):
@@ -207,12 +209,8 @@ struct MainView: View {
     private func handleAutoTranscribe() {
         guard let video = folderStore.selectedVideo else { return }
         guard !hasTranscript(video) else { return }
-        guard !transcriptionService.isTranscribing else { return }
         guard libraryManager.currentLibrary != nil else { return }
-        Task {
-            await Task.yield()
-            await transcriptionService.transcribeVideo(video, libraryManager: libraryManager)
-        }
+        processingQueueManager.enqueueTranscription(for: [video])
     }
     
     private func updateColumnVisibility() {
@@ -239,7 +237,7 @@ private struct RootContainerView<Content: View>: View {
     @ObservedObject var searchManager: SearchManager
     @ObservedObject var libraryManager: LibraryManager
     @ObservedObject var transcriptionService: SpeechTranscriptionService
-    @ObservedObject var taskQueueManager: TaskQueueManager
+    @ObservedObject var processingQueueManager: ProcessingQueueManager
     @Binding var showingImportPicker: Bool
     @Binding var showingCreateFolder: Bool
     @Binding var showTaskPopover: Bool
@@ -401,7 +399,7 @@ private struct DetailColumnView: View {
                     .environmentObject(transcriptionService)
             } else {
                 ContentUnavailableView(
-                    "No Video Selected",
+                    "No video selected",
                     systemImage: "video",
                     description: Text("Select a video to view details.")
                 )

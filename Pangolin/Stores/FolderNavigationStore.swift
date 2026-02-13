@@ -36,8 +36,9 @@ class FolderNavigationStore: ObservableObject {
     }
     @Published var selectedTopLevelFolder: Folder? {
         didSet {
-            // When the top-level folder changes, ensure a video is selected
-            // Defer to next runloop to avoid publishing during view updates
+            // Avoid clearing the selected video when we're revealing a video's location.
+            guard !isRevealingVideoLocation else { return }
+            // For explicit folder switches, clear the detail selection.
             Task { @MainActor in
                 self.selectedVideo = nil
             }
@@ -63,6 +64,7 @@ class FolderNavigationStore: ObservableObject {
     // MARK: - Dependencies
     private let libraryManager: LibraryManager
     private var cancellables = Set<AnyCancellable>()
+    private var isRevealingVideoLocation = false
     
     init(libraryManager: LibraryManager) {
         self.libraryManager = libraryManager
@@ -133,12 +135,18 @@ class FolderNavigationStore: ObservableObject {
                 // Content will be managed by SearchManager
             case .folder(let folder):
                 isSearchMode = false
+                // When revealing a video's location, revealVideoLocation(_:) sets
+                // selectedTopLevelFolder/currentFolderID/navigationPath explicitly.
+                // Avoid clobbering that state from this sidebar selection callback.
+                if isRevealingVideoLocation {
+                    break
+                }
                 if folder.isTopLevel {
                     navigationPath = NavigationPath()
                 }
                 selectedTopLevelFolder = folder
                 currentFolderID = folder.id
-                if folder.isSmartFolder {
+                if folder.isSmartFolder && !isRevealingVideoLocation {
                     selectedVideo = nil
                 }
             case .video(let video):
@@ -311,6 +319,9 @@ class FolderNavigationStore: ObservableObject {
 
     // Reveal a video's location in the folder hierarchy and select it.
     func revealVideoLocation(_ video: Video) {
+        isRevealingVideoLocation = true
+        defer { isRevealingVideoLocation = false }
+
         selectedVideo = video
         guard let folder = video.folder else { return }
 

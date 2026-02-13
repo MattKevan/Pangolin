@@ -226,7 +226,7 @@ class FileSystemManager {
     
     // MARK: - Thumbnail Generation
     
-    private func generateThumbnail(for videoURL: URL, in library: Library) async throws -> String? {
+    func generateThumbnail(for videoURL: URL, in library: Library) async throws -> String? {
         guard let libraryURL = library.url else {
             throw FileSystemError.invalidLibraryPath
         }
@@ -289,6 +289,11 @@ class FileSystemManager {
             return nil
         }
     }
+
+    func generateThumbnail(for video: Video, in library: Library) async throws -> String? {
+        let videoURL = try await video.getAccessibleFileURL(downloadIfNeeded: true)
+        return try await generateThumbnail(for: videoURL, in: library)
+    }
     
     // MARK: - Thumbnail Generation for Existing Videos
     
@@ -342,23 +347,9 @@ class FileSystemManager {
             let videoCount = allVideos.count
             print("Rebuilding thumbnails for \(videoCount) videos")
             
-            // Register with task queue
-            let taskGroupId = await MainActor.run {
-                TaskQueueManager.shared.startTaskGroup(
-                    type: .generatingThumbnails,
-                    totalItems: videoCount
-                )
-            }
-            
             for (index, video) in allVideos.enumerated() {
                 guard let videoURL = video.fileURL else { continue }
-                
-                // Update task queue progress
-                await TaskQueueManager.shared.updateTaskGroup(
-                    id: taskGroupId,
-                    completedItems: index,
-                    currentItem: video.title ?? video.fileName ?? "Unknown Video"
-                )
+                _ = index
                 
                 do {
                     let thumbnailPath = try await generateThumbnail(for: videoURL, in: library)
@@ -379,10 +370,6 @@ class FileSystemManager {
                     print("Failed to save rebuilt thumbnail paths: \(error)")
                 }
             }
-            
-            // Complete task group
-            await TaskQueueManager.shared.completeTaskGroup(id: taskGroupId)
-            
         } catch {
             print("Failed to fetch videos for thumbnail rebuild: \(error)")
         }

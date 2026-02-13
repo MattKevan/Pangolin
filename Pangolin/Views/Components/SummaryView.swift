@@ -11,6 +11,7 @@ struct SummaryView: View {
     @ObservedObject var video: Video
     @EnvironmentObject var transcriptionService: SpeechTranscriptionService
     @EnvironmentObject var libraryManager: LibraryManager
+    @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
     
     // Share sheet presentation (iOS/iPadOS)
     @State private var isPresentingShare = false
@@ -43,14 +44,12 @@ struct SummaryView: View {
             
             Spacer()
             
-            if transcriptionService.isSummarizing {
+            if isSummarizing {
                 ProgressView()
                     .scaleEffect(0.8)
             } else if video.transcriptSummary == nil {
                 Button {
-                    Task {
-                        await transcriptionService.summarizeVideo(video, libraryManager: libraryManager)
-                    }
+                    processingQueueManager.enqueueSummarization(for: [video])
                 } label: {
                     Label("Generate", systemImage: "sparkles")
                 }
@@ -59,9 +58,7 @@ struct SummaryView: View {
                 .disabled(video.transcriptText == nil && video.translatedText == nil)
             } else {
                 Button {
-                    Task {
-                        await transcriptionService.summarizeVideo(video, libraryManager: libraryManager)
-                    }
+                    processingQueueManager.enqueueSummarization(for: [video], force: true)
                 } label: {
                     Label("Regenerate", systemImage: "arrow.clockwise")
                 }
@@ -85,7 +82,7 @@ struct SummaryView: View {
                 systemImage: "doc.text.below.ecg",
                 description: Text("A transcript is required to generate a summary. Go to the Transcript tab and generate one first.")
             )
-        } else if transcriptionService.isSummarizing {
+        } else if isSummarizing {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Image(systemName: "brain.head.profile")
@@ -94,7 +91,7 @@ struct SummaryView: View {
                         .font(.headline)
                 }
                 
-                ProgressView()
+                ProgressView(value: summaryProgress)
                     .progressViewStyle(LinearProgressViewStyle())
                 
                 Text("Using Apple Intelligence to create a comprehensive summary")
@@ -104,7 +101,7 @@ struct SummaryView: View {
             .padding()
             .background(Color(nsColorCompatible: .controlBackgroundColor))
             .cornerRadius(8)
-        } else if let errorMessage = transcriptionService.errorMessage {
+        } else if let errorMessage = summaryErrorMessage {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Image(systemName: "exclamationmark.triangle")
@@ -295,6 +292,22 @@ struct SummaryView: View {
             try? await Task.sleep(nanoseconds: 1_200_000_000)
             didCopyMarkdown = false
         }
+    }
+
+    private var summaryTask: ProcessingTask? {
+        processingQueueManager.task(for: video, type: .summarize)
+    }
+
+    private var isSummarizing: Bool {
+        summaryTask?.status.isActive == true
+    }
+
+    private var summaryProgress: Double {
+        summaryTask?.progress ?? 0.0
+    }
+
+    private var summaryErrorMessage: String? {
+        summaryTask?.errorMessage
     }
 }
 

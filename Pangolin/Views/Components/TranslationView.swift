@@ -17,6 +17,7 @@ struct TranslationView: View {
     @ObservedObject var video: Video
     @EnvironmentObject var transcriptionService: SpeechTranscriptionService
     @EnvironmentObject var libraryManager: LibraryManager
+    @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
     
     // Target (output) language selection
     @State private var outputSelection: Locale? = nil
@@ -101,7 +102,7 @@ struct TranslationView: View {
                     
                     Spacer()
                     
-                    if transcriptionService.isTranscribing {
+                    if isTranslationActive {
                         ProgressView()
                             .scaleEffect(0.8)
                     } else if video.transcriptText == nil {
@@ -111,19 +112,13 @@ struct TranslationView: View {
                             .foregroundColor(.secondary)
                     } else if video.translatedText == nil {
                         Button("Translate") {
-                            Task {
-                                let targetLanguage = outputSelection?.language
-                                await transcriptionService.translateVideo(video, libraryManager: libraryManager, targetLanguage: targetLanguage)
-                            }
+                            processingQueueManager.enqueueTranslation(for: [video], targetLocale: outputSelection)
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(outputSelection == nil || supportedLocales.isEmpty)
                     } else {
                         Button("Regenerate") {
-                            Task {
-                                let targetLanguage = outputSelection?.language
-                                await transcriptionService.translateVideo(video, libraryManager: libraryManager, targetLanguage: targetLanguage)
-                            }
+                            processingQueueManager.enqueueTranslation(for: [video], targetLocale: outputSelection, force: true)
                         }
                         .buttonStyle(.bordered)
                     }
@@ -135,7 +130,7 @@ struct TranslationView: View {
                         systemImage: "doc.text.below.ecg",
                         description: Text("A transcript is required before translation. Go to the Transcript tab and generate one first.")
                     )
-                } else if transcriptionService.isTranscribing {
+                } else if isTranslationActive {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             Image(systemName: "globe")
@@ -144,7 +139,7 @@ struct TranslationView: View {
                                 .font(.headline)
                         }
                         
-                        ProgressView(value: transcriptionService.progress)
+                        ProgressView(value: translationProgress)
                             .progressViewStyle(LinearProgressViewStyle())
                         
                         Text("Using Apple's translation service")
@@ -158,7 +153,7 @@ struct TranslationView: View {
                     .background(.regularMaterial)
                     #endif
                     .cornerRadius(8)
-                } else if let errorMessage = transcriptionService.errorMessage {
+                } else if let errorMessage = translationErrorMessage {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
                             Image(systemName: "exclamationmark.triangle")
@@ -197,10 +192,7 @@ struct TranslationView: View {
                             
                             Spacer()
                             Button("Try Again") {
-                                Task {
-                                    let targetLanguage = outputSelection?.language
-                                    await transcriptionService.translateVideo(video, libraryManager: libraryManager, targetLanguage: targetLanguage)
-                                }
+                                processingQueueManager.enqueueTranslation(for: [video], targetLocale: outputSelection, force: true)
                             }
                             .buttonStyle(.borderedProminent)
                             .controlSize(.small)
@@ -332,5 +324,21 @@ struct TranslationView: View {
             return .languageNotSupported(Locale.current)
         }
         return nil
+    }
+
+    private var translationTask: ProcessingTask? {
+        processingQueueManager.task(for: video, type: .translate)
+    }
+
+    private var isTranslationActive: Bool {
+        translationTask?.status.isActive == true
+    }
+
+    private var translationProgress: Double {
+        translationTask?.progress ?? 0.0
+    }
+
+    private var translationErrorMessage: String? {
+        translationTask?.errorMessage
     }
 }

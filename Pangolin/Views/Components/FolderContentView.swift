@@ -65,12 +65,9 @@ struct FolderContentView: View {
                                     video: video,
                                     isSelected: store.selectedVideo?.objectID == video.objectID
                                 ) {
-                                    if isSmartFolderView {
-                                        store.revealVideoLocation(video)
-                                    } else {
-                                        store.selectedSidebarItem = .video(video)
-                                        store.selectVideo(video)
-                                    }
+                                    // Keep the current browsing context (smart folder or normal folder)
+                                    // and only update the active video selection for detail view.
+                                    store.selectVideo(video)
                                 }
                             }
                         }

@@ -36,7 +36,7 @@ struct VideoPlayerWithPosterView: View {
             } else {
                 // No video selected state
                 ContentUnavailableView(
-                    "No Video Selected",
+                    "No video selected",
                     systemImage: "video.slash",
                     description: Text("Select a video from the library to start playing")
                 )

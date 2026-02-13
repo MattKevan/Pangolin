@@ -308,6 +308,10 @@ struct HierarchicalContentView: View {
                 Button("Summarize (\(selectedVideos.count) videos)") {
                     processingQueueManager.addSummaryOnly(for: selectedVideos)
                 }
+
+                Button("Generate Thumbnails (\(selectedVideos.count) videos)") {
+                    processingQueueManager.addThumbnailsOnly(for: selectedVideos)
+                }
                 
                 Divider()
                 
@@ -687,4 +691,3 @@ struct HierarchicalContentView: View {
         }
     }
 }
-

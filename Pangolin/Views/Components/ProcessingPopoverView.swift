@@ -132,10 +132,13 @@ struct CompactTaskRowView: View {
     
     private var taskTypeColor: Color {
         switch task.type {
+        case .importVideo: return .orange
+        case .generateThumbnail: return .pink
         case .transcribe: return .blue
         case .translate: return .green
         case .summarize: return .purple
         case .iCloudDownload: return .cyan
+        case .fileOperation: return .gray
         }
     }
     

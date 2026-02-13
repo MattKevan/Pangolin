@@ -269,8 +269,11 @@ class LibraryManager: ObservableObject {
         loadingProgress = 1.0
         
         // Generate thumbnails for videos that don't have them (async in background)
-        Task {
-            await FileSystemManager.shared.generateMissingThumbnails(for: library, context: context)
+        Task { @MainActor in
+            let request = Video.fetchRequest()
+            request.predicate = NSPredicate(format: "library == %@ AND thumbnailPath == nil", library)
+            let videos = (try? context.fetch(request)) ?? []
+            ProcessingQueueManager.shared.enqueueThumbnails(for: videos)
         }
         
         return library

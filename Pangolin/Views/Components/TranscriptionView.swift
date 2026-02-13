@@ -9,6 +9,7 @@ struct TranscriptionView: View {
     @ObservedObject var video: Video
     @EnvironmentObject var transcriptionService: SpeechTranscriptionService
     @EnvironmentObject var libraryManager: LibraryManager
+    @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
     
     // Source (input) language selection: nil means Auto Detect
     @State private var inputSelection: Locale? = nil
@@ -76,22 +77,16 @@ struct TranscriptionView: View {
                     
                      if video.transcriptText == nil {
                         Button("Transcribe") {
-                            Task {
-                                await transcriptionService.transcribeVideo(video, libraryManager: libraryManager, preferredLocale: inputSelection)
-                                // After transcription, reflect detected language into the input picker
-                                syncInputPickerToDetectedLanguage()
-                            }
+                            processingQueueManager.enqueueTranscription(for: [video], preferredLocale: inputSelection)
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(supportedLocales.isEmpty)
+                        .disabled(supportedLocales.isEmpty || isTranscriptionRunningForVideo)
                     } else {
                         Button("Regenerate") {
-                            Task {
-                                await transcriptionService.transcribeVideo(video, libraryManager: libraryManager, preferredLocale: inputSelection)
-                                syncInputPickerToDetectedLanguage()
-                            }
+                            processingQueueManager.enqueueTranscription(for: [video], preferredLocale: inputSelection, force: true)
                         }
                         .buttonStyle(.bordered)
+                        .disabled(isTranscriptionRunningForVideo)
                     }
                 }
             
@@ -99,6 +94,16 @@ struct TranscriptionView: View {
                 
             
             
+                if isTranscriptionRunningForVideo {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Transcribing...")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 if let transcriptText = video.transcriptText {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
@@ -121,12 +126,16 @@ struct TranscriptionView: View {
                         
                         ScrollView {
                             Text(transcriptText)
-                                .font(.body)
+                                .font(.system(size: 17))
+                                .lineSpacing(8)
                                 .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .multilineTextAlignment(.leading)
+                                .frame(maxWidth: 720, alignment: .leading)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.horizontal, 12)
                         }
                     }
-                } else if !transcriptionService.isTranscribing && transcriptionService.errorMessage == nil {
+                } else if !isTranscribing && transcriptionErrorMessage == nil {
                     ContentUnavailableView(
                         "No transcript available",
                         systemImage: "doc.text",
@@ -214,6 +223,22 @@ struct TranscriptionView: View {
         if let matched = supportedLocales.first(where: { $0.identifier == langID }) {
             inputSelection = matched
         }
+    }
+
+    private var transcriptionTask: ProcessingTask? {
+        processingQueueManager.task(for: video, type: .transcribe)
+    }
+
+    private var isTranscriptionRunningForVideo: Bool {
+        transcriptionTask?.status == .processing
+    }
+
+    private var isTranscribing: Bool {
+        transcriptionTask?.status.isActive == true
+    }
+
+    private var transcriptionErrorMessage: String? {
+        transcriptionTask?.errorMessage
     }
 }
 

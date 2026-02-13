@@ -43,25 +43,7 @@ struct DraggableSplitter: View {
                 )
             
             // Drag handle (visible when hovering or dragging)
-            HStack(spacing: 2) {
-                if isVertical {
-                    ForEach(0..<3, id: \.self) { _ in
-                        Circle()
-                            .fill(isDragging ? Color.blue : Color.secondary)
-                            .frame(width: 3, height: 3)
-                    }
-                } else {
-                    VStack(spacing: 2) {
-                        ForEach(0..<3, id: \.self) { _ in
-                            Circle()
-                                .fill(isDragging ? Color.blue : Color.secondary)
-                                .frame(width: 3, height: 3)
-                        }
-                    }
-                }
-            }
-            .opacity(isDragging ? 1.0 : 0.7)
-            .scaleEffect(isDragging ? 1.2 : 1.0)
+            
         }
         .contentShape(Rectangle())
         .onHover { hovering in

@@ -192,8 +192,11 @@ struct PangolinApp: App {
         guard let library = libraryManager.currentLibrary,
               let context = libraryManager.viewContext else { return }
 
-        Task {
-            await FileSystemManager.shared.rebuildAllThumbnails(for: library, context: context)
+        Task { @MainActor in
+            let request = Video.fetchRequest()
+            request.predicate = NSPredicate(format: "library == %@", library)
+            let videos = (try? context.fetch(request)) ?? []
+            ProcessingQueueManager.shared.enqueueThumbnails(for: videos, force: true)
         }
     }
 

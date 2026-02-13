@@ -6,8 +6,9 @@ class ProcessingQueue: ObservableObject {
     @Published private(set) var isProcessing = false
     @Published private(set) var isPaused = false
     
-    private let maxConcurrentTasks = 2 // Limit concurrent processing to avoid overwhelming the system
+    private let maxConcurrentTasks = 1 // Single worker for stability
     private var processingTaskIDs: Set<UUID> = []
+    var hasRequiredDataProvider: ((UUID, ProcessingTaskType) -> Bool)?
     
     // MARK: - Queue Statistics
     
@@ -45,7 +46,7 @@ class ProcessingQueue: ObservableObject {
     
     func addTask(_ task: ProcessingTask) {
         // Check if task already exists for this video and type
-        if !tasks.contains(where: { $0.videoID == task.videoID && $0.type == task.type }) {
+        if !tasks.contains(where: { $0.uniqueKey == task.uniqueKey }) {
             tasks.append(task)
             updateTaskDependencies()
         }
@@ -141,11 +142,14 @@ class ProcessingQueue: ObservableObject {
     }
     
     private func areDependenciesSatisfied(for task: ProcessingTask) -> Bool {
+        guard let videoID = task.videoID else {
+            return true
+        }
         let dependencies = task.type.dependencies
         
         for dependencyType in dependencies {
             let dependencyTask = tasks.first { otherTask in
-                otherTask.videoID == task.videoID && 
+                otherTask.videoID == videoID && 
                 otherTask.type == dependencyType
             }
             
@@ -155,7 +159,7 @@ class ProcessingQueue: ObservableObject {
             }
             
             // If dependency task doesn't exist, check if the video already has the required data
-            if dependencyTask == nil && !hasRequiredData(for: task.videoID, type: dependencyType) {
+            if dependencyTask == nil && !hasRequiredData(for: videoID, type: dependencyType) {
                 return false
             }
         }
@@ -164,10 +168,7 @@ class ProcessingQueue: ObservableObject {
     }
     
     private func hasRequiredData(for videoID: UUID, type: ProcessingTaskType) -> Bool {
-        // This would need to check the actual video object
-        // For now, we'll assume that if no task exists, the data might already be available
-        // This should be implemented to check the actual video's transcript/translation/summary status
-        return false
+        return hasRequiredDataProvider?(videoID, type) ?? false
     }
     
     private func updateProcessingState() {

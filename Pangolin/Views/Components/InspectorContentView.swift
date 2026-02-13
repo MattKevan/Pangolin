@@ -61,15 +61,11 @@ struct InspectorContentView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         #if os(macOS)
-        .background(.regularMaterial)
+        
         #else
         .background(Color(.tertiarySystemBackground))
         #endif
-        .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(Color.secondary.opacity(0.25))
-                .frame(width: 1)
-        }
+        
     }
     
     @ViewBuilder
@@ -98,7 +94,7 @@ struct InspectorContentView: View {
             }
         } else {
             ContentUnavailableView(
-                "No Video Selected",
+                "No video selected",
                 systemImage: "sidebar.right",
                 description: Text("Select a video to view transcript, summary and info")
             )
