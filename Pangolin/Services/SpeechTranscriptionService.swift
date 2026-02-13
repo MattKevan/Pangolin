@@ -74,7 +74,6 @@ enum TranscriptionError: LocalizedError {
     }
 }
 
-@MainActor
 class SpeechTranscriptionService: ObservableObject {
     @Published var isTranscribing = false
     @Published var isSummarizing = false
@@ -87,6 +86,7 @@ class SpeechTranscriptionService: ObservableObject {
     
     // Session cache: locales we’ve verified/installed during this app run
     private var preparedLocales = Set<String>()
+    private let preparedLocalesLock = NSLock()
 
     // MARK: - Summary Presets
     enum SummaryPreset: String, CaseIterable, Identifiable {
@@ -151,12 +151,14 @@ class SpeechTranscriptionService: ObservableObject {
 
     func transcribeVideo(_ video: Video, libraryManager: LibraryManager, preferredLocale: Locale? = nil) async {
         print("🟢 Started transcribeVideo for \(video.title ?? "Unknown")")
-        guard !isTranscribing else { return }
+        // Avoid publishing during the same view update cycle that triggered the call.
+        await Task.yield()
+        guard !(await isTranscribingOnMain()) else { return }
         
-        isTranscribing = true
-        errorMessage = nil
-        progress = 0.0
-        statusMessage = "Starting transcription..."
+        await setTranscribingState(isTranscribing: true, isSummarizing: false)
+        await setErrorMessage(nil)
+        await setProgress(0.0)
+        await setStatus("Starting transcription...")
         
         // Register with task queue
         let taskGroupId = await MainActor.run {
@@ -167,8 +169,12 @@ class SpeechTranscriptionService: ObservableObject {
         }
         
         do {
+            try await Task.detached(priority: .userInitiated) { [weak self] in
+                guard let self else {
+                    throw TranscriptionError.analysisFailed("Transcription service unavailable.")
+                }
             // Use the async method to get accessible video file URL, downloading if needed
-            statusMessage = "Accessing video file..."
+            await setStatus("Accessing video file...")
             // Update task queue (this handles main thread dispatch internally)
             await TaskQueueManager.shared.updateTaskGroup(
                 id: taskGroupId,
@@ -185,9 +191,9 @@ class SpeechTranscriptionService: ObservableObject {
                 throw TranscriptionError.videoFileNotFound
             }
             
-            statusMessage = "Checking permissions..."
+            await setStatus("Checking permissions...")
             try await requestSpeechRecognitionPermission()
-            progress = 0.1
+            await setProgress(0.1)
             
             // Determine locale to use
             let usedLocale: Locale
@@ -198,41 +204,43 @@ class SpeechTranscriptionService: ObservableObject {
                     throw TranscriptionError.languageNotSupported(preferredLocale)
                 }
                 print("🧭 Using preferred locale: \(usedLocale.identifier)")
-                progress = 0.2
+                await setProgress(0.2)
             } else {
-                statusMessage = "Extracting audio sample..."
+                await setStatus("Extracting audio sample...")
                 let sampleAudioURL = try await extractAudio(from: videoURL, duration: 30.0)
                 defer { try? FileManager.default.removeItem(at: sampleAudioURL) }
-                progress = 0.2
+                await setProgress(0.2)
                 
-                statusMessage = "Detecting language..."
+                await setStatus("Detecting language...")
                 usedLocale = try await detectLanguage(from: sampleAudioURL)
                 print("🧠 DETECTED: Language locale is \(usedLocale.identifier)")
-                progress = 0.3
+                await setProgress(0.3)
             }
             
             // Ensure model is present for the final chosen locale
-            statusMessage = "Preparing language model (\(usedLocale.identifier))..."
+            await setStatus("Preparing language model (\(usedLocale.identifier))...")
             try await prepareModelIfNeeded(for: usedLocale)
-            progress = max(progress, 0.35)
+            await setProgress(max(await getProgressOnMain(), 0.35))
             
-            statusMessage = "Transcribing main audio..."
+            await setStatus("Transcribing main audio...")
             let transcriptText = try await performTranscription(
                 fullAudioURL: videoURL,
                 locale: usedLocale
             )
-            progress = 0.9
+            await setProgress(0.9)
             
-            statusMessage = "Saving transcript..."
+            await setStatus("Saving transcript...")
             video.transcriptText = transcriptText
             video.transcriptLanguage = usedLocale.identifier
             video.transcriptDateGenerated = Date()
             
             // Persist to disk (best effort)
             do {
-                try libraryManager.ensureTextArtifactDirectories()
-                if let url = libraryManager.transcriptURL(for: video) {
-                    try libraryManager.writeTextAtomically(transcriptText, to: url)
+                try await MainActor.run {
+                    try libraryManager.ensureTextArtifactDirectories()
+                    if let url = libraryManager.transcriptURL(for: video) {
+                        try libraryManager.writeTextAtomically(transcriptText, to: url)
+                    }
                 }
             } catch {
                 print("⚠️ Failed to write transcript to disk: \(error)")
@@ -243,19 +251,19 @@ class SpeechTranscriptionService: ObservableObject {
             
             await libraryManager.save()
             
-            progress = 1.0
-            statusMessage = "Transcription complete!"
-            
+            await setProgress(1.0)
+            await setStatus("Transcription complete!")
+            }.value
         } catch {
             let localizedError = error as? LocalizedError
-            errorMessage = localizedError?.errorDescription ?? "An unknown error occurred."
+            await setErrorMessage(localizedError?.errorDescription ?? "An unknown error occurred.")
             print("🚨 Transcription error: \(error)")
         }
         
-        isTranscribing = false
+        await setTranscribingState(isTranscribing: false, isSummarizing: false)
         
         // Complete or remove task group based on success/failure (handles main thread internally)
-        if errorMessage == nil {
+        if await getErrorMessageOnMain() == nil {
             await TaskQueueManager.shared.completeTaskGroup(id: taskGroupId)
         } else {
             await MainActor.run {
@@ -266,14 +274,20 @@ class SpeechTranscriptionService: ObservableObject {
 
     func translateVideo(_ video: Video, libraryManager: LibraryManager, targetLanguage: Locale.Language? = nil) async {
         print("🟢 Started translateVideo for \(video.title ?? "Unknown")")
-        guard !isTranscribing, let transcriptText = video.transcriptText else { return }
+        // Avoid publishing during the same view update cycle that triggered the call.
+        await Task.yield()
+        guard !(await isTranscribingOnMain()), let transcriptText = video.transcriptText else { return }
         
-        isTranscribing = true
-        errorMessage = nil
-        progress = 0.0
-        statusMessage = "Starting translation..."
+        await setTranscribingState(isTranscribing: true, isSummarizing: false)
+        await setErrorMessage(nil)
+        await setProgress(0.0)
+        await setStatus("Starting translation...")
         
         do {
+            try await Task.detached(priority: .userInitiated) { [weak self] in
+                guard let self else {
+                    throw TranscriptionError.translationFailed("Translation service unavailable.")
+                }
             // Determine source language
             var sourceLanguage: Locale.Language
             if let transcriptLangIdentifier = video.transcriptLanguage {
@@ -313,16 +327,16 @@ class SpeechTranscriptionService: ObservableObject {
             }
             
             if sourceCode == targetCode {
-                statusMessage = "Translation not needed - already in target language"
-                isTranscribing = false
+                await setStatus("Translation not needed - already in target language")
+                await setTranscribingState(isTranscribing: false, isSummarizing: false)
                 return
             }
             
-            progress = 0.3
+            await setProgress(0.3)
             let translatedText = try await translateText(transcriptText, from: sourceLanguage, to: chosenTargetLanguage)
             
-            progress = 0.9
-            statusMessage = "Saving translation..."
+            await setProgress(0.9)
+            await setStatus("Saving translation...")
             
             video.translatedText = translatedText
             video.translatedLanguage = targetCode
@@ -330,9 +344,11 @@ class SpeechTranscriptionService: ObservableObject {
             
             // Persist to disk (best effort)
             do {
-                try libraryManager.ensureTextArtifactDirectories()
-                if let url = libraryManager.translationURL(for: video, languageCode: targetCode) {
-                    try libraryManager.writeTextAtomically(translatedText, to: url)
+                try await MainActor.run {
+                    try libraryManager.ensureTextArtifactDirectories()
+                    if let url = libraryManager.translationURL(for: video, languageCode: targetCode) {
+                        try libraryManager.writeTextAtomically(translatedText, to: url)
+                    }
                 }
             } catch {
                 print("⚠️ Failed to write translation to disk: \(error)")
@@ -340,23 +356,25 @@ class SpeechTranscriptionService: ObservableObject {
             
             await libraryManager.save()
             
-            progress = 1.0
-            statusMessage = "Translation complete!"
-            
+            await setProgress(1.0)
+            await setStatus("Translation complete!")
+            }.value
         } catch {
             let localizedError = error as? LocalizedError
-            errorMessage = localizedError?.errorDescription ?? "An unknown error occurred."
+            await setErrorMessage(localizedError?.errorDescription ?? "An unknown error occurred.")
             print("🚨 Translation error: \(error)")
         }
         
-        isTranscribing = false
+        await setTranscribingState(isTranscribing: false, isSummarizing: false)
     }
 
     // MARK: - Summarization
 
     func summarizeVideo(_ video: Video, libraryManager: LibraryManager, preset: SummaryPreset = .detailed, customPrompt: String? = nil) async {
         print("🟢 Started summarizeVideo for \(video.title ?? "Unknown")")
-        guard !isTranscribing else { return }
+        // Avoid publishing during the same view update cycle that triggered the call.
+        await Task.yield()
+        guard !(await isTranscribingOnMain()) else { return }
         
         // Use translated text if available, otherwise use original transcript
         let textToSummarize: String
@@ -365,17 +383,20 @@ class SpeechTranscriptionService: ObservableObject {
         } else if let transcriptText = video.transcriptText, !transcriptText.isEmpty {
             textToSummarize = transcriptText
         } else {
-            errorMessage = "No transcript available to summarize."
+            await setErrorMessage("No transcript available to summarize.")
             return
         }
         
-        isTranscribing = true
-        isSummarizing = true
-        errorMessage = nil
-        progress = 0.0
-        statusMessage = "Preparing Apple Intelligence..."
+        await setTranscribingState(isTranscribing: true, isSummarizing: true)
+        await setErrorMessage(nil)
+        await setProgress(0.0)
+        await setStatus("Preparing Apple Intelligence...")
         
         do {
+            try await Task.detached(priority: .userInitiated) { [weak self] in
+                guard let self else {
+                    throw TranscriptionError.summarizationFailed("Summarization service unavailable.")
+                }
             let model = SystemLanguageModel.default
             switch model.availability {
             case .available:
@@ -390,7 +411,7 @@ class SpeechTranscriptionService: ObservableObject {
                 throw TranscriptionError.summarizationFailed("Apple Intelligence is unavailable: \(reason)")
             }
             
-            statusMessage = "Chunking transcript..."
+            await setStatus("Chunking transcript...")
             let maxContextTokens = 4096
             let targetChunkTokens = 3000
             let chunks = splitTextIntoChunksByBudget(textToSummarize, targetTokens: targetChunkTokens, hardLimit: maxContextTokens)
@@ -400,27 +421,29 @@ class SpeechTranscriptionService: ObservableObject {
             
             var chunkSummaries: [String] = []
             for (index, chunk) in chunks.enumerated() {
-                statusMessage = "Summarizing chunk \(index + 1) of \(chunks.count)..."
-                progress = 0.1 + (0.6 * Double(index) / Double(max(1, chunks.count)))
+                await setStatus("Summarizing chunk \(index + 1) of \(chunks.count)...")
+                await setProgress(0.1 + (0.6 * Double(index) / Double(max(1, chunks.count))))
                 
                 let chunkSummary = try await summarizeChunk(chunk, preset: preset, customPrompt: customPrompt)
                 chunkSummaries.append(chunkSummary)
             }
             
-            statusMessage = "Combining summaries..."
-            progress = 0.8
+            await setStatus("Combining summaries...")
+            await setProgress(0.8)
             let finalSummary = try await reduceSummaries(chunkSummaries, preset: preset, customPrompt: customPrompt)
             
-            statusMessage = "Saving summary..."
-            progress = 0.95
+            await setStatus("Saving summary...")
+            await setProgress(0.95)
             video.transcriptSummary = finalSummary
             video.summaryDateGenerated = Date()
             
             // Persist to disk (best effort)
             do {
-                try libraryManager.ensureTextArtifactDirectories()
-                if let url = libraryManager.summaryURL(for: video) {
-                    try libraryManager.writeTextAtomically(finalSummary, to: url)
+                try await MainActor.run {
+                    try libraryManager.ensureTextArtifactDirectories()
+                    if let url = libraryManager.summaryURL(for: video) {
+                        try libraryManager.writeTextAtomically(finalSummary, to: url)
+                    }
                 }
             } catch {
                 print("⚠️ Failed to write summary to disk: \(error)")
@@ -428,16 +451,16 @@ class SpeechTranscriptionService: ObservableObject {
             
             await libraryManager.save()
             
-            progress = 1.0
-            statusMessage = "Summary complete!"
+            await setProgress(1.0)
+            await setStatus("Summary complete!")
+            }.value
         } catch {
             let localizedError = error as? LocalizedError
-            errorMessage = localizedError?.errorDescription ?? error.localizedDescription
+            await setErrorMessage(localizedError?.errorDescription ?? error.localizedDescription)
             print("🚨 Summarization error: \(error)")
         }
         
-        isSummarizing = false
-        isTranscribing = false
+        await setTranscribingState(isTranscribing: false, isSummarizing: false)
     }
 
     // MARK: - Model preparation helpers (cache-aware)
@@ -453,9 +476,7 @@ class SpeechTranscriptionService: ObservableObject {
     // Returns true if all required assets for the transcriber are already installed.
     private func isModelInstalled(for locale: Locale) async -> Bool {
         let key = localeKey(locale)
-        if preparedLocales.contains(key) {
-            return true
-        }
+        if preparedLocalesLock.withLock({ preparedLocales.contains(key) }) { return true }
         do {
             let t = transcriber(for: locale)
             // If nil, nothing to install — model is present
@@ -471,9 +492,7 @@ class SpeechTranscriptionService: ObservableObject {
     // Ensure required assets are installed; download only if needed.
     private func prepareModelIfNeeded(for locale: Locale) async throws {
         let key = localeKey(locale)
-        if preparedLocales.contains(key) {
-            return
-        }
+        if preparedLocalesLock.withLock({ preparedLocales.contains(key) }) { return }
         let t = transcriber(for: locale)
         do {
             if let request = try await AssetInventory.assetInstallationRequest(supporting: [t]) {
@@ -481,7 +500,7 @@ class SpeechTranscriptionService: ObservableObject {
                 try await request.downloadAndInstall()
             }
             // Mark prepared for this session (even if request was nil)
-            preparedLocales.insert(key)
+            preparedLocalesLock.withLock { preparedLocales.insert(key) }
         } catch {
             throw TranscriptionError.assetInstallationFailed
         }
@@ -634,7 +653,7 @@ class SpeechTranscriptionService: ObservableObject {
         
         // Preflight model installation for fallback (cache-aware)
         do {
-            statusMessage = "Preparing language model (\(supportedSystemLocale.identifier))..."
+            await setStatus("Preparing language model (\(supportedSystemLocale.identifier))...")
             try await prepareModelIfNeeded(for: supportedSystemLocale)
         } catch {
             // Non-fatal: continue with detection attempt using whatever is available
@@ -667,7 +686,9 @@ class SpeechTranscriptionService: ObservableObject {
             throw TranscriptionError.analysisFailed("No compatible audio format available for the speech analyzer.")
         }
         let analyzer = SpeechAnalyzer(modules: [transcriber])
-        self.speechAnalyzer = analyzer
+        await MainActor.run {
+            self.speechAnalyzer = analyzer
+        }
         try await analyzer.prepareToAnalyze(in: audioFormat)
 
         // If video, extract audio; if audio already, use directly
@@ -740,11 +761,13 @@ class SpeechTranscriptionService: ObservableObject {
     }
 
     private func translateText(_ text: String, from sourceLanguage: Locale.Language, to targetLanguage: Locale.Language) async throws -> String {
-        statusMessage = "Checking translation models..."
+        await setStatus("Checking translation models...")
         let session = TranslationSession(installedSource: sourceLanguage, target: targetLanguage)
-        self.translationSession = session
+        await MainActor.run {
+            self.translationSession = session
+        }
         try await session.prepareTranslation()
-        statusMessage = "Translating to \(targetLanguage.languageCode?.identifier ?? "target language")..."
+        await setStatus("Translating to \(targetLanguage.languageCode?.identifier ?? "target language")...")
         do {
             let response = try await session.translate(text)
             return response.targetText
@@ -929,5 +952,52 @@ class SpeechTranscriptionService: ObservableObject {
         """
         let response = try await session.respond(to: prompt)
         return response.content
+    }
+
+    // MARK: - Main-thread UI helpers
+
+    private func setTranscribingState(isTranscribing: Bool, isSummarizing: Bool) async {
+        await MainActor.run {
+            self.isTranscribing = isTranscribing
+            self.isSummarizing = isSummarizing
+        }
+    }
+
+    private func setProgress(_ value: Double) async {
+        await MainActor.run {
+            self.progress = value
+        }
+    }
+
+    private func setStatus(_ message: String) async {
+        await MainActor.run {
+            self.statusMessage = message
+        }
+    }
+
+    private func setErrorMessage(_ message: String?) async {
+        await MainActor.run {
+            self.errorMessage = message
+        }
+    }
+
+    private func isTranscribingOnMain() async -> Bool {
+        await MainActor.run { isTranscribing }
+    }
+
+    private func getErrorMessageOnMain() async -> String? {
+        await MainActor.run { errorMessage }
+    }
+
+    private func getProgressOnMain() async -> Double {
+        await MainActor.run { progress }
+    }
+}
+
+private extension NSLock {
+    func withLock<T>(_ body: () -> T) -> T {
+        lock()
+        defer { unlock() }
+        return body()
     }
 }

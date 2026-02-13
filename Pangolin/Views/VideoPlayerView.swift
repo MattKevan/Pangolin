@@ -11,11 +11,14 @@ struct VideoPlayerView: NSViewRepresentable {
         playerView.player = viewModel.player
         playerView.controlsStyle = .none // We'll use custom controls
         playerView.showsFullScreenToggleButton = true
+        playerView.allowsPictureInPicturePlayback = true
+        viewModel.playerView = playerView
         return playerView
     }
     
     func updateNSView(_ nsView: AVPlayerView, context: Context) {
         nsView.player = viewModel.player
+        viewModel.playerView = nsView
     }
 }
 #elseif os(iOS)

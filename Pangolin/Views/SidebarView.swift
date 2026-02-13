@@ -46,7 +46,7 @@ struct SidebarView: View {
                 }
             }
             
-            // User folders
+            // Library top-level folders
             Section("Library") {
                 ForEach(userFolders) { folder in
                     FolderRowView(
@@ -57,7 +57,7 @@ struct SidebarView: View {
                         focusedField: $focusedField,
                         onDelete: { deleteFolder(folder) }
                     )
-                    .contentShape(Rectangle()) // Make the entire row clickable
+                    .contentShape(Rectangle())
                     .tag(SidebarSelection.folder(folder))
                 }
             }
@@ -169,6 +169,7 @@ struct SidebarView: View {
             }
         }
     }
+    
 }
 
 // MARK: - Folder Row View
@@ -300,3 +301,5 @@ private struct FolderRowView: View {
         }
     }
 }
+
+// MARK: - Sidebar Library Row

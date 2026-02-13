@@ -13,6 +13,7 @@ struct VideoPlayerWithPosterView: View {
     @ObservedObject var viewModel: VideoPlayerViewModel
     @State private var showPlayer = false
     @State private var hasStartedPlaying = false
+    @State private var isHovering = false
     
     var body: some View {
         ZStack {
@@ -42,6 +43,12 @@ struct VideoPlayerWithPosterView: View {
                 .foregroundColor(.white)
             }
         }
+        .overlay(alignment: .bottom) {
+            if shouldShowControls {
+                controlsOverlay
+                    .transition(.opacity)
+            }
+        }
         .onChange(of: video?.id) { oldValue, newValue in
             // Reset state when video changes
             showPlayer = false
@@ -53,6 +60,13 @@ struct VideoPlayerWithPosterView: View {
                 hasStartedPlaying = true
             }
         }
+        #if os(macOS)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovering = hovering
+            }
+        }
+        #endif
     }
     
     @ViewBuilder
@@ -93,34 +107,12 @@ struct VideoPlayerWithPosterView: View {
                     )
             }
             
-            // Play button overlay
-            playButtonOverlay
-            
             // Video info overlay
             videoInfoOverlay(for: video)
         }
         .onTapGesture {
             startPlayback()
         }
-    }
-    
-    @ViewBuilder
-    private var playButtonOverlay: some View {
-        Button(action: startPlayback) {
-            ZStack {
-                Circle()
-                    .fill(Color.black.opacity(0.6))
-                    .frame(width: 80, height: 80)
-                
-                Image(systemName: "play.fill")
-                    .font(.system(size: 32))
-                    .foregroundColor(.white)
-                    .offset(x: 3) // Slight offset to center the play triangle visually
-            }
-        }
-        .buttonStyle(PlainButtonStyle())
-        .scaleEffect(1.0)
-        .animation(.easeInOut(duration: 0.1), value: showPlayer)
     }
     
     @ViewBuilder
@@ -171,11 +163,11 @@ struct VideoPlayerWithPosterView: View {
         
         // Load video if not already loaded
         if viewModel.player == nil || video != getCurrentVideo() {
-            viewModel.loadVideo(video)
+            viewModel.loadVideo(video, autoPlay: true)
+        } else {
+            // Start playing immediately when already loaded
+            viewModel.play()
         }
-        
-        // Start playing
-        viewModel.play()
         showPlayer = true
         hasStartedPlaying = true
     }
@@ -190,6 +182,57 @@ struct VideoPlayerWithPosterView: View {
         formatter.unitsStyle = .positional
         formatter.zeroFormattingBehavior = .pad
         return formatter.string(from: seconds) ?? "00:00"
+    }
+
+    private var shouldShowControls: Bool {
+        isHovering || !viewModel.isPlaying
+    }
+
+    @ViewBuilder
+    private var controlsOverlay: some View {
+        VStack(spacing: 8) {
+            HStack {
+                Spacer()
+                #if os(macOS)
+                Button {
+                    viewModel.togglePictureInPicture()
+                } label: {
+                    Image(systemName: "pip")
+                }
+                .buttonStyle(.plain)
+                .help("Picture in Picture")
+
+                Button {
+                    viewModel.openInNewWindow()
+                } label: {
+                    Image(systemName: "rectangle.on.rectangle")
+                }
+                .buttonStyle(.plain)
+                .help("Open in New Window")
+                #endif
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+
+            VideoControlsBar(viewModel: viewModel, onPlayPause: playPauseFromOverlay)
+                .padding(.bottom, 8)
+        }
+        .foregroundColor(.white)
+        .background(
+            LinearGradient(
+                colors: [.black.opacity(0.0), .black.opacity(0.65)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+    }
+
+    private func playPauseFromOverlay() {
+        if viewModel.isPlaying {
+            viewModel.pause()
+        } else {
+            startPlayback()
+        }
     }
 }
 

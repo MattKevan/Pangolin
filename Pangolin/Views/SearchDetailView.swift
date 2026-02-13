@@ -17,14 +17,6 @@ struct SearchDetailView: View {
     
     @StateObject private var playerViewModel = VideoPlayerViewModel()
     
-    private var controlsBackgroundColor: Color {
-        #if os(macOS)
-        return Color(NSColor.controlBackgroundColor)
-        #else
-        return Color(.systemBackground)
-        #endif
-    }
-    
     private var framedPlayerBackground: some ShapeStyle {
         #if os(macOS)
         return .regularMaterial
@@ -54,10 +46,6 @@ struct SearchDetailView: View {
                 .padding(12)
                 
                 // Controls Bar
-                VideoControlsBar(viewModel: playerViewModel)
-                    .frame(height: 60)
-                    .background(controlsBackgroundColor)
-                
                 // Video Information Section
                 SearchVideoInfoView(video: video, searchQuery: searchManager.searchText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

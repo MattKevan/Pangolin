@@ -168,10 +168,10 @@ private struct SearchResultsTableView: View {
     }
 
     private func handleSelectionChange(_ selection: Set<UUID>) {
-        // Update selected video for the player
+        // Reveal selected video in folder hierarchy
         if let firstSelectedID = selection.first,
            let selectedVideo = searchResultItems.first(where: { $0.id == firstSelectedID })?.video {
-            folderStore.selectedVideo = selectedVideo
+            folderStore.revealVideoLocation(selectedVideo)
         }
     }
 

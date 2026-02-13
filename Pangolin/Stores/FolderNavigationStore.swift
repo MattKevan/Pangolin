@@ -13,11 +13,13 @@ import Combine
 enum SidebarSelection: Hashable, Identifiable {
     case search
     case folder(Folder)
+    case video(Video)
     
     var id: String {
         switch self {
         case .search: return "search"
         case .folder(let folder): return folder.id?.uuidString ?? ""
+        case .video(let video): return video.id?.uuidString ?? ""
         }
     }
 }
@@ -37,7 +39,7 @@ class FolderNavigationStore: ObservableObject {
             // When the top-level folder changes, ensure a video is selected
             // Defer to next runloop to avoid publishing during view updates
             Task { @MainActor in
-                self.selectFirstVideoInCurrentFolderIfNeeded()
+                self.selectedVideo = nil
             }
         }
     }
@@ -131,8 +133,17 @@ class FolderNavigationStore: ObservableObject {
                 // Content will be managed by SearchManager
             case .folder(let folder):
                 isSearchMode = false
+                if folder.isTopLevel {
+                    navigationPath = NavigationPath()
+                }
                 selectedTopLevelFolder = folder
                 currentFolderID = folder.id
+                if folder.isSmartFolder {
+                    selectedVideo = nil
+                }
+            case .video(let video):
+                isSearchMode = false
+                selectedVideo = video
             case .none:
                 isSearchMode = false
                 // Keep current state
@@ -233,8 +244,7 @@ class FolderNavigationStore: ObservableObject {
         
         // Only select first video if we have no current selection
         if selectedVideo == nil {
-            print("🎯 STORE: No selection, selecting first video if needed")
-            self.selectFirstVideoInCurrentFolderIfNeeded()
+            print("🎯 STORE: No selection, leaving empty")
         } else {
             print("🎯 STORE: Keeping existing selection: \(selectedVideo?.title ?? "unknown")")
         }
@@ -297,6 +307,33 @@ class FolderNavigationStore: ObservableObject {
         if let v = try? context.fetch(request).first {
             selectedVideo = v
         }
+    }
+
+    // Reveal a video's location in the folder hierarchy and select it.
+    func revealVideoLocation(_ video: Video) {
+        selectedVideo = video
+        guard let folder = video.folder else { return }
+
+        var top = folder
+        var path: [Folder] = []
+        while let parent = top.parentFolder {
+            path.append(parent)
+            top = parent
+        }
+        path = path.reversed()
+
+        selectedSidebarItem = .folder(top)
+        selectedTopLevelFolder = top
+        currentFolderID = folder.id
+
+        // Rebuild navigation path (used for back button state).
+        var nav = NavigationPath()
+        for f in path {
+            if let id = f.id {
+                nav.append(id)
+            }
+        }
+        navigationPath = nav
     }
     
     // MARK: - Folder Management
@@ -509,6 +546,7 @@ class FolderNavigationStore: ObservableObject {
     // MARK: - Auto-select first video
     
     private func selectFirstVideoInCurrentFolderIfNeeded() {
+        guard shouldAutoSelectFirstVideo else { return }
         // Build a list of videos in the current folder from the freshly refreshed flatContent
         let videosInFolder: [Video] = flatContent.compactMap {
             if case .video(let v) = $0 { return v }
@@ -535,6 +573,8 @@ class FolderNavigationStore: ObservableObject {
         
         // If containsCurrent is true, keep current selection (do not override)
     }
+
+    private var shouldAutoSelectFirstVideo: Bool { false }
     
     // MARK: - Renaming
     func renameItem(id: UUID, to newName: String) async {
@@ -737,4 +777,3 @@ class FolderNavigationStore: ObservableObject {
         }
     }
 }
-

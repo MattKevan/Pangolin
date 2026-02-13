@@ -11,11 +11,12 @@ import SwiftUI
 
 struct VideoControlsBar: View {
     @ObservedObject var viewModel: VideoPlayerViewModel
+    var onPlayPause: (() -> Void)? = nil
     
     var body: some View {
         HStack(spacing: 20) {
             // Play/Pause button
-            Button(action: { viewModel.togglePlayPause() }) {
+            Button(action: { onPlayPause?() ?? viewModel.togglePlayPause() }) {
                 Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
                     .font(.title2)
             }

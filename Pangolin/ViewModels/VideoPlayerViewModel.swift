@@ -10,8 +10,12 @@
 import Foundation
 import AVFoundation
 import Combine
+#if os(macOS)
+import AppKit
+import AVKit
+#endif
 
-class VideoPlayerViewModel: ObservableObject {
+class VideoPlayerViewModel: NSObject, ObservableObject {
     @Published var player: AVPlayer?
     @Published var isPlaying = false
     @Published var currentTime: TimeInterval = 0
@@ -24,11 +28,22 @@ class VideoPlayerViewModel: ObservableObject {
     @Published var availableSubtitles: [Subtitle] = []
     @Published var selectedSubtitle: Subtitle?
     @Published var currentVideo: Video?
+    @Published var isExternalPlaybackActive = false
+
+    #if os(macOS)
+    weak var playerView: AVPlayerView?
+    private var externalWindow: NSWindow?
+    private var externalPlayerView: AVPlayerView?
+    #endif
     
     private var timeObserver: Any?
     private var cancellables = Set<AnyCancellable>()
     private var buildTask: Task<Void, Never>?
     
+    override init() {
+        super.init()
+    }
+
     // Cache directory for converted VTT files from SRT
     private lazy var subtitlesCacheDirectory: URL? = {
         do {
@@ -42,11 +57,12 @@ class VideoPlayerViewModel: ObservableObject {
         }
     }()
     
-    func loadVideo(_ video: Video) {
+    func loadVideo(_ video: Video, autoPlay: Bool = false) {
         currentVideo = video
         guard let url = video.fileURL else { return }
         
         isLoading = true
+        let shouldAutoPlay = autoPlay
         
         // Collect subtitles
         if let subs = video.subtitles as? Set<Subtitle> {
@@ -74,6 +90,9 @@ class VideoPlayerViewModel: ObservableObject {
                 
                 await setupTimeObserverIfAsync()
                 await setupNotificationsIfAsync()
+                if shouldAutoPlay {
+                    play()
+                }
             } catch {
                 // Fallback to simple item on failure
                 let item = AVPlayerItem(url: url)
@@ -81,6 +100,9 @@ class VideoPlayerViewModel: ObservableObject {
                 await updateDuration(from: item)
                 await setupTimeObserverIfAsync()
                 await setupNotificationsIfAsync()
+                if shouldAutoPlay {
+                    play()
+                }
                 print("⚠️ Failed to build composed player item: \(error)")
             }
             isLoading = false
@@ -151,6 +173,49 @@ class VideoPlayerViewModel: ObservableObject {
             if wasPlaying { play() } else { pause() }
         }
     }
+
+    // MARK: - External Playback Options
+
+#if os(macOS)
+    func togglePictureInPicture() {
+        guard let playerView else { return }
+        let selector = NSSelectorFromString("togglePictureInPicture:")
+        if playerView.responds(to: selector) {
+            playerView.perform(selector, with: nil)
+        }
+    }
+
+    func openInNewWindow() {
+        guard let player else { return }
+
+        if let window = externalWindow {
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        let playerView = AVPlayerView()
+        playerView.player = player
+        playerView.controlsStyle = .floating
+        playerView.showsFullScreenToggleButton = true
+        playerView.allowsPictureInPicturePlayback = true
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 960, height: 540),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = currentVideo?.title ?? "Pangolin Player"
+        window.contentView = playerView
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        window.makeKeyAndOrderFront(nil)
+
+        externalWindow = window
+        externalPlayerView = playerView
+        isExternalPlaybackActive = true
+    }
+    #endif
     
     // MARK: - Async composition builder
     
@@ -343,3 +408,16 @@ class VideoPlayerViewModel: ObservableObject {
         buildTask?.cancel()
     }
 }
+
+#if os(macOS)
+extension VideoPlayerViewModel: NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        if let window = notification.object as? NSWindow,
+           window == externalWindow {
+            externalWindow = nil
+            externalPlayerView = nil
+            isExternalPlaybackActive = false
+        }
+    }
+}
+#endif
