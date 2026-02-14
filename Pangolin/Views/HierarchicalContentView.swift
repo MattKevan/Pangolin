@@ -203,9 +203,9 @@ struct HierarchicalContentView: View {
     @ViewBuilder
     private func buildPlayedContent(for item: HierarchicalContentItem) -> some View {
         if case .video(let video) = item.contentType {
-            Image(systemName: video.playCount > 0 ? "checkmark.circle.fill" : "circle")
-                .foregroundColor(video.playCount > 0 ? .green : .secondary)
-                .help(video.playCount > 0 ? "Played" : "Unplayed")
+            Image(systemName: video.watchStatus.systemImage)
+                .foregroundColor(watchStatusColor(video.watchStatus))
+                .help(video.watchStatus.displayName)
         } else {
             Text("")
         }
@@ -229,8 +229,11 @@ struct HierarchicalContentView: View {
     
     @ViewBuilder
     private func buildiCloudStatusContent(for item: HierarchicalContentItem) -> some View {
-        // DISABLED: Sync status removed for local-only storage
-        Text("")
+        if case .video(let video) = item.contentType {
+            VideoICloudStatusCell(video: video)
+        } else {
+            Text("")
+        }
     }
     
     @ViewBuilder 
@@ -260,7 +263,7 @@ struct HierarchicalContentView: View {
             TableColumn("iCloud") { item in
                 buildiCloudStatusContent(for: item)
             }
-            .width(min: 50, ideal: 50, max: 60)
+            .width(min: 120, ideal: 140, max: 180)
         }
         #if os(macOS)
         .alternatingRowBackgrounds(.enabled)
@@ -352,6 +355,17 @@ struct HierarchicalContentView: View {
         
         extractVideos(from: filteredContent, selectedIDs: selection)
         return videos
+    }
+
+    private func watchStatusColor(_ status: VideoWatchStatus) -> Color {
+        switch status {
+        case .unwatched:
+            return .secondary
+        case .inProgress:
+            return .orange
+        case .watched:
+            return .green
+        }
     }
     
     // MARK: - Helper Functions

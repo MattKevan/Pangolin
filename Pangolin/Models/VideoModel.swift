@@ -20,6 +20,34 @@ extension Library: @unchecked Sendable {}
 extension Folder: @unchecked Sendable {}
 extension Subtitle: @unchecked Sendable {}
 
+enum VideoWatchStatus: Int {
+    case unwatched = 0
+    case inProgress = 1
+    case watched = 2
+
+    var displayName: String {
+        switch self {
+        case .unwatched:
+            return "Unwatched"
+        case .inProgress:
+            return "In Progress"
+        case .watched:
+            return "Watched"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .unwatched:
+            return "circle"
+        case .inProgress:
+            return "clock.arrow.trianglehead.counterclockwise.rotate.90"
+        case .watched:
+            return "checkmark.circle.fill"
+        }
+    }
+}
+
 // MARK: - Video Extensions
 extension Video {
     // Computed properties
@@ -75,6 +103,23 @@ extension Video {
     
     var hasSubtitles: Bool {
         return (subtitles?.count ?? 0) > 0
+    }
+
+    var watchProgress: Double {
+        guard duration > 0 else { return 0 }
+        let progress = playbackPosition / duration
+        return min(max(progress, 0), 1)
+    }
+
+    var watchStatus: VideoWatchStatus {
+        let progress = watchProgress
+        if progress < 0.03 {
+            return .unwatched
+        }
+        if progress < 0.90 {
+            return .inProgress
+        }
+        return .watched
     }
     
     var thumbnailURL: URL? {

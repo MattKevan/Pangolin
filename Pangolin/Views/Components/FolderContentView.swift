@@ -13,6 +13,7 @@ struct FolderContentView: View {
     @EnvironmentObject private var libraryManager: LibraryManager
     @StateObject private var importer = VideoImporter()
     @State private var isExternalDropTargeted = false
+    @State private var selectedVideoIDs: Set<UUID> = []
 
     private var items: [ContentType] {
         store.flatContent
@@ -31,6 +32,15 @@ struct FolderContentView: View {
     private var isAllVideosView: Bool {
         guard let folder = store.currentFolder else { return false }
         return folder.isSmartFolder && folder.name == "All Videos"
+    }
+
+    private var smartFolderVideos: [Video] {
+        items.compactMap { item in
+            if case .video(let video) = item {
+                return video
+            }
+            return nil
+        }
     }
 
     var body: some View {
@@ -54,10 +64,20 @@ struct FolderContentView: View {
             Group {
                 if items.isEmpty {
                     ContentUnavailableView(
-                        "No Items",
-                        systemImage: "folder",
-                        description: Text("This folder is empty.")
+                        isSmartFolderView ? "No videos" : "No items",
+                        systemImage: isSmartFolderView ? "video" : "folder",
+                        description: Text(isSmartFolderView ? "No videos found in this collection." : "This folder is empty.")
                     )
+                } else if isSmartFolderView {
+                    VideoResultsTableView(
+                        videos: smartFolderVideos,
+                        selectedVideoIDs: $selectedVideoIDs,
+                        onSelectionChange: handleSmartFolderSelection
+                    )
+                    .onAppear(perform: syncSelectedVideoForSmartTable)
+                    .onChange(of: store.selectedVideo?.id) { _, _ in
+                        syncSelectedVideoForSmartTable()
+                    }
                 } else {
                     List {
                         ForEach(items, id: \.id) { item in
@@ -140,6 +160,22 @@ struct FolderContentView: View {
         
         return true
     }
+
+    private func handleSmartFolderSelection(_ selection: Set<UUID>) {
+        guard let selectedID = selection.first else { return }
+        if let selectedVideo = smartFolderVideos.first(where: { $0.id == selectedID }) {
+            store.selectVideo(selectedVideo)
+        }
+    }
+
+    private func syncSelectedVideoForSmartTable() {
+        let availableIDs = Set(smartFolderVideos.compactMap(\.id))
+        if let selectedID = store.selectedVideo?.id, availableIDs.contains(selectedID) {
+            selectedVideoIDs = [selectedID]
+        } else {
+            selectedVideoIDs = []
+        }
+    }
 }
 
 private struct FolderListRow: View {
@@ -191,9 +227,7 @@ private struct VideoListRow: View {
                     
                     HStack(spacing: 8) {
                         Text(video.formattedDuration)
-                        if let dateAdded = video.dateAdded {
-                            Text(dateAdded, style: .date)
-                        }
+                        
                     }
                     .font(.caption)
                     .foregroundColor(.secondary)
