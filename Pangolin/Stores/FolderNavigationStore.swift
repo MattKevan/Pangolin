@@ -31,7 +31,11 @@ class FolderNavigationStore: ObservableObject {
     @Published var currentFolderID: UUID?
     @Published var selectedSidebarItem: SidebarSelection? {
         didSet {
-            handleSidebarSelectionChange()
+            guard selectionKey(oldValue) != selectionKey(selectedSidebarItem) else { return }
+            // Defer cross-property mutations to avoid publishing while SwiftUI is reconciling selection state.
+            Task { @MainActor [weak self] in
+                self?.handleSidebarSelectionChange()
+            }
         }
     }
     @Published var selectedTopLevelFolder: Folder?
@@ -45,8 +49,12 @@ class FolderNavigationStore: ObservableObject {
     // MARK: - UI State
     @Published var currentSortOption: SortOption = .foldersFirst {
         didSet {
-            // Re-apply sorting whenever the option changes
-            self.flatContent = applySorting(self.flatContent)
+            guard oldValue != currentSortOption else { return }
+            // Defer to the next main-actor turn to avoid "Publishing changes from within view updates".
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.flatContent = self.applySorting(self.flatContent)
+            }
         }
     }
     @Published var isLoading = false
@@ -120,11 +128,15 @@ class FolderNavigationStore: ObservableObject {
     private func handleSidebarSelectionChange() {
         switch selectedSidebarItem {
         case .search:
-            isSearchMode = true
+            if !isSearchMode {
+                isSearchMode = true
+            }
             // Don't change currentFolderID when in search mode
             // Content will be managed by SearchManager
         case .folder(let folder):
-            isSearchMode = false
+            if isSearchMode {
+                isSearchMode = false
+            }
             // When revealing a video's location, revealVideoLocation(_:) sets
             // selectedTopLevelFolder/currentFolderID/navigationPath explicitly.
             // Avoid clobbering that state from this sidebar selection callback.
@@ -133,22 +145,45 @@ class FolderNavigationStore: ObservableObject {
             }
             applyFolderSelection(folder, clearSelectedVideo: true)
         case .video(let video):
-            isSearchMode = false
-            selectedVideo = video
+            if isSearchMode {
+                isSearchMode = false
+            }
+            if selectedVideo?.id != video.id {
+                selectedVideo = video
+            }
         case .none:
-            isSearchMode = false
+            if isSearchMode {
+                isSearchMode = false
+            }
             // Keep current state
         }
     }
 
     private func applyFolderSelection(_ folder: Folder, clearSelectedVideo: Bool) {
-        if folder.isTopLevel {
+        if folder.isTopLevel && !navigationPath.isEmpty {
             navigationPath = NavigationPath()
         }
-        selectedTopLevelFolder = folder
-        currentFolderID = folder.id
-        if clearSelectedVideo {
+        if selectedTopLevelFolder?.id != folder.id {
+            selectedTopLevelFolder = folder
+        }
+        if currentFolderID != folder.id {
+            currentFolderID = folder.id
+        }
+        if clearSelectedVideo && selectedVideo != nil {
             selectedVideo = nil
+        }
+    }
+
+    private func selectionKey(_ selection: SidebarSelection?) -> String {
+        switch selection {
+        case .search:
+            return "search"
+        case .folder(let folder):
+            return "folder:\(folder.id?.uuidString ?? "nil")"
+        case .video(let video):
+            return "video:\(video.id?.uuidString ?? "nil")"
+        case .none:
+            return "none"
         }
     }
     

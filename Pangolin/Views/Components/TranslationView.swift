@@ -223,9 +223,13 @@ struct TranslationView: View {
                         
                         ScrollView {
                             Text(translatedText)
-                                .font(.body)
+                                .font(.system(size: 17))
+                                .lineSpacing(8)
                                 .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .multilineTextAlignment(.leading)
+                                .frame(maxWidth: 720, alignment: .leading)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.horizontal, 12)
                         }
                     }
                 } else {

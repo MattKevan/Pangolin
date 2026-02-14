@@ -33,6 +33,7 @@ class LibraryManager: ObservableObject {
     private let libraryExtension = "pangolin"
     private let currentVersion = "1.0.0"
     private let storageSystemVersion = 2
+    private let cloudContainerIdentifier = "iCloud.com.newindustries.pangolin"
     private let recentLibrariesKey = "RecentLibraries"
     private let lastOpenedLibraryKey = "LastOpenedLibrary"
     
@@ -316,19 +317,9 @@ class LibraryManager: ObservableObject {
     /// Smart startup following Apple's performance best practices
     func smartStartup() async throws -> Library {
         print("🚀 LIBRARY: Starting smart startup...")
-
-        // FAST PATH 1: Get real user Documents directory (not sandboxed)
-        // Use NSHomeDirectory() to get the actual user home, not sandboxed version
-        let realHomeDirectory = NSHomeDirectory()
-        let documentsURL = URL(fileURLWithPath: realHomeDirectory).appendingPathComponent("Documents")
-
-        print("🏠 LIBRARY: Real home directory: \(realHomeDirectory)")
-        print("📁 LIBRARY: Real Documents directory: \(documentsURL.path)")
-
-        // Verify we can access the real Documents folder
-        guard fileManager.fileExists(atPath: documentsURL.path) else {
-            throw LibraryError.documentsFolderUnavailable
-        }
+        let (documentsURL, storageLocationLabel) = try resolveLibraryDocumentsDirectory()
+        print("📁 LIBRARY: Documents directory: \(documentsURL.path)")
+        print("☁️ LIBRARY: Startup storage location: \(storageLocationLabel)")
 
         let pangolinDirectory = documentsURL.appendingPathComponent("Pangolin")
         let libraryName = "Library"
@@ -564,10 +555,8 @@ class LibraryManager: ObservableObject {
     /// Delete corrupted database and start fresh, then reimport existing videos
     func resetCorruptedDatabase() async throws -> Library {
         print("🔧 LIBRARY: Resetting corrupted database...")
-
-        guard let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            throw LibraryError.documentsFolderUnavailable
-        }
+        let (documentsURL, storageLocationLabel) = try resolveLibraryDocumentsDirectory()
+        print("☁️ LIBRARY: Reset target storage location: \(storageLocationLabel)")
 
         let pangolinDirectory = documentsURL.appendingPathComponent("Pangolin")
         let libraryName = "Library"
@@ -610,6 +599,21 @@ class LibraryManager: ObservableObject {
     }
     
     // MARK: - Private Methods
+
+    private func resolveLibraryDocumentsDirectory() throws -> (url: URL, label: String) {
+        if let ubiquitousRoot = fileManager.url(forUbiquityContainerIdentifier: cloudContainerIdentifier)
+            ?? fileManager.url(forUbiquityContainerIdentifier: nil) {
+            let ubiquitousDocuments = ubiquitousRoot.appendingPathComponent("Documents", isDirectory: true)
+            try fileManager.createDirectory(at: ubiquitousDocuments, withIntermediateDirectories: true)
+            return (ubiquitousDocuments, "iCloud ubiquity container")
+        }
+
+        guard let localDocuments = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            throw LibraryError.documentsFolderUnavailable
+        }
+        print("⚠️ LIBRARY: iCloud ubiquity container unavailable. Falling back to local Documents.")
+        return (localDocuments, "local sandbox fallback")
+    }
     
     private func createLibraryStructure(at url: URL) throws {
         print("🏗️ CREATE_STRUCTURE: Creating library structure at: \(url.path)")

@@ -12,6 +12,7 @@ import Combine
 import AVFoundation
 import CoreData
 
+@MainActor
 class VideoImporter: ObservableObject {
     @Published var isImporting = false
     @Published var currentFile = ""

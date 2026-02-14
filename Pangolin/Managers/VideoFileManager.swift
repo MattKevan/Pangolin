@@ -24,7 +24,7 @@ class VideoFileManager: ObservableObject {
 
     func cloudURL(for video: Video) -> URL? {
         guard let relative = canonicalRelativePath(for: video),
-              let root = fileManager.url(forUbiquityContainerIdentifier: cloudContainerIdentifier) else {
+              let root = ubiquitousRootURL() else {
             return nil
         }
         return root.appendingPathComponent(relative)
@@ -43,7 +43,7 @@ class VideoFileManager: ObservableObject {
         guard let videoID = video.id else {
             throw VideoFileError.invalidVideoPath
         }
-        guard let root = fileManager.url(forUbiquityContainerIdentifier: cloudContainerIdentifier) else {
+        guard let root = ubiquitousRootURL() else {
             throw VideoFileError.cloudContainerUnavailable
         }
 
@@ -59,7 +59,21 @@ class VideoFileManager: ObservableObject {
         }
 
         if localURL.standardizedFileURL != cloudURL.standardizedFileURL {
-            try fileManager.moveItem(at: localURL, to: cloudURL)
+            let sourceValues = try? localURL.resourceValues(forKeys: [.isUbiquitousItemKey])
+            let sourceIsUbiquitous = sourceValues?.isUbiquitousItem == true
+
+            if sourceIsUbiquitous {
+                // The item is already managed by iCloud; move it within the container.
+                try fileManager.moveItem(at: localURL, to: cloudURL)
+            } else {
+                // Move the local file into iCloud-backed storage using the documented API.
+                do {
+                    _ = try fileManager.setUbiquitous(true, itemAt: localURL, destinationURL: cloudURL)
+                } catch {
+                    print("⚠️ VIDEO_FILE: setUbiquitous failed, falling back to moveItem: \(error)")
+                    try fileManager.moveItem(at: localURL, to: cloudURL)
+                }
+            }
         }
 
         video.cloudRelativePath = relative
@@ -197,6 +211,11 @@ class VideoFileManager: ObservableObject {
             return cloudRelativePath
         }
         return nil
+    }
+
+    private func ubiquitousRootURL() -> URL? {
+        fileManager.url(forUbiquityContainerIdentifier: cloudContainerIdentifier)
+            ?? fileManager.url(forUbiquityContainerIdentifier: nil)
     }
     
     private func localStagingURL(for video: Video) -> URL? {
