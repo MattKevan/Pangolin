@@ -23,6 +23,7 @@ private struct ToggleSidebarButton: View {
 
 struct MainView: View {
     @EnvironmentObject var libraryManager: LibraryManager
+    @EnvironmentObject var videoFileManager: VideoFileManager
     @StateObject private var folderStore: FolderNavigationStore
     @StateObject private var searchManager = SearchManager()
     @StateObject private var processingQueueManager = ProcessingQueueManager.shared
@@ -147,31 +148,41 @@ struct MainView: View {
                     // Trailing actions
                     ToolbarItemGroup(placement: .primaryAction) {
                         // Task Queue Progress Indicator
-                        if processingQueueManager.activeTaskCount > 0 {
+                        if processingQueueManager.activeTaskCount > 0 || videoFileManager.failedTransferCount > 0 {
                             Button {
                                 showTaskPopover.toggle()
                             } label: {
+                                let hasActiveTasks = processingQueueManager.activeTaskCount > 0
+                                let transferIssueCount = videoFileManager.failedTransferCount
+                                let badgeCount = transferIssueCount > 0 ? transferIssueCount : max(0, processingQueueManager.activeTaskCount - 1)
+
                                 ZStack(alignment: .topTrailing) {
-                                    ZStack {
-                                        Circle()
-                                            .stroke(Color.secondary.opacity(0.25), lineWidth: 2)
-                                            .frame(width: 16, height: 16)
+                                    if hasActiveTasks {
+                                        ZStack {
+                                            Circle()
+                                                .stroke(Color.secondary.opacity(0.25), lineWidth: 2)
+                                                .frame(width: 16, height: 16)
 
-                                        Circle()
-                                            .trim(from: 0, to: max(0.02, min(1.0, processingQueueManager.overallProgress)))
-                                            .stroke(
-                                                Color.accentColor,
-                                                style: StrokeStyle(lineWidth: 2, lineCap: .round)
-                                            )
-                                            .rotationEffect(.degrees(-90))
-                                            .frame(width: 16, height: 16)
+                                            Circle()
+                                                .trim(from: 0, to: max(0.02, min(1.0, processingQueueManager.overallProgress)))
+                                                .stroke(
+                                                    Color.accentColor,
+                                                    style: StrokeStyle(lineWidth: 2, lineCap: .round)
+                                                )
+                                                .rotationEffect(.degrees(-90))
+                                                .frame(width: 16, height: 16)
+                                        }
+                                        .padding(.horizontal, 4)
+                                        .padding(.vertical, 3)
+                                    } else {
+                                        Image(systemName: "exclamationmark.triangle.fill")
+                                            .foregroundColor(.orange)
+                                            .padding(.horizontal, 4)
+                                            .padding(.vertical, 3)
                                     }
-                                    .padding(.horizontal, 4)
-                                    .padding(.vertical, 3)
 
-                                    // Badge showing number of active tasks
-                                    if processingQueueManager.activeTaskCount > 1 {
-                                        Text("\(processingQueueManager.activeTaskCount)")
+                                    if badgeCount > 0 {
+                                        Text("\(min(badgeCount, 99))")
                                             .font(.system(size: 8, weight: .bold))
                                             .foregroundColor(.white)
                                             .frame(width: 12, height: 12)
@@ -183,7 +194,7 @@ struct MainView: View {
                                 .frame(minWidth: 24, minHeight: 22, alignment: .center)
                                 .contentShape(Rectangle())
                                 .accessibilityLabel("Background tasks")
-                                .accessibilityValue("\(processingQueueManager.activeTaskCount) active tasks")
+                                .accessibilityValue("\(processingQueueManager.activeTaskCount) active tasks, \(videoFileManager.failedTransferCount) transfer issues")
                             }
                             .buttonStyle(.plain)
                             .popover(isPresented: $showTaskPopover, arrowEdge: .top) {

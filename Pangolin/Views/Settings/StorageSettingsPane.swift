@@ -8,14 +8,19 @@ import SwiftUI
 struct StorageSettingsPane: View {
     @EnvironmentObject private var libraryManager: LibraryManager
     @EnvironmentObject private var storagePolicyManager: StoragePolicyManager
+    @EnvironmentObject private var videoFileManager: VideoFileManager
 
     @State private var selectedPreference: LibraryStoragePreference = .optimizeStorage
     @State private var cacheLimitGB: Int = 10
     @State private var localUsageBytes: Int64 = 0
     @State private var cloudOnlyCount: Int = 0
+    @State private var transferIssueCounts = VideoTransferIssueCounts()
+    @State private var policySummary: StoragePolicySummary?
+
     @State private var isHydratingForm = false
     @State private var isRefreshingStats = false
     @State private var isApplyingChanges = false
+    @State private var isRetryingTransfers = false
 
     private var currentLibrary: Library? {
         libraryManager.currentLibrary
@@ -63,18 +68,72 @@ struct StorageSettingsPane: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    if selectedPreference == .optimizeStorage {
-                        HStack {
-                            Text("Configured Cache Limit")
+                    HStack {
+                        Text("Configured Cache Limit")
+                        Spacer()
+                        Text(library.formattedByteCount(library.resolvedMaxLocalVideoCacheBytes))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("Transfer Issues") {
+                    HStack {
+                        Text("Upload Failures")
+                        Spacer()
+                        Text("\(transferIssueCounts.upload)")
+                            .foregroundStyle(issueTextColor(transferIssueCounts.upload))
+                    }
+
+                    HStack {
+                        Text("Download Failures")
+                        Spacer()
+                        Text("\(transferIssueCounts.download)")
+                            .foregroundStyle(issueTextColor(transferIssueCounts.download))
+                    }
+
+                    HStack {
+                        Text("Offload Failures")
+                        Spacer()
+                        Text("\(transferIssueCounts.offload)")
+                            .foregroundStyle(issueTextColor(transferIssueCounts.offload))
+                    }
+
+                    if let policySummary {
+                        HStack(alignment: .top) {
+                            Text("Policy")
                             Spacer()
-                            Text(library.formattedByteCount(library.resolvedMaxLocalVideoCacheBytes))
-                                .foregroundStyle(.secondary)
+                            VStack(alignment: .trailing, spacing: 4) {
+                                Text(policySummary.explanation)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.trailing)
+
+                                if policySummary.remainingOverageBytes > 0 {
+                                    Text("Over limit by \(library.formattedByteCount(policySummary.remainingOverageBytes))")
+                                        .font(.caption2)
+                                        .foregroundStyle(.orange)
+                                }
+                            }
                         }
                     }
                 }
 
                 Section {
-                    Button("Apply Now") {
+                    Button("Retry All Failed Transfers") {
+                        Task {
+                            await retryAllFailedTransfers()
+                        }
+                    }
+                    .disabled(isRetryingTransfers || transferIssueCounts.total == 0)
+
+                    Button("Apply Storage Policy Now") {
+                        Task {
+                            await applyPolicyNow()
+                        }
+                    }
+                    .disabled(isApplyingChanges || storagePolicyManager.isApplyingPolicy)
+
+                    Button("Apply Settings") {
                         Task {
                             await persistAndApply()
                         }
@@ -114,6 +173,16 @@ struct StorageSettingsPane: View {
                 await persistAndApply()
             }
         }
+        .onChange(of: storagePolicyManager.lastPolicySummary) { _, _ in
+            Task {
+                await refreshStats()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .videoStorageAvailabilityChanged)) { _ in
+            Task {
+                await refreshStats()
+            }
+        }
     }
 
     private func syncFormFromCurrentLibrary() {
@@ -139,10 +208,35 @@ struct StorageSettingsPane: View {
         await refreshStats()
     }
 
+    private func applyPolicyNow() async {
+        guard let library = currentLibrary else { return }
+        guard !isApplyingChanges else { return }
+
+        isApplyingChanges = true
+        defer { isApplyingChanges = false }
+
+        await storagePolicyManager.applyPolicy(for: library)
+        await refreshStats()
+    }
+
+    private func retryAllFailedTransfers() async {
+        guard let library = currentLibrary else { return }
+        guard !isRetryingTransfers else { return }
+
+        isRetryingTransfers = true
+        defer { isRetryingTransfers = false }
+
+        await videoFileManager.retryAllFailedTransfers(in: library)
+        await storagePolicyManager.applyPolicy(for: library)
+        await refreshStats()
+    }
+
     private func refreshStats() async {
         guard let library = currentLibrary else {
             localUsageBytes = 0
             cloudOnlyCount = 0
+            transferIssueCounts = VideoTransferIssueCounts()
+            policySummary = nil
             return
         }
 
@@ -151,6 +245,18 @@ struct StorageSettingsPane: View {
 
         localUsageBytes = await storagePolicyManager.currentLocalVideoUsageBytes(for: library)
         cloudOnlyCount = await storagePolicyManager.currentCloudOnlyVideoCount(for: library)
+        transferIssueCounts = await videoFileManager.failedTransferCounts(in: library)
+
+        if let latestSummary = storagePolicyManager.lastPolicySummary,
+           latestSummary.libraryID == library.id {
+            policySummary = latestSummary
+        } else {
+            policySummary = nil
+        }
+    }
+
+    private func issueTextColor(_ count: Int) -> Color {
+        count > 0 ? .orange : .secondary
     }
 }
 
@@ -158,4 +264,5 @@ struct StorageSettingsPane: View {
     StorageSettingsPane()
         .environmentObject(LibraryManager.shared)
         .environmentObject(StoragePolicyManager.shared)
+        .environmentObject(VideoFileManager.shared)
 }

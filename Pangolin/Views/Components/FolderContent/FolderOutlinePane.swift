@@ -2,6 +2,7 @@ import SwiftUI
 
 struct FolderOutlinePane: View {
     @EnvironmentObject private var store: FolderNavigationStore
+    @StateObject private var videoFileManager = VideoFileManager.shared
 
     private struct VisibleOutlineItem: Identifiable {
         let item: HierarchicalContentItem
@@ -154,7 +155,18 @@ struct FolderOutlinePane: View {
             Button("Delete", role: .destructive) {
                 promptDelete(item)
             }
-        case .video:
+        case .video(let video):
+            Button("Retry Transfer") {
+                Task {
+                    await videoFileManager.retryTransfer(for: video)
+                }
+            }
+            Button("Retry Offload") {
+                Task {
+                    await videoFileManager.retryOffload(for: video)
+                }
+            }
+            Divider()
             Button("Rename") {
                 startRename(item)
             }

@@ -76,6 +76,7 @@ struct PangolinApp: App {
             SettingsView()
                 .environmentObject(libraryManager)
                 .environmentObject(storagePolicyManager)
+                .environmentObject(videoFileManager)
         }
         #endif
     }

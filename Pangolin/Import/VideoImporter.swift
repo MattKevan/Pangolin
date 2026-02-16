@@ -150,7 +150,11 @@ class VideoImporter: ObservableObject {
             do {
                 try await videoFileManager.uploadImportedVideoToCloud(localURL: localStagingURL, for: video)
             } catch {
-                print("❌ IMPORT: Failed to upload video to iCloud media root: \(error)")
+                videoFileManager.markTransferFailure(
+                    for: video,
+                    operation: .upload,
+                    message: error.localizedDescription
+                )
                 throw error
             }
         }

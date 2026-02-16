@@ -2,8 +2,11 @@ import SwiftUI
 
 struct ProcessingPopoverView: View {
     @ObservedObject var processingManager: ProcessingQueueManager
+    @EnvironmentObject private var libraryManager: LibraryManager
+    @StateObject private var videoFileManager = VideoFileManager.shared
+
     let onViewAllTapped: () -> Void
-    
+
     init(processingManager: ProcessingQueueManager, onViewAllTapped: @escaping () -> Void = {}) {
         self.processingManager = processingManager
         self.onViewAllTapped = onViewAllTapped
@@ -12,51 +15,83 @@ struct ProcessingPopoverView: View {
     private var activeTasks: [ProcessingTask] {
         processingManager.queue.filter { $0.status.isActive }
     }
-    
+
+    private var transferIssues: [VideoCloudTransferSnapshot] {
+        videoFileManager.failedTransferSnapshots
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Header
             HStack {
                 Text("Processing Queue")
                     .font(.headline)
                     .fontWeight(.semibold)
-                
+
                 Spacer()
-                
+
                 Button("View All") {
                     onViewAllTapped()
                 }
                 .buttonStyle(.borderless)
                 .font(.caption)
             }
-            
-            if activeTasks.isEmpty {
+
+            if activeTasks.isEmpty && transferIssues.isEmpty {
                 Text("No active tasks")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .padding(.vertical, 8)
             } else {
-                // Task list
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(Array(activeTasks.prefix(5)), id: \.id) { task in
-                        CompactTaskRowView(task: task)
-                    }
-                    
-                    if activeTasks.count > 5 {
-                        Text("... and \(activeTasks.count - 5) more")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                if !activeTasks.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(Array(activeTasks.prefix(5)), id: \.id) { task in
+                            CompactTaskRowView(task: task)
+                        }
+
+                        if activeTasks.count > 5 {
+                            Text("... and \(activeTasks.count - 5) more")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
-                
+
+                if !transferIssues.isEmpty {
+                    if !activeTasks.isEmpty {
+                        Divider()
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Transfer Issues")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        ForEach(Array(transferIssues.prefix(3))) { issue in
+                            TransferIssueRow(
+                                issue: issue,
+                                onRetry: {
+                                    Task {
+                                        await videoFileManager.retryTransfer(videoID: issue.videoID)
+                                    }
+                                }
+                            )
+                        }
+
+                        if transferIssues.count > 3 {
+                            Text("... and \(transferIssues.count - 3) more")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+
                 Divider()
-                
-                // Quick stats
+
                 HStack {
                     StatPill(title: "Active", count: processingManager.activeTasks, color: .blue)
+                    StatPill(title: "Issues", count: transferIssues.count, color: .orange)
                 }
-                
-                // Quick actions
+
                 HStack {
                     if processingManager.isPaused {
                         Button("Resume") {
@@ -71,11 +106,53 @@ struct ProcessingPopoverView: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                     }
+
+                    if transferIssues.count > 0,
+                       let library = libraryManager.currentLibrary {
+                        Button("Retry Issues") {
+                            Task {
+                                await videoFileManager.retryAllFailedTransfers(in: library)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
                 }
             }
         }
         .padding()
-        .frame(minWidth: 280, maxWidth: 320)
+        .frame(minWidth: 300, maxWidth: 360)
+    }
+}
+
+private struct TransferIssueRow: View {
+    let issue: VideoCloudTransferSnapshot
+    let onRetry: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(issue.videoTitle)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+
+                Text(issue.displayName)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Button("Retry", action: onRetry)
+                .buttonStyle(.borderless)
+                .font(.caption)
+        }
     }
 }
 
@@ -83,28 +160,26 @@ struct ProcessingPopoverView: View {
 
 struct CompactTaskRowView: View {
     @ObservedObject var task: ProcessingTask
-    
+
     var body: some View {
         HStack(spacing: 8) {
-            // Task type icon
             Image(systemName: task.type.systemImage)
                 .foregroundColor(taskTypeColor)
                 .frame(width: 16)
-            
+
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
                     Text(task.type.displayName)
                         .font(.caption)
                         .fontWeight(.medium)
-                    
+
                     Spacer()
-                    
-                    // Status icon
+
                     Image(systemName: task.status.systemImage)
                         .foregroundColor(statusColor)
                         .font(.system(size: 10))
                 }
-                
+
                 if task.status == .processing || task.status == .completed {
                     ProgressView(value: task.progress)
                         .progressViewStyle(LinearProgressViewStyle())
@@ -119,7 +194,7 @@ struct CompactTaskRowView: View {
         }
         .padding(.vertical, 2)
     }
-    
+
     private var taskTypeColor: Color {
         switch task.type {
         case .importVideo: return .orange
@@ -131,7 +206,7 @@ struct CompactTaskRowView: View {
         case .fileOperation: return .gray
         }
     }
-    
+
     private var statusColor: Color {
         switch task.status {
         case .completed: return .green
@@ -148,17 +223,17 @@ struct StatPill: View {
     let title: String
     let count: Int
     let color: Color
-    
+
     var body: some View {
         HStack(spacing: 4) {
             Circle()
                 .fill(color)
                 .frame(width: 6, height: 6)
-            
+
             Text("\(count)")
                 .font(.caption)
                 .fontWeight(.medium)
-            
+
             Text(title)
                 .font(.caption)
                 .foregroundColor(.secondary)
@@ -170,8 +245,7 @@ struct StatPill: View {
     }
 }
 
-// MARK: - Preview
-
 #Preview {
     ProcessingPopoverView(processingManager: ProcessingQueueManager.shared)
+        .environmentObject(LibraryManager.shared)
 }

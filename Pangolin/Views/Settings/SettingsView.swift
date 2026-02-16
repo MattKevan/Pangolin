@@ -21,4 +21,5 @@ struct SettingsView: View {
     SettingsView()
         .environmentObject(LibraryManager.shared)
         .environmentObject(StoragePolicyManager.shared)
+        .environmentObject(VideoFileManager.shared)
 }

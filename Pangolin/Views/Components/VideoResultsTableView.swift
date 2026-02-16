@@ -8,6 +8,7 @@ struct VideoResultsTableView: View {
 
     @StateObject private var videoFileManager = VideoFileManager.shared
     @State private var sortOrder: [KeyPathComparator<Row>] = []
+    @State private var trackedVideoIDs: Set<UUID> = []
 
     private struct Row: Identifiable {
         let id: UUID
@@ -53,13 +54,31 @@ struct VideoResultsTableView: View {
             TableColumn("iCloud", value: \.cloudSort) { row in
                 VideoICloudStatusCell(video: row.video)
             }
-            .width(min: 120, ideal: 140, max: 180)
+            .width(min: 180, ideal: 230, max: 300)
         }
         #if os(macOS)
         .alternatingRowBackgrounds(.enabled)
         #endif
         .onChange(of: selectedVideoIDs) { _, newSelection in
             onSelectionChange(newSelection)
+        }
+        .onAppear {
+            updateTracking(for: videos)
+            Task {
+                await videoFileManager.refreshTransferStates(for: videos)
+            }
+        }
+        .onChange(of: videos.compactMap(\.id)) { _, _ in
+            updateTracking(for: videos)
+            Task {
+                await videoFileManager.refreshTransferStates(for: videos)
+            }
+        }
+        .onDisappear {
+            for id in trackedVideoIDs {
+                videoFileManager.endTracking(videoID: id)
+            }
+            trackedVideoIDs.removeAll()
         }
     }
 
@@ -86,19 +105,26 @@ struct VideoResultsTableView: View {
     }
 
     private func cloudSortRank(for video: Video) -> Int {
-        switch presentationState(for: video) {
-        case .inCloud:
+        switch transferState(for: video) {
+        case .error:
             return 0
-        case .downloading:
+        case .queuedForUploading:
             return 1
-        case .downloaded:
+        case .uploading:
             return 2
+        case .inCloudOnly:
+            return 3
+        case .downloading:
+            return 4
+        case .downloaded:
+            return 5
         }
     }
 
-    private func presentationState(for video: Video) -> VideoICloudPresentationState {
-        if let id = video.id, videoFileManager.downloadingVideos.contains(id) {
-            return .downloading
+    private func transferState(for video: Video) -> VideoCloudTransferState {
+        if let videoID = video.id,
+           let snapshot = videoFileManager.transferSnapshots[videoID] {
+            return snapshot.state
         }
 
         if let rawState = video.fileAvailabilityState,
@@ -107,17 +133,41 @@ struct VideoResultsTableView: View {
             case .local:
                 return .downloaded
             case .downloading:
-                return .downloading
-            case .cloudOnly, .missing, .error:
-                return .inCloud
+                return .downloading(progress: nil)
+            case .cloudOnly, .missing:
+                return .inCloudOnly
+            case .error:
+                return .error(
+                    operation: .download,
+                    message: "Transfer failed",
+                    retryCount: 0,
+                    canRetry: true
+                )
             }
         }
 
         if let cloudRelativePath = video.cloudRelativePath, !cloudRelativePath.isEmpty {
-            return .inCloud
+            return .inCloudOnly
         }
 
         return .downloaded
+    }
+
+    private func updateTracking(for videos: [Video]) {
+        let newIDs = Set(videos.compactMap(\.id))
+
+        let removedIDs = trackedVideoIDs.subtracting(newIDs)
+        for id in removedIDs {
+            videoFileManager.endTracking(videoID: id)
+        }
+
+        let addedIDs = newIDs.subtracting(trackedVideoIDs)
+        for video in videos {
+            guard let videoID = video.id, addedIDs.contains(videoID) else { continue }
+            videoFileManager.beginTracking(video: video)
+        }
+
+        trackedVideoIDs = newIDs
     }
 
     private func toggleFavorite(_ video: Video) {
@@ -176,62 +226,56 @@ private struct VideoWatchStatusCell: View {
     }
 }
 
-private enum VideoICloudPresentationState: Equatable {
-    case inCloud
-    case downloading
-    case downloaded
-
-    var displayName: String {
-        switch self {
-        case .inCloud:
-            return "In Cloud"
-        case .downloading:
-            return "Downloading"
-        case .downloaded:
-            return "Downloaded"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .inCloud:
-            return "icloud.and.arrow.down"
-        case .downloading:
-            return "icloud"
-        case .downloaded:
-            return "checkmark.icloud"
-        }
-    }
-}
-
 struct VideoICloudStatusCell: View {
     let video: Video
-    @StateObject private var videoFileManager = VideoFileManager.shared
 
-    @State private var fileStatus: VideoFileStatus = .local
+    @StateObject private var videoFileManager = VideoFileManager.shared
+    @State private var fallbackSnapshot: VideoCloudTransferSnapshot?
 
     var body: some View {
         HStack(spacing: 6) {
-            switch state {
-            case .inCloud:
-                if video.id != nil {
-                    Button(action: startDownload) {
-                        Image(systemName: state.systemImage)
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("In Cloud. Download")
-                } else {
-                    Image(systemName: state.systemImage)
+            switch effectiveState {
+            case .queuedForUploading:
+                Image(systemName: "clock.arrow.trianglehead.2.counterclockwise.rotate.90")
+                    .foregroundColor(.secondary)
+                Text("Queued for uploading")
+                    .foregroundColor(.secondary)
+
+            case .uploading(let progress):
+                if let progress {
+                    CloudTransferProgressIcon(progress: progress, operation: .upload)
+                    Text("Uploading \(Int((progress * 100).rounded()))%")
                         .foregroundColor(.secondary)
-                        .help(state.displayName)
+                } else {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Uploading")
+                        .foregroundColor(.secondary)
                 }
 
-            case .downloading:
-                CloudDownloadProgressIcon(progress: downloadProgress)
-                Text("\(Int((downloadProgress * 100).rounded()))%")
-                    .font(.caption2.monospacedDigit())
+            case .inCloudOnly:
+                Button(action: startDownload) {
+                    Image(systemName: "icloud.and.arrow.down")
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("In cloud only. Download")
+
+                Text("In cloud only")
                     .foregroundColor(.secondary)
+
+            case .downloading(let progress):
+                if let progress {
+                    CloudTransferProgressIcon(progress: progress, operation: .download)
+                    Text("Downloading \(Int((progress * 100).rounded()))%")
+                        .foregroundColor(.secondary)
+                } else {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Downloading")
+                        .foregroundColor(.secondary)
+                }
+
                 if video.id != nil {
                     Button {
                         videoFileManager.cancelDownload(for: video)
@@ -244,68 +288,103 @@ struct VideoICloudStatusCell: View {
                 }
 
             case .downloaded:
-                Image(systemName: state.systemImage)
+                Image(systemName: "checkmark.icloud")
                     .foregroundColor(.green)
-                    .help(state.displayName)
+                Text("Downloaded")
+                    .foregroundColor(.secondary)
+
+            case .error(let operation, let message, _, _):
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.orange)
+                Text(operation.failedTitle)
+                    .foregroundColor(.secondary)
+
+                Button("Retry") {
+                    retryTransfer()
+                }
+                .buttonStyle(.borderless)
+                .help(message)
             }
         }
-        .font(.callout)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(state.displayName)
+        .font(.caption)
+        .lineLimit(1)
+        .truncationMode(.tail)
+        .help(effectiveSnapshot.detailMessage)
         .task {
-            await refreshStatus()
+            await refreshSnapshot()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .videoStorageAvailabilityChanged)) { _ in
-            Task {
-                await refreshStatus()
+        .onAppear {
+            videoFileManager.beginTracking(video: video)
+        }
+        .onDisappear {
+            if let videoID = video.id {
+                videoFileManager.endTracking(videoID: videoID)
             }
         }
-        .onChange(of: videoFileManager.downloadingVideos) { _, _ in
+        .onReceive(NotificationCenter.default.publisher(for: .videoStorageAvailabilityChanged)) { notification in
+            guard shouldRefresh(for: notification) else { return }
             Task {
-                await refreshStatus()
+                await refreshSnapshot()
             }
         }
     }
 
-    private var downloadProgress: Double {
-        guard let videoID = video.id else { return 0 }
-        return min(max(videoFileManager.downloadProgress[videoID] ?? 0, 0), 1)
+    private var effectiveSnapshot: VideoCloudTransferSnapshot {
+        if let videoID = video.id,
+           let snapshot = videoFileManager.transferSnapshots[videoID] {
+            return snapshot
+        }
+
+        if let fallbackSnapshot {
+            return fallbackSnapshot
+        }
+
+        return VideoCloudTransferSnapshot.placeholder(title: video.title ?? video.fileName ?? "Untitled")
     }
 
-    private var state: VideoICloudPresentationState {
-        if let videoID = video.id, videoFileManager.downloadingVideos.contains(videoID) {
-            return .downloading
-        }
+    private var effectiveState: VideoCloudTransferState {
+        effectiveSnapshot.state
+    }
 
-        switch fileStatus {
-        case .local:
-            return .downloaded
-        case .downloading:
-            return .downloading
-        case .cloudOnly, .missing, .error:
-            return .inCloud
+    private func shouldRefresh(for notification: Notification) -> Bool {
+        guard let videoID = video.id else { return true }
+        guard let changedID = notification.userInfo?["videoID"] as? UUID else {
+            return true
         }
+        return changedID == videoID
     }
 
     @MainActor
-    private func refreshStatus() async {
-        fileStatus = await video.getVideoFileStatus()
+    private func refreshSnapshot() async {
+        fallbackSnapshot = await videoFileManager.refreshTransferState(for: video)
     }
 
     private func startDownload() {
         Task {
             do {
                 _ = try await video.getAccessibleFileURL(downloadIfNeeded: true)
-                await refreshStatus()
             } catch {
-                print("Failed to download video: \(error)")
+                videoFileManager.markTransferFailure(
+                    for: video,
+                    operation: .download,
+                    message: error.localizedDescription
+                )
             }
+            await refreshSnapshot()
+        }
+    }
+
+    private func retryTransfer() {
+        Task {
+            await videoFileManager.retryTransfer(for: video)
+            await refreshSnapshot()
         }
     }
 }
 
-private struct CloudDownloadProgressIcon: View {
+private struct CloudTransferProgressIcon: View {
     let progress: Double
+    let operation: VideoCloudTransferOperation
 
     var body: some View {
         ZStack {
@@ -315,12 +394,11 @@ private struct CloudDownloadProgressIcon: View {
                 .trim(from: 0, to: clampedProgress)
                 .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-            Image(systemName: "icloud")
-                .font(.system(size: 9, weight: .semibold))
+            Image(systemName: operation == .upload ? "icloud.and.arrow.up" : "icloud.and.arrow.down")
+                .font(.system(size: 8, weight: .semibold))
                 .foregroundColor(.accentColor)
         }
         .frame(width: 16, height: 16)
-        .help("Downloading")
     }
 
     private var clampedProgress: Double {

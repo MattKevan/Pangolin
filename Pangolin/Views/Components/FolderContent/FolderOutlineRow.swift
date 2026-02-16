@@ -45,90 +45,108 @@ struct FolderOutlineRow: View {
             video.title ?? video.fileName ?? "Untitled"
         }
     }
-
 }
 
 private struct VideoICloudStatusSymbol: View {
     let video: Video
 
     @StateObject private var videoFileManager = VideoFileManager.shared
-    @State private var fileStatus: VideoFileStatus = .local
+    @State private var fallbackSnapshot: VideoCloudTransferSnapshot?
 
     var body: some View {
-        Image(systemName: state.systemImage)
-            .foregroundColor(symbolColor)
-            .font(.callout)
-            .frame(width: 18)
-            .help(state.displayName)
-            .task {
-                await refreshStatus()
+        HStack(spacing: 4) {
+            Image(systemName: symbolName)
+                .foregroundColor(symbolColor)
+                .font(.callout)
+
+            if let progressText {
+                Text(progressText)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundColor(.secondary)
             }
-            .onReceive(NotificationCenter.default.publisher(for: .videoStorageAvailabilityChanged)) { _ in
-                Task {
-                    await refreshStatus()
-                }
+        }
+        .frame(minWidth: 18, alignment: .trailing)
+        .help(effectiveSnapshot.displayName)
+        .task {
+            await refreshSnapshot()
+        }
+        .onAppear {
+            videoFileManager.beginTracking(video: video)
+        }
+        .onDisappear {
+            if let videoID = video.id {
+                videoFileManager.endTracking(videoID: videoID)
             }
-            .onChange(of: videoFileManager.downloadingVideos) { _, _ in
-                Task {
-                    await refreshStatus()
-                }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .videoStorageAvailabilityChanged)) { notification in
+            guard shouldRefresh(for: notification) else { return }
+            Task {
+                await refreshSnapshot()
             }
+        }
     }
 
-    private var state: PresentationState {
-        if let videoID = video.id, videoFileManager.downloadingVideos.contains(videoID) {
-            return .downloading
+    private var effectiveSnapshot: VideoCloudTransferSnapshot {
+        if let videoID = video.id,
+           let snapshot = videoFileManager.transferSnapshots[videoID] {
+            return snapshot
         }
 
-        switch fileStatus {
-        case .local:
-            return .downloaded
+        if let fallbackSnapshot {
+            return fallbackSnapshot
+        }
+
+        return VideoCloudTransferSnapshot.placeholder(title: video.title ?? video.fileName ?? "Untitled")
+    }
+
+    private var symbolName: String {
+        switch effectiveSnapshot.state {
+        case .queuedForUploading:
+            return "clock.arrow.trianglehead.2.counterclockwise.rotate.90"
+        case .uploading:
+            return "icloud.and.arrow.up"
+        case .inCloudOnly:
+            return "icloud.and.arrow.down"
         case .downloading:
-            return .downloading
-        case .cloudOnly, .missing, .error:
-            return .inCloud
+            return "icloud.and.arrow.down"
+        case .downloaded:
+            return "checkmark.icloud"
+        case .error:
+            return "exclamationmark.triangle.fill"
         }
     }
 
     private var symbolColor: Color {
-        switch state {
+        switch effectiveSnapshot.state {
         case .downloaded:
             return .green
-        case .inCloud, .downloading:
+        case .error:
+            return .orange
+        case .queuedForUploading, .uploading, .downloading, .inCloudOnly:
             return .secondary
         }
     }
 
-    @MainActor
-    private func refreshStatus() async {
-        fileStatus = await video.getVideoFileStatus()
+    private var progressText: String? {
+        switch effectiveSnapshot.state {
+        case .uploading(let progress), .downloading(let progress):
+            guard let progress else { return nil }
+            return "\(Int((progress * 100).rounded()))%"
+        default:
+            return nil
+        }
     }
 
-    private enum PresentationState {
-        case inCloud
-        case downloading
-        case downloaded
-
-        var systemImage: String {
-            switch self {
-            case .inCloud:
-                return "icloud.and.arrow.down"
-            case .downloading:
-                return "icloud"
-            case .downloaded:
-                return "checkmark.icloud"
-            }
+    private func shouldRefresh(for notification: Notification) -> Bool {
+        guard let videoID = video.id else { return true }
+        guard let changedID = notification.userInfo?["videoID"] as? UUID else {
+            return true
         }
+        return changedID == videoID
+    }
 
-        var displayName: String {
-            switch self {
-            case .inCloud:
-                return "In Cloud"
-            case .downloading:
-                return "Downloading"
-            case .downloaded:
-                return "Downloaded"
-            }
-        }
+    @MainActor
+    private func refreshSnapshot() async {
+        fallbackSnapshot = await videoFileManager.refreshTransferState(for: video)
     }
 }
