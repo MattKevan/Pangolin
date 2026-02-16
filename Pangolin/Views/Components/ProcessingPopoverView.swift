@@ -8,6 +8,10 @@ struct ProcessingPopoverView: View {
         self.processingManager = processingManager
         self.onViewAllTapped = onViewAllTapped
     }
+
+    private var activeTasks: [ProcessingTask] {
+        processingManager.queue.filter { $0.status.isActive }
+    }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -26,20 +30,20 @@ struct ProcessingPopoverView: View {
                 .font(.caption)
             }
             
-            if processingManager.queue.isEmpty {
-                Text("No tasks in queue")
+            if activeTasks.isEmpty {
+                Text("No active tasks")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .padding(.vertical, 8)
             } else {
                 // Task list
                 VStack(alignment: .leading, spacing: 8) {
-                    ForEach(Array(processingManager.queue.prefix(5)), id: \.id) { task in
+                    ForEach(Array(activeTasks.prefix(5)), id: \.id) { task in
                         CompactTaskRowView(task: task)
                     }
                     
-                    if processingManager.totalTasks > 5 {
-                        Text("... and \(processingManager.totalTasks - 5) more")
+                    if activeTasks.count > 5 {
+                        Text("... and \(activeTasks.count - 5) more")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -50,10 +54,6 @@ struct ProcessingPopoverView: View {
                 // Quick stats
                 HStack {
                     StatPill(title: "Active", count: processingManager.activeTasks, color: .blue)
-                    StatPill(title: "Completed", count: processingManager.completedTasks, color: .green)
-                    if processingManager.failedTasks > 0 {
-                        StatPill(title: "Failed", count: processingManager.failedTasks, color: .red)
-                    }
                 }
                 
                 // Quick actions
@@ -67,16 +67,6 @@ struct ProcessingPopoverView: View {
                     } else if processingManager.activeTasks > 0 {
                         Button("Pause") {
                             processingManager.pauseProcessing()
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-                    
-                    Spacer()
-                    
-                    if processingManager.completedTasks > 0 {
-                        Button("Clear Completed") {
-                            processingManager.clearCompleted()
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)

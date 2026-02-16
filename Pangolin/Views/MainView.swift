@@ -151,11 +151,23 @@ struct MainView: View {
                             Button {
                                 showTaskPopover.toggle()
                             } label: {
-                                ZStack {
-                                    ProgressView(value: processingQueueManager.overallProgress)
-                                        .progressViewStyle(.circular)
-                                        .controlSize(.small)
-                                        .frame(width: 14, height: 14)
+                                ZStack(alignment: .topTrailing) {
+                                    ZStack {
+                                        Circle()
+                                            .stroke(Color.secondary.opacity(0.25), lineWidth: 2)
+                                            .frame(width: 16, height: 16)
+
+                                        Circle()
+                                            .trim(from: 0, to: max(0.02, min(1.0, processingQueueManager.overallProgress)))
+                                            .stroke(
+                                                Color.accentColor,
+                                                style: StrokeStyle(lineWidth: 2, lineCap: .round)
+                                            )
+                                            .rotationEffect(.degrees(-90))
+                                            .frame(width: 16, height: 16)
+                                    }
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 3)
 
                                     // Badge showing number of active tasks
                                     if processingQueueManager.activeTaskCount > 1 {
@@ -165,10 +177,11 @@ struct MainView: View {
                                             .frame(width: 12, height: 12)
                                             .background(Color.red)
                                             .clipShape(Circle())
-                                            .offset(x: 6, y: -6)
+                                            .offset(x: 4, y: -2)
                                     }
                                 }
-                                .frame(width: 20, height: 20) // hit target
+                                .frame(minWidth: 24, minHeight: 22, alignment: .center)
+                                .contentShape(Rectangle())
                                 .accessibilityLabel("Background tasks")
                                 .accessibilityValue("\(processingQueueManager.activeTaskCount) active tasks")
                             }
