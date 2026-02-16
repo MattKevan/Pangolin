@@ -7,8 +7,6 @@
 
 import Foundation
 import CoreData
-import Combine
-import SQLite3
 
 // MARK: - Library Manager
 @MainActor
@@ -27,7 +25,6 @@ class LibraryManager: ObservableObject {
     private let userDefaults = UserDefaults.standard
     private let fileManager = FileManager.default
     private var coreDataStack: CoreDataStack?
-    private var cancellables = Set<AnyCancellable>()
     
     // MARK: - Constants
     private let libraryExtension = "pangolin"
@@ -48,7 +45,7 @@ class LibraryManager: ObservableObject {
     
     /// Access to the current Core Data context
     var viewContext: NSManagedObjectContext? {
-        return coreDataStack?.viewContext
+        return coreDataStack?.viewContext ?? nil
     }
     
     /// Access to the current Core Data stack for sync engine
@@ -134,12 +131,19 @@ class LibraryManager: ObservableObject {
         loadingProgress = 0.3
         
         // Initialize Core Data stack using singleton pattern
-        let stack = try CoreDataStack.getInstance(for: libraryURL)
+        let stack: CoreDataStack
+        do {
+            stack = try CoreDataStack.getInstance(for: libraryURL)
+        } catch {
+            throw LibraryError.databaseCorrupted(error)
+        }
         self.coreDataStack = stack
         loadingProgress = 0.6
         
         // Create library entity using NSEntityDescription
-        let context = stack.viewContext
+        guard let context = stack.viewContext else {
+            throw LibraryError.corruptedDatabase
+        }
         
         // Debug: Check if the managed object model is loaded correctly
         guard let model = context.persistentStoreCoordinator?.managedObjectModel else {
@@ -236,12 +240,19 @@ class LibraryManager: ObservableObject {
         loadingProgress = 0.3
         
         // Initialize Core Data stack using singleton pattern
-        let stack = try CoreDataStack.getInstance(for: url)
+        let stack: CoreDataStack
+        do {
+            stack = try CoreDataStack.getInstance(for: url)
+        } catch {
+            throw LibraryError.databaseCorrupted(error)
+        }
         self.coreDataStack = stack
         loadingProgress = 0.5
         
         // Fetch library entity
-        let context = stack.viewContext
+        guard let context = stack.viewContext else {
+            throw LibraryError.corruptedDatabase
+        }
         let request = Library.fetchRequest()
         request.fetchLimit = 1
         
@@ -251,8 +262,9 @@ class LibraryManager: ObservableObject {
         loadingProgress = 0.7
         
         // Check for migration needs
-        if library.version! != currentVersion {
-            try await migrateLibrary(library, from: library.version!, to: currentVersion)
+        let currentLibraryVersion = library.version ?? "0.0.0"
+        if currentLibraryVersion != currentVersion {
+            try await migrateLibrary(library, from: currentLibraryVersion, to: currentVersion)
         }
         loadingProgress = 0.8
         
@@ -364,7 +376,9 @@ class LibraryManager: ObservableObject {
         print("📍 LIBRARY: Target library URL: \(libraryURL.path)")
         print("📍 LIBRARY: Library name: \(name)")
 
-        let pangolinDirectory = libraryURL.deletingLastPathComponent()
+        let creationInput = Self.libraryCreationInput(from: libraryURL)
+        let pangolinDirectory = creationInput.parentDirectory
+        let effectiveName = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? creationInput.name : name
         print("📁 LIBRARY: Parent directory: \(pangolinDirectory.path)")
 
         // Create directory structure if needed
@@ -380,7 +394,7 @@ class LibraryManager: ObservableObject {
         // Create library - pass the parent directory, createLibrary will append the name
         do {
             print("🔧 LIBRARY: Calling createLibrary...")
-            let newLibrary = try await createLibrary(at: pangolinDirectory, name: name)
+            let newLibrary = try await createLibrary(at: pangolinDirectory, name: effectiveName)
             print("✅ LIBRARY: Library created successfully")
             return newLibrary
         } catch {
@@ -388,89 +402,17 @@ class LibraryManager: ObservableObject {
             throw error
         }
     }
+
+    static func libraryCreationInput(from libraryURL: URL) -> (parentDirectory: URL, name: String) {
+        (
+            parentDirectory: libraryURL.deletingLastPathComponent(),
+            name: libraryURL.deletingPathExtension().lastPathComponent
+        )
+    }
     
     /// Fast existing library opening
     private func openExistingLibrary(at libraryURL: URL) async throws -> Library {
         return try await openLibrary(at: libraryURL)
-    }
-    
-    /// Quick database health check (cross-platform compatible)
-    private func isDatabaseHealthy(_ databaseURL: URL) async -> Bool {
-        // Quick SQLite integrity check without full diagnostics
-        var sqlite: OpaquePointer?
-        let result = sqlite3_open_v2(databaseURL.path, &sqlite, SQLITE_OPEN_READONLY, nil)
-
-        guard result == SQLITE_OK, let db = sqlite else {
-            if sqlite != nil { sqlite3_close(sqlite) }
-            return false
-        }
-
-        // Quick pragma check
-        let testQuery = "PRAGMA integrity_check(1)"
-        var statement: OpaquePointer?
-
-        let prepareResult = sqlite3_prepare_v2(db, testQuery, -1, &statement, nil)
-        if prepareResult == SQLITE_OK {
-            let stepResult = sqlite3_step(statement)
-            sqlite3_finalize(statement)
-            sqlite3_close(db)
-            return stepResult == SQLITE_ROW || stepResult == SQLITE_DONE
-        } else {
-            sqlite3_close(db)
-            return false
-        }
-    }
-    
-    /// Handle database corruption/missing scenarios (expensive operations)
-    private func handleDatabaseIssue(libraryURL: URL, libraryName: String) async throws -> Library {
-        // For simplified version, just recreate the library
-        print("🔄 LIBRARY: Database issue detected - recreating library")
-        return try await recreateEmptyLibrary(at: libraryURL, name: libraryName)
-    }
-    
-    /// Scan for existing videos (only called when needed)
-    private func scanExistingVideos() async -> (videoCount: Int, totalSize: Int64) {
-        guard let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            return (0, 0)
-        }
-
-        let videoExtensions = Set(["mp4", "mov", "m4v", "avi", "mkv", "wmv"])
-        var videoCount = 0
-        var totalSize: Int64 = 0
-
-        // Search common locations in Documents and other local folders
-        let searchPaths = [
-            documentsURL,
-            fileManager.urls(for: .desktopDirectory, in: .userDomainMask).first,
-            fileManager.urls(for: .downloadsDirectory, in: .userDomainMask).first,
-            fileManager.urls(for: .moviesDirectory, in: .userDomainMask).first
-        ].compactMap { $0 }
-        
-        for searchPath in searchPaths {
-            do {
-                let contents = try fileManager.contentsOfDirectory(at: searchPath, 
-                                                                  includingPropertiesForKeys: [.fileSizeKey],
-                                                                  options: [.skipsHiddenFiles])
-                
-                for fileURL in contents {
-                    let fileExtension = fileURL.pathExtension.lowercased()
-                    if videoExtensions.contains(fileExtension) {
-                        videoCount += 1
-                        
-                        if let resourceValues = try? fileURL.resourceValues(forKeys: [.fileSizeKey]),
-                           let fileSize = resourceValues.fileSize {
-                            totalSize += Int64(fileSize)
-                        }
-                    }
-                }
-            } catch {
-                // Continue searching other paths if one fails
-                continue
-            }
-        }
-        
-        print("📊 LIBRARY: Video scan complete - found \(videoCount) videos (\(ByteCountFormatter.string(fromByteCount: totalSize, countStyle: .file)))")
-        return (videoCount, totalSize)
     }
     
     /// Recreate empty library
@@ -590,7 +532,7 @@ class LibraryManager: ObservableObject {
         
         // Create fresh library
         print("🆕 LIBRARY: Creating fresh library...")
-        let newLibrary = try await createLibrary(at: libraryURL, name: libraryName)
+        let newLibrary = try await createLibrary(at: pangolinDirectory, name: libraryName)
         
         // Open the new library to set up Core Data context
         _ = try await openLibrary(at: libraryURL)
@@ -672,15 +614,21 @@ class LibraryManager: ObservableObject {
     }
     
     private func addToRecentLibraries(_ library: Library) {
-        guard let url = library.url else { return }
+        guard let url = library.url,
+              let libraryID = library.id,
+              let libraryName = library.name,
+              let lastOpenedDate = library.lastOpenedDate,
+              let createdDate = library.createdDate else {
+            return
+        }
         
         let descriptor = LibraryDescriptor(
-            id: library.id!,
-            name: library.name!,
+            id: libraryID,
+            name: libraryName,
             path: url,
-            lastOpenedDate: library.lastOpenedDate!,
-            createdDate: library.createdDate!,
-            version: library.version!,
+            lastOpenedDate: lastOpenedDate,
+            createdDate: createdDate,
+            version: library.version ?? currentVersion,
             thumbnailData: nil,
             videoCount: library.videoCount,
             totalSize: library.totalSize

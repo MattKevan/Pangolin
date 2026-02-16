@@ -7,7 +7,7 @@ struct BulkProcessingView: View {
     @State private var selectedTasks: Set<UUID> = []
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             VStack(spacing: 0) {
                 // Header with stats
                 headerView

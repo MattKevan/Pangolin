@@ -20,6 +20,8 @@ struct ContentRowView: View {
     @EnvironmentObject private var store: FolderNavigationStore
     @State private var isDropTargeted = false
     @State private var shouldCommitOnDisappear = false
+    @State private var showingDeletionConfirmation = false
+    @State private var itemsToDelete: [DeletionItem] = []
 
     enum ViewMode {
         case grid
@@ -45,25 +47,34 @@ struct ContentRowView: View {
         }
         .contextMenu {
             Button("Rename") { startRenaming() }
-            Button("Delete", role: .destructive) { /* TODO: Implement deletion */ }
+            Button("Delete", role: .destructive) { promptDeletion() }
         }
         .draggable(dragPayload)
         .onDrop(of: [.data], isTargeted: $isDropTargeted) { providers in
-            guard case .folder(let folder) = content else { return false }
+            guard case .folder(let folder) = content,
+                  let folderID = folder.id else { return false }
             
             if let provider = providers.first {
                 let _ = provider.loadDataRepresentation(for: .data) { data, _ in
                     if let data = data,
                        let transfer = try? JSONDecoder().decode(ContentTransfer.self, from: data),
-                       !transfer.itemIDs.contains(folder.id!) {
+                       !transfer.itemIDs.contains(folderID) {
                         Task { @MainActor in
-                            await store.moveItems(Set(transfer.itemIDs), to: folder.id)
+                            await store.moveItems(Set(transfer.itemIDs), to: folderID)
                         }
                     }
                 }
                 return true
             }
             return false
+        }
+        .alert(deletionAlertContent.title, isPresented: $showingDeletionConfirmation) {
+            Button("Cancel", role: .cancel) { cancelDeletion() }
+            Button("Delete", role: .destructive) {
+                Task { await confirmDeletion() }
+            }
+        } message: {
+            Text(deletionAlertContent.message)
         }
     }
 
@@ -227,6 +238,10 @@ struct ContentRowView: View {
 
     // MARK: - Renaming Logic
 
+    private var deletionAlertContent: DeletionAlertContent {
+        itemsToDelete.deletionAlertContent
+    }
+
     private func startRenaming() {
         editedName = content.name
         renamingItemID = content.id
@@ -266,5 +281,35 @@ struct ContentRowView: View {
         shouldCommitOnDisappear = false
         renamingItemID = nil
         focusedField = nil
+    }
+
+    private func promptDeletion() {
+        switch content {
+        case .folder(let folder):
+            itemsToDelete = [DeletionItem(folder: folder)]
+        case .video(let video):
+            itemsToDelete = [DeletionItem(video: video)]
+        }
+        showingDeletionConfirmation = !itemsToDelete.isEmpty
+    }
+
+    private func cancelDeletion() {
+        itemsToDelete.removeAll()
+        showingDeletionConfirmation = false
+    }
+
+    private func confirmDeletion() async {
+        let itemIDs = Set(itemsToDelete.map(\.id))
+        let success = await store.deleteItems(itemIDs)
+
+        await MainActor.run {
+            if success {
+                selectedItems.subtract(itemIDs)
+                if renamingItemID.map(itemIDs.contains) == true {
+                    cancelRename()
+                }
+            }
+            cancelDeletion()
+        }
     }
 }

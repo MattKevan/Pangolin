@@ -10,6 +10,23 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+final class ThreadSafeURLCollector {
+    private var urls: [URL] = []
+    private let lock = NSLock()
+
+    func append(_ url: URL) {
+        lock.lock()
+        urls.append(url)
+        lock.unlock()
+    }
+
+    func allURLs() -> [URL] {
+        lock.lock()
+        defer { lock.unlock() }
+        return urls
+    }
+}
+
 struct VideoDropDelegate: DropDelegate {
     @Binding var isTargeted: Bool
     let library: Library
@@ -32,7 +49,7 @@ struct VideoDropDelegate: DropDelegate {
         isTargeted = false
         
         let providers = info.itemProviders(for: [.fileURL])
-        var urls: [URL] = []
+        let urlCollector = ThreadSafeURLCollector()
         
         let group = DispatchGroup()
         
@@ -41,7 +58,7 @@ struct VideoDropDelegate: DropDelegate {
             provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
                 if let data = item as? Data,
                    let url = URL(dataRepresentation: data, relativeTo: nil) {
-                    urls.append(url)
+                    urlCollector.append(url)
                 }
                 group.leave()
             }
@@ -50,7 +67,7 @@ struct VideoDropDelegate: DropDelegate {
         group.notify(queue: .main) {
             Task {
                 if let context = libraryManager.viewContext {
-                    await importer.importFiles(urls, to: library, context: context)
+                    await importer.importFiles(urlCollector.allURLs(), to: library, context: context)
                 }
             }
         }

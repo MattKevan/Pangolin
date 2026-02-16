@@ -117,7 +117,7 @@ struct SidebarView: View {
             }
             return .ignored
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("TriggerRename"))) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .triggerRename)) { _ in
             triggerRenameFromMenu()
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSManagedObjectContextDidSave)) { _ in

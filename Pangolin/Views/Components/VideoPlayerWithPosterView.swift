@@ -14,6 +14,11 @@ struct VideoPlayerWithPosterView: View {
     @State private var showPlayer = false
     @State private var hasStartedPlaying = false
     @State private var isHovering = false
+
+    private func displayTitle(for video: Video) -> String {
+        let title = video.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return title.isEmpty ? "Untitled" : title
+    }
     
     var body: some View {
         ZStack {
@@ -97,7 +102,7 @@ struct VideoPlayerWithPosterView: View {
                                 .font(.system(size: 48))
                                 .foregroundColor(.white.opacity(0.7))
                             
-                            Text(video.title!)
+                            Text(displayTitle(for: video))
                                 .font(.title2)
                                 .foregroundColor(.white)
                                 .multilineTextAlignment(.center)
@@ -122,7 +127,7 @@ struct VideoPlayerWithPosterView: View {
             
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(video.title!)
+                    Text(displayTitle(for: video))
                         .font(.title3)
                         .fontWeight(.semibold)
                         .foregroundColor(.white)

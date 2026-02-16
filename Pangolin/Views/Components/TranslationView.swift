@@ -233,12 +233,13 @@ struct TranslationView: View {
                         }
                     }
                 } else {
+                    let translationPrompt = outputSelection
+                        .map { "Tap 'Translate' to create a translation to \(displayName(for: $0))." }
+                        ?? "Select a target language and tap 'Translate' to create a translation."
                     ContentUnavailableView(
                         "No translation available",
                         systemImage: "globe.badge.chevron.backward",
-                        description: Text(outputSelection == nil ? 
-                            "Select a target language and tap 'Translate' to create a translation." : 
-                            "Tap 'Translate' to create a translation to \(displayName(for: outputSelection!)).")
+                        description: Text(translationPrompt)
                     )
                     .font(.title3)
                     .multilineTextAlignment(.center)

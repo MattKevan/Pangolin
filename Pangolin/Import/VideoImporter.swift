@@ -8,7 +8,6 @@
 
 // Import/VideoImporter.swift
 import Foundation
-import Combine
 import AVFoundation
 import CoreData
 
@@ -26,7 +25,6 @@ class VideoImporter: ObservableObject {
     private let fileSystemManager = FileSystemManager.shared
     private let videoFileManager = VideoFileManager.shared
     private let subtitleMatcher = SubtitleMatcher()
-    private var cancellables = Set<AnyCancellable>()
     
     struct ImportError: Identifiable {
         let id = UUID()

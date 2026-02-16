@@ -343,7 +343,7 @@ private struct RootEventsModifier: ViewModifier {
     let handleAutoTranscribe: () -> Void
 
     func body(content: Content) -> some View {
-        content
+        let configuredContent = content
             .navigationTitle(folderStore.selectedVideo?.title ?? libraryManager.currentLibrary?.name ?? "Pangolin")
             .onAppear {
                 StoragePolicyManager.shared.setProtectedSelectedVideoID(folderStore.selectedVideo?.id)
@@ -363,11 +363,12 @@ private struct RootEventsModifier: ViewModifier {
                     searchManager.deactivateSearch()
                 }
             }
-            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("TriggerSearch"))) { _ in
+        configuredContent
+            .onReceive(NotificationCenter.default.publisher(for: .triggerSearch)) { _ in
                 // Activate search mode when Cmd+F is pressed
                 folderStore.selectedSidebarItem = .search
             }
-            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("TriggerImportVideos"))) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: .triggerImportVideos)) { _ in
                 showingImportPicker = true
             }
     }

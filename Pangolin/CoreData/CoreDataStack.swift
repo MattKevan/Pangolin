@@ -18,18 +18,27 @@ class CoreDataStack {
     /// This ensures only one stack per database file, preventing corruption
     static func getInstance(for libraryURL: URL) throws -> CoreDataStack {
         let key = libraryURL.path
-        
-        return instanceQueue.sync {
-            if let existing = instances[key] {
-                print("✅ STACK: Reusing existing CoreDataStack for \(key)")
-                return existing
-            }
-            
-            print("🆕 STACK: Creating new CoreDataStack for \(key)")
-            let stack = CoreDataStack(libraryURL: libraryURL)
-            instances[key] = stack
-            return stack
+
+        if let existing = instanceQueue.sync(execute: { instances[key] }) {
+            print("✅ STACK: Reusing existing CoreDataStack for \(key)")
+            try existing.loadPersistentContainerIfNeeded()
+            return existing
         }
+
+        print("🆕 STACK: Creating new CoreDataStack for \(key)")
+        let stack = CoreDataStack(libraryURL: libraryURL)
+        try stack.loadPersistentContainerIfNeeded()
+
+        var resolvedStack: CoreDataStack?
+        instanceQueue.sync(flags: .barrier) {
+            if let existing = instances[key] {
+                resolvedStack = existing
+            } else {
+                instances[key] = stack
+                resolvedStack = stack
+            }
+        }
+        return resolvedStack ?? stack
     }
     
     /// Release a CoreDataStack instance for the given library URL
@@ -48,21 +57,11 @@ class CoreDataStack {
     private var _persistentContainer: NSPersistentCloudKitContainer?
     private var cloudEventObserver: NSObjectProtocol?
     private let containerQueue = DispatchQueue(label: "com.pangolin.coredata.container")
-
-    lazy var persistentContainer: NSPersistentCloudKitContainer = {
-        return containerQueue.sync {
-            if let existing = _persistentContainer {
-                return existing
-            }
-
-            let container = createPersistentContainer()
-            _persistentContainer = container
-            return container
-        }
-    }()
     
-    var viewContext: NSManagedObjectContext {
-        return persistentContainer.viewContext
+    var viewContext: NSManagedObjectContext? {
+        return containerQueue.sync {
+            _persistentContainer?.viewContext
+        }
     }
     
     // MARK: - Initialization
@@ -77,7 +76,18 @@ class CoreDataStack {
     }
     
     // MARK: - Container Creation
-    private func createPersistentContainer() -> NSPersistentCloudKitContainer {
+    private func loadPersistentContainerIfNeeded() throws {
+        try containerQueue.sync {
+            if _persistentContainer != nil {
+                return
+            }
+
+            let container = try createPersistentContainer()
+            _persistentContainer = container
+        }
+    }
+
+    private func createPersistentContainer() throws -> NSPersistentCloudKitContainer {
         print("🏗️ STACK: Creating NSPersistentCloudKitContainer...")
 
         let container = NSPersistentCloudKitContainer(name: modelName)
@@ -98,13 +108,17 @@ class CoreDataStack {
             
             if let error = error as NSError? {
                 print("❌ STACK: Core Data load error: \(error), \(error.userInfo)")
-                loadError = error
+                loadError = CoreDataStackError.loadPersistentStoreFailed(error)
                 
                 // Handle database corruption with proper recovery
                 if error.code == 11 || error.domain == NSSQLiteErrorDomain && error.code == 11 {
                     print("🔧 STACK: Database corruption detected - attempting recovery...")
                     do {
-                        try self.handleDatabaseCorruption(storeURL: storeDescription.url!)
+                        guard let storeURL = storeDescription.url else {
+                            loadError = CoreDataStackError.persistentStoreURLMissing
+                            return
+                        }
+                        try self.handleDatabaseCorruption(storeURL: storeURL)
                     } catch {
                         print("❌ STACK: Recovery failed: \(error)")
                         loadError = error
@@ -118,7 +132,7 @@ class CoreDataStack {
         semaphore.wait()
         
         if let loadError = loadError {
-            fatalError("Failed to load Core Data stack: \(loadError)")
+            throw loadError
         }
         
         // Configure view context
@@ -207,7 +221,7 @@ class CoreDataStack {
 
     /// Refreshes the view context when query generation fails
     func refreshViewContextIfNeeded() {
-        let context = viewContext
+        guard let context = viewContext else { return }
 
         // Try to advance to the latest query generation
         do {
@@ -233,7 +247,9 @@ class CoreDataStack {
     
     // MARK: - Context Operations
     func saveContext() throws {
-        let context = persistentContainer.viewContext
+        guard let context = viewContext else {
+            throw CoreDataStackError.containerNotInitialized
+        }
         
         guard context.hasChanges else {
             print("ℹ️ STACK: No changes to save")
@@ -253,8 +269,15 @@ class CoreDataStack {
     }
     
     func performBackgroundTask<T>(_ block: @escaping (NSManagedObjectContext) throws -> T) async throws -> T {
+        let container = try containerQueue.sync { () throws -> NSPersistentCloudKitContainer in
+            guard let container = _persistentContainer else {
+                throw CoreDataStackError.containerNotInitialized
+            }
+            return container
+        }
+
         return try await withCheckedThrowingContinuation { continuation in
-            persistentContainer.performBackgroundTask { context in
+            container.performBackgroundTask { context in
                 do {
                     let result = try block(context)
                     continuation.resume(returning: result)
@@ -312,5 +335,22 @@ class CoreDataStack {
         }
 
         print("✅ STACK: CoreDataStack cleanup complete")
+    }
+}
+
+enum CoreDataStackError: LocalizedError {
+    case loadPersistentStoreFailed(Error)
+    case persistentStoreURLMissing
+    case containerNotInitialized
+
+    var errorDescription: String? {
+        switch self {
+        case .loadPersistentStoreFailed(let error):
+            return "Failed to load persistent store: \(error.localizedDescription)"
+        case .persistentStoreURLMissing:
+            return "Persistent store URL is missing."
+        case .containerNotInitialized:
+            return "Core Data container is not initialized."
+        }
     }
 }
