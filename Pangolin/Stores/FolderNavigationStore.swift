@@ -32,6 +32,10 @@ class FolderNavigationStore: ObservableObject {
     @Published var selectedSidebarItem: SidebarSelection? {
         didSet {
             guard selectionKey(oldValue) != selectionKey(selectedSidebarItem) else { return }
+            if suppressNextSidebarSelectionChange {
+                suppressNextSidebarSelectionChange = false
+                return
+            }
             // Defer cross-property mutations to avoid publishing while SwiftUI is reconciling selection state.
             Task { @MainActor [weak self] in
                 self?.handleSidebarSelectionChange()
@@ -64,6 +68,7 @@ class FolderNavigationStore: ObservableObject {
     private let libraryManager: LibraryManager
     private var cancellables = Set<AnyCancellable>()
     private var isRevealingVideoLocation = false
+    private var suppressNextSidebarSelectionChange = false
     
     init(libraryManager: LibraryManager) {
         self.libraryManager = libraryManager
@@ -261,12 +266,7 @@ class FolderNavigationStore: ObservableObject {
         
         // 🔍 SELECTION PRESERVATION: Restore selection if it still exists in content
         if let preservedID = preservedSelectionID {
-            let stillExists = newHierarchicalContent.contains { item in
-                if case .video(let video) = item.contentType {
-                    return video.id == preservedID
-                }
-                return false
-            }
+            let stillExists = containsVideo(withID: preservedID, in: newHierarchicalContent)
             
             if stillExists {
                 print("✅ STORE: Preserved selection \(preservedID.uuidString) still exists, keeping it")
@@ -284,6 +284,21 @@ class FolderNavigationStore: ObservableObject {
         } else {
             print("🎯 STORE: Keeping existing selection: \(selectedVideo?.title ?? "unknown")")
         }
+    }
+
+    private func containsVideo(withID videoID: UUID, in items: [HierarchicalContentItem]) -> Bool {
+        for item in items {
+            if case .video(let video) = item.contentType, video.id == videoID {
+                return true
+            }
+
+            if let children = item.children,
+               containsVideo(withID: videoID, in: children) {
+                return true
+            }
+        }
+
+        return false
     }
     
     // MARK: - Content Access (for Sidebar)
@@ -351,28 +366,30 @@ class FolderNavigationStore: ObservableObject {
         defer { isRevealingVideoLocation = false }
 
         selectedVideo = video
-        guard let folder = video.folder else { return }
+        guard let folder = video.folder else {
+            // Keep the selected video even when we cannot derive a navigable folder path.
+            return
+        }
 
         var top = folder
-        var path: [Folder] = []
         while let parent = top.parentFolder {
-            path.append(parent)
             top = parent
         }
-        path = path.reversed()
+        guard let topID = top.id else { return }
 
-        selectedSidebarItem = .folder(top)
-        selectedTopLevelFolder = top
-        currentFolderID = folder.id
-
-        // Rebuild navigation path (used for back button state).
-        var nav = NavigationPath()
-        for f in path {
-            if let id = f.id {
-                nav.append(id)
-            }
+        // We set folder/navigation state directly below; suppress the deferred sidebar callback
+        // so selectedVideo is not cleared as part of normal folder selection behavior.
+        let targetSidebarSelection: SidebarSelection = .folder(top)
+        if selectionKey(selectedSidebarItem) != selectionKey(targetSidebarSelection) {
+            suppressNextSidebarSelectionChange = true
         }
-        navigationPath = nav
+        selectedSidebarItem = targetSidebarSelection
+        isSearchMode = false
+        selectedTopLevelFolder = top
+        currentFolderID = topID
+
+        // Outline mode represents hierarchy in-column, so we don't use stack-like back path here.
+        navigationPath = NavigationPath()
     }
     
     // MARK: - Folder Management

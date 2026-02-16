@@ -106,7 +106,7 @@ class VideoImporter: ObservableObject {
     func prepareImportPlan(from urls: [URL], library: Library, context: NSManagedObjectContext) async -> ImportPlan {
         let folderStructure = analyzeFolderStructure(from: urls)
         let createdFolders = await createFoldersFromStructure(folderStructure, library: library, context: context)
-        let videoFiles = gatherVideoFiles(from: urls)
+        let videoFiles = videoFilesFromAnalyzedStructure(urls: urls, folderNodes: folderStructure)
         return ImportPlan(videoFiles: videoFiles, createdFolders: createdFolders)
     }
 
@@ -395,6 +395,7 @@ class VideoImporter: ObservableObject {
         for folderNode in folderNodes {
             if let folder = await createFolderFromNode(folderNode, parent: nil, library: library, context: context) {
                 createdFolders[folderNode.url.path] = folder
+                saveContextIfNeeded(context)
                 await addChildFolders(for: folderNode, parentFolder: folder, library: library, context: context, createdFolders: &createdFolders)
             }
         }
@@ -429,9 +430,57 @@ class VideoImporter: ObservableObject {
         for childNode in node.children {
             if let childFolder = await createFolderFromNode(childNode, parent: parentFolder, library: library, context: context) {
                 createdFolders[childNode.url.path] = childFolder
+                saveContextIfNeeded(context)
                 await addChildFolders(for: childNode, parentFolder: childFolder, library: library, context: context, createdFolders: &createdFolders)
             }
         }
+    }
+
+    private func saveContextIfNeeded(_ context: NSManagedObjectContext) {
+        guard context.hasChanges else { return }
+
+        do {
+            try context.save()
+        } catch {
+            print("⚠️ IMPORT: Failed to save folder structure incrementally: \(error)")
+        }
+    }
+
+    private func videoFilesFromAnalyzedStructure(urls: [URL], folderNodes: [FolderNode]) -> [URL] {
+        var seenPaths = Set<String>()
+        var result: [URL] = []
+
+        func appendIfNeeded(_ url: URL) {
+            let path = url.path
+            guard !seenPaths.contains(path) else { return }
+            seenPaths.insert(path)
+            result.append(url)
+        }
+
+        for url in urls {
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+               !isDirectory.boolValue,
+               isVideoFile(url) {
+                appendIfNeeded(url)
+            }
+        }
+
+        for node in folderNodes {
+            collectVideoFiles(in: node).forEach(appendIfNeeded)
+        }
+
+        return result
+    }
+
+    private func collectVideoFiles(in node: FolderNode) -> [URL] {
+        var files = node.videoFiles
+
+        for child in node.children {
+            files.append(contentsOf: collectVideoFiles(in: child))
+        }
+
+        return files
     }
     
     func assignVideoToFolder(video: Video, originalPath: URL, createdFolders: [String: Folder]) {

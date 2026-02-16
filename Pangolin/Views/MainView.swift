@@ -218,7 +218,6 @@ struct MainView: View {
     }
     
     private var isTwoColumnMode: Bool {
-        if folderStore.selectedVideo != nil { return false }
         if folderStore.isSearchMode { return true }
         guard let folder = folderStore.selectedTopLevelFolder else { return false }
         if folder.isSmartFolder,
@@ -413,7 +412,6 @@ private struct DetailColumnView: View {
     }
     
     private var isTwoColumnMode: Bool {
-        if folderStore.selectedVideo != nil { return false }
         if folderStore.isSearchMode { return true }
         guard let folder = folderStore.selectedTopLevelFolder else { return false }
         if folder.isSmartFolder,

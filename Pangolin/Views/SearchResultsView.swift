@@ -97,9 +97,15 @@ private struct SearchResultsTableView: View {
     }
 
     private func handleSelectionChange(_ selection: Set<UUID>) {
-        guard let selectedID = selection.first else { return }
+        guard selection.count == 1,
+              let selectedID = selection.first else { return }
         if let selectedVideo = videos.first(where: { $0.id == selectedID }) {
-            folderStore.selectVideo(selectedVideo)
+            guard selectedVideo.folder != nil else {
+                folderStore.selectVideo(selectedVideo)
+                return
+            }
+
+            folderStore.revealVideoLocation(selectedVideo)
         }
     }
 }

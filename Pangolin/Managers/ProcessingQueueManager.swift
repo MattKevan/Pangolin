@@ -79,7 +79,17 @@ class ProcessingQueueManager: ObservableObject {
         let plan = await importer.prepareImportPlan(from: urls, library: library, context: context)
         let libraryID = library.id
         if let libraryID {
-            importFolderMaps[libraryID] = plan.createdFolders
+            var mergedFolderMap = importFolderMaps[libraryID] ?? [:]
+            mergedFolderMap.merge(plan.createdFolders) { _, new in new }
+            importFolderMaps[libraryID] = mergedFolderMap
+        }
+
+        if context.hasChanges {
+            do {
+                try context.save()
+            } catch {
+                print("⚠️ QUEUE: Failed to save pending folder changes before enqueueing import tasks: \(error)")
+            }
         }
 
         for fileURL in plan.videoFiles {
@@ -90,6 +100,10 @@ class ProcessingQueueManager: ObservableObject {
                 itemName: fileURL.lastPathComponent
             )
             processingQueue.addTask(task)
+        }
+
+        if plan.videoFiles.isEmpty {
+            print("⚠️ QUEUE: No importable video files discovered in dropped items.")
         }
         refreshStats()
         startProcessingIfNeeded()
