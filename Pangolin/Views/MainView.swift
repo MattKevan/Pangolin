@@ -326,6 +326,15 @@ private struct RootSearchModifier: ViewModifier {
                 placement: .automatic,
                 prompt: "Search videos, transcripts, and summaries"
             )
+            .onSubmit(of: .search) {
+                let trimmedQuery = searchManager.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmedQuery.isEmpty else { return }
+
+                if folderStore.selectedSidebarItem != .search {
+                    folderStore.selectedSidebarItem = .search
+                }
+                searchManager.performManualSearch()
+            }
             .searchScopes($searchManager.searchScope) {
                 ForEach(SearchManager.SearchScope.allCases) { scope in
                     Text(scope.rawValue).tag(scope)
