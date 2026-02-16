@@ -29,6 +29,9 @@ class ProcessingQueueManager: ObservableObject {
 
     var totalTasks: Int { totalTaskCount }
     var activeTasks: Int { activeTaskCount }
+    var activeVideoIDs: Set<UUID> {
+        Set(queue.filter { $0.status.isActive }.compactMap { $0.videoID })
+    }
 
     private init() {
         processingQueue.hasRequiredDataProvider = { [weak self] videoID, type in
@@ -148,6 +151,10 @@ class ProcessingQueueManager: ObservableObject {
 
     func enqueueTranscriptionAndSummary(for videos: [Video]) {
         enqueueVideoTasks(for: videos, types: [.ensureLocalAvailability, .transcribe, .summarize], force: false)
+    }
+
+    func enqueueEnsureLocalAvailability(for videos: [Video], force: Bool = false) {
+        enqueueVideoTasks(for: videos, types: [.ensureLocalAvailability], force: force)
     }
 
     private func enqueueVideoTasks(for videos: [Video], types: [ProcessingTaskType], force: Bool, preferredLocale: Locale? = nil, targetLocale: Locale? = nil) {
@@ -346,6 +353,8 @@ class ProcessingQueueManager: ObservableObject {
         let video = try await importer.importSingleFile(fileURL, library: library, context: context, createdFolders: folderMap)
 
         try context.save()
+
+        await StoragePolicyManager.shared.applyPolicy(for: library)
 
         // Enqueue thumbnail if missing
         if video.thumbnailPath == nil, let id = video.id {

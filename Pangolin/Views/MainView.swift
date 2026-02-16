@@ -321,11 +321,15 @@ private struct RootEventsModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .navigationTitle(folderStore.selectedVideo?.title ?? libraryManager.currentLibrary?.name ?? "Pangolin")
-            .onAppear(perform: updateColumnVisibility)
+            .onAppear {
+                StoragePolicyManager.shared.setProtectedSelectedVideoID(folderStore.selectedVideo?.id)
+                updateColumnVisibility()
+            }
             .onChange(of: folderStore.isSearchMode) { _, _ in updateColumnVisibility() }
             .onChange(of: folderStore.selectedTopLevelFolder?.id) { _, _ in updateColumnVisibility() }
-            .onChange(of: folderStore.selectedVideo?.id) { _, _ in updateColumnVisibility() }
-            .onChange(of: folderStore.selectedVideo?.id) { _, _ in
+            .onChange(of: folderStore.selectedVideo?.id) { _, newVideoID in
+                StoragePolicyManager.shared.setProtectedSelectedVideoID(newVideoID)
+                updateColumnVisibility()
                 handleAutoTranscribe()
             }
             .onChange(of: folderStore.selectedSidebarItem) { _, newSelection in

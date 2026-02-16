@@ -21,10 +21,11 @@
         <attribute name="lastOpenedDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="libraryPath" optional="YES" attributeType="String"/>
         <attribute name="name" optional="YES" attributeType="String"/>
+        <attribute name="maxLocalVideoCacheBytes" attributeType="Integer 64" defaultValueString="10737418240" usesScalarValueType="YES"/>
         <attribute name="organizeByDate" attributeType="Boolean" defaultValueString="YES" usesScalarValueType="YES"/>
         <attribute name="rememberPlaybackPosition" attributeType="Boolean" defaultValueString="YES" usesScalarValueType="YES"/>
         <attribute name="version" attributeType="String" defaultValueString="1.0.0"/>
-        <attribute name="videoStorageType" optional="YES" attributeType="String" defaultValueString="icloud_hybrid"/>
+        <attribute name="videoStorageType" optional="YES" attributeType="String" defaultValueString="optimize_storage"/>
         <relationship name="folders" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Folder" inverseName="library" inverseEntity="Folder"/>
         <relationship name="videos" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Video" inverseName="library" inverseEntity="Video"/>
     </entity>

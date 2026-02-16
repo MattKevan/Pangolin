@@ -36,6 +36,8 @@ class LibraryManager: ObservableObject {
     private let cloudContainerIdentifier = "iCloud.com.newindustries.pangolin"
     private let recentLibrariesKey = "RecentLibraries"
     private let lastOpenedLibraryKey = "LastOpenedLibrary"
+    private let defaultVideoStorageType = LibraryStoragePreference.optimizeStorage.rawValue
+    private let defaultMaxLocalVideoCacheBytes = Library.defaultMaxLocalVideoCacheBytes
     
     // MARK: - Initialization
     private init() {
@@ -179,8 +181,9 @@ class LibraryManager: ObservableObject {
         library.defaultPlaybackSpeed = 1.0
         library.rememberPlaybackPosition = true
         
-        // Set default video storage to the new hybrid iCloud model
-        library.videoStorageType = "icloud_hybrid"
+        // Default to Photos-style optimized storage with a 10GB local cache.
+        library.videoStorageType = defaultVideoStorageType
+        library.maxLocalVideoCacheBytes = defaultMaxLocalVideoCacheBytes
         
         print("All properties set successfully")
         
@@ -255,6 +258,8 @@ class LibraryManager: ObservableObject {
         
         // Ensure smart folders exist
         await ensureSmartFoldersExist(for: library, in: context)
+
+        normalizeStorageSettings(for: library)
         
         // Update library
         library.lastOpenedDate = Date()
@@ -301,7 +306,8 @@ class LibraryManager: ObservableObject {
     
     /// Switch to a different library
     func switchToLibrary(_ descriptor: LibraryDescriptor) async throws {
-        _ = try await openLibrary(at: descriptor.path)
+        let library = try await openLibrary(at: descriptor.path)
+        await StoragePolicyManager.shared.applyPolicy(for: library)
     }
     
     /// Open the last used library
@@ -311,7 +317,8 @@ class LibraryManager: ObservableObject {
             throw LibraryError.noLastLibrary
         }
 
-        _ = try await openLibrary(at: lastLibraryPath)
+        let library = try await openLibrary(at: lastLibraryPath)
+        await StoragePolicyManager.shared.applyPolicy(for: library)
     }
     
     /// Smart startup following Apple's performance best practices
@@ -708,6 +715,27 @@ class LibraryManager: ObservableObject {
     private func migrateLibrary(_ library: Library, from oldVersion: String, to newVersion: String) async throws {
         // Implement migration logic here
         library.version = newVersion
+    }
+
+    private func normalizeStorageSettings(for library: Library) {
+        let existingType = library.videoStorageType?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isExistingTypeValid: Bool
+        if let existingType,
+           !existingType.isEmpty,
+           existingType != "icloud_hybrid",
+           LibraryStoragePreference(rawValue: existingType) != nil {
+            isExistingTypeValid = true
+        } else {
+            isExistingTypeValid = false
+        }
+
+        if !isExistingTypeValid {
+            library.videoStorageType = defaultVideoStorageType
+        }
+
+        if library.maxLocalVideoCacheBytes <= 0 {
+            library.maxLocalVideoCacheBytes = defaultMaxLocalVideoCacheBytes
+        }
     }
 
     private func isCurrentStorageSystem(at libraryURL: URL) -> Bool {

@@ -7,6 +7,7 @@ import Combine
 struct PangolinApp: App {
     @StateObject private var libraryManager = LibraryManager.shared
     @StateObject private var videoFileManager = VideoFileManager.shared
+    @StateObject private var storagePolicyManager = StoragePolicyManager.shared
     @State private var hasAttemptedStartup = false
 
     var body: some Scene {
@@ -70,6 +71,13 @@ struct PangolinApp: App {
                 .disabled(!libraryManager.isLibraryOpen)
             }
         }
+        #if os(macOS)
+        Settings {
+            SettingsView()
+                .environmentObject(libraryManager)
+                .environmentObject(storagePolicyManager)
+        }
+        #endif
     }
 
     private func startLibraryStartup() {
@@ -77,7 +85,8 @@ struct PangolinApp: App {
 
         Task {
             do {
-                _ = try await libraryManager.smartStartup()
+                let library = try await libraryManager.smartStartup()
+                await storagePolicyManager.applyPolicy(for: library)
             } catch {
                 print("❌ APP: Startup failed: \(error)")
                 libraryManager.error = error as? LibraryError
@@ -96,7 +105,8 @@ struct PangolinApp: App {
             do {
                 libraryManager.error = nil
                 print("🔧 APP: Starting database reset...")
-                _ = try await libraryManager.resetCorruptedDatabase()
+                let library = try await libraryManager.resetCorruptedDatabase()
+                await storagePolicyManager.applyPolicy(for: library)
                 print("✅ APP: Database reset successful")
             } catch {
                 print("❌ APP: Database reset failed: \(error)")

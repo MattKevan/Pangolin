@@ -48,6 +48,31 @@ enum VideoWatchStatus: Int {
     }
 }
 
+enum LibraryStoragePreference: String, CaseIterable, Identifiable {
+    case keepAllDownloaded = "keep_all_downloaded"
+    case optimizeStorage = "optimize_storage"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .keepAllDownloaded:
+            return "Keep All Downloaded"
+        case .optimizeStorage:
+            return "Offload to iCloud"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .keepAllDownloaded:
+            return "Keep all videos available on this Mac."
+        case .optimizeStorage:
+            return "Store older videos in iCloud to reduce local disk usage."
+        }
+    }
+}
+
 // MARK: - Video Extensions
 extension Video {
     // Computed properties
@@ -185,10 +210,41 @@ extension Subtitle {
 
 // MARK: - Library Extensions
 extension Library {
+    static let defaultMaxLocalVideoCacheBytes: Int64 = 10 * 1024 * 1024 * 1024
+
     // Computed properties
     var url: URL? {
         guard let libraryPath = libraryPath else { return nil }
         return URL(fileURLWithPath: libraryPath)
+    }
+
+    var storagePreference: LibraryStoragePreference {
+        get {
+            guard let rawValue = videoStorageType,
+                  let preference = LibraryStoragePreference(rawValue: rawValue) else {
+                return .optimizeStorage
+            }
+            return preference
+        }
+        set {
+            videoStorageType = newValue.rawValue
+        }
+    }
+
+    var resolvedMaxLocalVideoCacheBytes: Int64 {
+        max(maxLocalVideoCacheBytes, Library.defaultMaxLocalVideoCacheBytes)
+    }
+
+    var maxLocalCacheGB: Int {
+        get {
+            let bytesPerGB = Int64(1024 * 1024 * 1024)
+            let gb = Int((resolvedMaxLocalVideoCacheBytes + bytesPerGB - 1) / bytesPerGB)
+            return max(1, gb)
+        }
+        set {
+            let bounded = max(1, newValue)
+            maxLocalVideoCacheBytes = Int64(bounded) * Int64(1024 * 1024 * 1024)
+        }
     }
     
     var videoCount: Int {
@@ -204,9 +260,13 @@ extension Library {
     }
     
     var formattedSize: String {
+        formattedByteCount(totalSize)
+    }
+
+    func formattedByteCount(_ byteCount: Int64) -> String {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
-        return formatter.string(fromByteCount: totalSize)
+        return formatter.string(fromByteCount: byteCount)
     }
 }
 
