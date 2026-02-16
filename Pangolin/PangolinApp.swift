@@ -138,15 +138,15 @@ struct PangolinApp: App {
     }
 
     private func triggerSearch() {
-        NotificationCenter.default.post(name: NSNotification.Name("TriggerSearch"), object: nil)
+        NotificationCenter.default.post(name: .triggerSearch, object: nil)
     }
 
     private func triggerRename() {
-        NotificationCenter.default.post(name: NSNotification.Name("TriggerRename"), object: nil)
+        NotificationCenter.default.post(name: .triggerRename, object: nil)
     }
     
     private func triggerImportVideos() {
-        NotificationCenter.default.post(name: NSNotification.Name("TriggerImportVideos"), object: nil)
+        NotificationCenter.default.post(name: .triggerImportVideos, object: nil)
     }
 }
 

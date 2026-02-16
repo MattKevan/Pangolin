@@ -52,7 +52,7 @@ struct HierarchicalContentView: View {
     
     var body: some View {
         contentView
-            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("TriggerRename"))) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: .triggerRename)) { _ in
                 triggerRenameFromMenu()
             }
             // Processing panel remains available if something external presents it
