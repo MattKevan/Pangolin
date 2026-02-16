@@ -37,7 +37,8 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     #endif
     
     private var timeObserver: Any?
-    private var cancellables = Set<AnyCancellable>()
+    private var playbackEndedCancellable: AnyCancellable?
+    private var durationStatusCancellable: AnyCancellable?
     private var buildTask: Task<Void, Never>?
     
     override init() {
@@ -72,6 +73,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         // Cancel any in-flight build
         buildTask?.cancel()
         buildTask = Task { @MainActor in
+            resetPlayerObservers()
             do {
                 let resolvedURL = try await video.getAccessibleFileURL(downloadIfNeeded: true)
                 do {
@@ -341,7 +343,9 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     
     // MARK: - Observers & state
     
+    @MainActor
     private func setupTimeObserver() {
+        removeTimeObserver()
         let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
         timeObserver = player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             guard let self else { return }
@@ -355,12 +359,13 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         }
     }
     
+    @MainActor
     private func setupNotifications() {
-        NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)
+        playbackEndedCancellable?.cancel()
+        playbackEndedCancellable = NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)
             .sink { [weak self] _ in
                 self?.handlePlaybackEnded()
             }
-            .store(in: &cancellables)
     }
     
     // Helpers to call setup methods conditionally with await if the async overload exists
@@ -380,16 +385,34 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     private func updateDuration(from item: AVPlayerItem) async {
         if item.status == .readyToPlay {
             duration = CMTimeGetSeconds(item.duration)
+            durationStatusCancellable?.cancel()
         } else {
             // Wait for readyToPlay
-            let cancellable = item.publisher(for: \.status)
+            durationStatusCancellable?.cancel()
+            durationStatusCancellable = item.publisher(for: \.status)
                 .filter { $0 == .readyToPlay }
                 .sink { [weak self, weak item] _ in
                     if let d = item?.duration {
                         self?.duration = CMTimeGetSeconds(d)
                     }
                 }
-            cancellables.insert(cancellable)
+        }
+    }
+
+    @MainActor
+    private func resetPlayerObservers() {
+        removeTimeObserver()
+        playbackEndedCancellable?.cancel()
+        playbackEndedCancellable = nil
+        durationStatusCancellable?.cancel()
+        durationStatusCancellable = nil
+    }
+
+    @MainActor
+    private func removeTimeObserver() {
+        if let observer = timeObserver {
+            player?.removeTimeObserver(observer)
+            timeObserver = nil
         }
     }
     
@@ -406,9 +429,9 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     }
     
     deinit {
-        if let observer = timeObserver {
-            player?.removeTimeObserver(observer)
-        }
+        playbackEndedCancellable?.cancel()
+        durationStatusCancellable?.cancel()
+        if let observer = timeObserver { player?.removeTimeObserver(observer) }
         buildTask?.cancel()
     }
 }
