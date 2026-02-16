@@ -222,6 +222,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     
     // MARK: - Async composition builder
     
+    @MainActor
     private func buildPlayerItem(for videoURL: URL, with subtitle: Subtitle?) async throws -> AVPlayerItem {
         // If no subtitle requested, return the plain item
         guard let subtitle, let legibleAsset = legibleAsset(for: subtitle) else {
@@ -304,9 +305,9 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     
     private func convertSRTtoVTT(_ srt: String) -> String {
         // Simple conversion: prepend WEBVTT and convert commas to dots in timecodes
-        var lines = srt.replacingOccurrences(of: "\r\n", with: "\n")
-                        .replacingOccurrences(of: "\r", with: "\n")
-                        .components(separatedBy: "\n")
+        let lines = srt.replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .components(separatedBy: "\n")
         var output: [String] = ["WEBVTT", ""]
         
         let timecodeRegex = try? NSRegularExpression(pattern: #"(\d{2}:\d{2}:\d{2}),(\d{3})\s-->\s(\d{2}:\d{2}:\d{2}),(\d{3})"#)

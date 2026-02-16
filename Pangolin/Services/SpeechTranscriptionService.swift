@@ -494,7 +494,7 @@ class SpeechTranscriptionService: ObservableObject {
                 try await request.downloadAndInstall()
             }
             // Mark prepared for this session (even if request was nil)
-            preparedLocalesLock.withLock { preparedLocales.insert(key) }
+            _ = preparedLocalesLock.withLock { preparedLocales.insert(key) }
         } catch {
             throw TranscriptionError.assetInstallationFailed
         }
@@ -504,15 +504,46 @@ class SpeechTranscriptionService: ObservableObject {
 
     private func requestSpeechRecognitionPermission() async throws {
         let status = SFSpeechRecognizer.authorizationStatus()
-        if status == .authorized { return }
-        if status == .denied || status == .restricted { throw TranscriptionError.permissionDenied }
-        
-        let granted = await withCheckedContinuation { continuation in
+        print("🎙️ Transcription: Speech auth status before request = \(speechAuthorizationStatusLabel(status))")
+
+        if status == .authorized {
+            print("✅ Transcription: Speech recognition already authorized")
+            return
+        }
+
+        if status == .denied || status == .restricted {
+            print("🚫 Transcription: Speech recognition blocked (\(speechAuthorizationStatusLabel(status)))")
+            throw TranscriptionError.permissionDenied
+        }
+
+        let newStatus = await withCheckedContinuation { continuation in
             SFSpeechRecognizer.requestAuthorization { newStatus in
-                continuation.resume(returning: newStatus == .authorized)
+                continuation.resume(returning: newStatus)
             }
         }
-        if !granted { throw TranscriptionError.permissionDenied }
+        print("🎙️ Transcription: Speech auth callback status = \(speechAuthorizationStatusLabel(newStatus))")
+
+        guard newStatus == .authorized else {
+            print("🚫 Transcription: Speech recognition not authorized after request (\(speechAuthorizationStatusLabel(newStatus)))")
+            throw TranscriptionError.permissionDenied
+        }
+
+        print("✅ Transcription: Speech recognition authorized after request")
+    }
+
+    private func speechAuthorizationStatusLabel(_ status: SFSpeechRecognizerAuthorizationStatus) -> String {
+        switch status {
+        case .notDetermined:
+            return "notDetermined"
+        case .denied:
+            return "denied"
+        case .restricted:
+            return "restricted"
+        case .authorized:
+            return "authorized"
+        @unknown default:
+            return "unknown(\(status.rawValue))"
+        }
     }
 
     private func extractAudio(from videoURL: URL, duration: TimeInterval? = nil) async throws -> URL {
@@ -721,6 +752,10 @@ class SpeechTranscriptionService: ObservableObject {
                 continue
             case .endOfStream:
                 break conversionLoop
+            case .error:
+                throw TranscriptionError.analysisFailed(
+                    error?.localizedDescription ?? "Audio conversion failed."
+                )
             @unknown default:
                 break conversionLoop
             }

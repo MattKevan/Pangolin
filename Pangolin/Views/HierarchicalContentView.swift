@@ -86,29 +86,17 @@ struct HierarchicalContentView: View {
                 
                 return .ignored
             }
-            // Deletion confirmation sheet (still owned here because it's tightly coupled to selection)
-            .sheet(isPresented: $showingDeletionConfirmation) {
-                if !itemsToDelete.isEmpty {
-                    DeletionConfirmationView(
-                        items: itemsToDelete,
-                        onConfirm: {
-                            Task {
-                                await confirmDeletion()
-                            }
-                        },
-                        onCancel: {
-                            cancelDeletion()
-                        }
-                    )
-                } else {
-                    // Fallback empty view - should not normally show
-                    Text("No items to delete")
-                        .padding()
-                        .onAppear {
-                            print("⚠️ SHEET: Empty deletion sheet appeared - this should not happen")
-                            showingDeletionConfirmation = false
-                        }
+            .alert(deletionAlertContent.title, isPresented: $showingDeletionConfirmation) {
+                Button("Cancel", role: .cancel) {
+                    cancelDeletion()
                 }
+                Button("Delete", role: .destructive) {
+                    Task {
+                        await confirmDeletion()
+                    }
+                }
+            } message: {
+                Text(deletionAlertContent.message)
             }
             // Create folder sheet
             .sheet(isPresented: $showingCreateFolder) {
@@ -157,7 +145,7 @@ struct HierarchicalContentView: View {
     @ViewBuilder
     private func buildItemIcon(for item: HierarchicalContentItem) -> some View {
         if case .video(let video) = item.contentType {
-            VideoThumbnailView(video: video, size: CGSize(width: 20, height: 14))
+            VideoThumbnailView(video: video, size: CGSize(width: 20, height: 14), showsDurationOverlay: false, showsCloudStatusOverlay: false)
                 .frame(width: 20, height: 14)
                 .clipShape(RoundedRectangle(cornerRadius: 2))
         } else {
@@ -537,6 +525,10 @@ struct HierarchicalContentView: View {
     }
     
     // MARK: - Deletion Methods
+    
+    private var deletionAlertContent: DeletionAlertContent {
+        itemsToDelete.deletionAlertContent
+    }
     
     private func deleteSelectedItems() {
         print("🗑️ CONTENT: deleteSelectedItems called with selectedItems: \(selectedItems)")

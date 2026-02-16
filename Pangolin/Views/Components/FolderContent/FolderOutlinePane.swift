@@ -77,20 +77,17 @@ struct FolderOutlinePane: View {
         } message: {
             Text("Enter a new name.")
         }
-        .sheet(isPresented: $showingDeletionConfirmation) {
-            if !itemsToDelete.isEmpty {
-                DeletionConfirmationView(
-                    items: itemsToDelete,
-                    onConfirm: {
-                        Task {
-                            await confirmDeletion()
-                        }
-                    },
-                    onCancel: {
-                        cancelDeletion()
-                    }
-                )
+        .alert(deletionAlertContent.title, isPresented: $showingDeletionConfirmation) {
+            Button("Cancel", role: .cancel) {
+                cancelDeletion()
             }
+            Button("Delete", role: .destructive) {
+                Task {
+                    await confirmDeletion()
+                }
+            }
+        } message: {
+            Text(deletionAlertContent.message)
         }
     }
 
@@ -194,6 +191,10 @@ struct FolderOutlinePane: View {
                 }
             }
         )
+    }
+    
+    private var deletionAlertContent: DeletionAlertContent {
+        itemsToDelete.deletionAlertContent
     }
 
     private func rowBackground(for item: HierarchicalContentItem) -> Color {

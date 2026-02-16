@@ -10,12 +10,19 @@ import SwiftUI
 struct VideoThumbnailView: View {
     let video: Video
     let size: CGSize
-    @StateObject private var videoFileManager = VideoFileManager.shared
-    @State private var fileStatus: VideoFileStatus = .local
+    let showsDurationOverlay: Bool
+    let showsCloudStatusOverlay: Bool
     
-    init(video: Video, size: CGSize = CGSize(width: 160, height: 90)) {
+    init(
+        video: Video,
+        size: CGSize = CGSize(width: 160, height: 90),
+        showsDurationOverlay: Bool = true,
+        showsCloudStatusOverlay: Bool = true
+    ) {
         self.video = video
         self.size = size
+        self.showsDurationOverlay = showsDurationOverlay
+        self.showsCloudStatusOverlay = showsCloudStatusOverlay
     }
     
     var body: some View {
@@ -54,44 +61,41 @@ struct VideoThumbnailView: View {
         }
         .frame(width: size.width, height: size.height)
         .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            // Duration overlay
-            HStack {
-                Spacer()
-                VStack {
+        .overlay {
+            if showsDurationOverlay {
+                HStack {
                     Spacer()
-                    Text(video.formattedDuration)
-                        .font(.caption2)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.black.opacity(0.7))
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                        .padding(6)
+                    VStack {
+                        Spacer()
+                        Text(video.formattedDuration)
+                            .font(.caption2)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.black.opacity(0.7))
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                            .padding(6)
+                    }
                 }
             }
-        )
-        .overlay(
-            // iCloud status overlay (top-right corner, Finder style)
-            HStack {
-                Spacer()
-                VStack {
-                    cloudStatusIcon
+        }
+        .overlay {
+            if showsCloudStatusOverlay {
+                HStack {
                     Spacer()
+                    VStack {
+                        cloudStatusIcon
+                        Spacer()
+                    }
+                    .padding(4)
                 }
-                .padding(4)
-            }
-        )
-        .onAppear {
-            Task {
-                fileStatus = await videoFileManager.isVideoFileAccessible(video)
             }
         }
     }
     
     @ViewBuilder
     private var cloudStatusIcon: some View {
-        switch fileStatus {
+        switch resolvedFileStatus {
         case .cloudOnly:
             Image(systemName: "icloud")
                 .font(.caption)
@@ -117,19 +121,8 @@ struct VideoThumbnailView: View {
                 .help("File not found")
                 
         case .local:
-            // Show checkmark for downloaded files, similar to Finder
-            if videoFileManager.downloadingVideos.contains(video.id ?? UUID()) {
-                // Show download progress
-                Image(systemName: "icloud.and.arrow.down")
-                    .font(.caption)
-                    .foregroundColor(.white)
-                    .background(Circle().fill(.blue))
-                    .frame(width: 16, height: 16)
-                    .help("Downloading from iCloud")
-            } else {
-                // File is available locally - no icon needed (like Finder)
-                EmptyView()
-            }
+            // File is available locally - no icon needed (like Finder)
+            EmptyView()
             
         case .error:
             Image(systemName: "questionmark.diamond")
@@ -139,6 +132,19 @@ struct VideoThumbnailView: View {
                 .frame(width: 16, height: 16)
                 .help("Invalid file path")
         }
+    }
+    
+    private var resolvedFileStatus: VideoFileStatus {
+        if let rawState = video.fileAvailabilityState,
+           let status = VideoFileStatus(rawValue: rawState) {
+            return status
+        }
+
+        if let cloudRelativePath = video.cloudRelativePath, !cloudRelativePath.isEmpty {
+            return .cloudOnly
+        }
+
+        return .local
     }
 }
 

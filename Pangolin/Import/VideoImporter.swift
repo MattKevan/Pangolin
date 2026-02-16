@@ -95,11 +95,10 @@ class VideoImporter: ObservableObject {
             }
         }
         
-        let importedVideoCount = await MainActor.run {
+        await MainActor.run {
             isImporting = false
             progress = 1.0
             processedFiles = totalFiles
-            return importedVideos.count
         }
     }
 

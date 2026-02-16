@@ -94,7 +94,7 @@ enum ProcessingTaskStatus: String, Codable {
 }
 
 @MainActor
-class ProcessingTask: ObservableObject, Identifiable, Codable {
+class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
     let id: UUID
     let videoID: UUID?
     let sourceURLPath: String?

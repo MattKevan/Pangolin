@@ -6,9 +6,7 @@ struct VideoResultsTableView: View {
     @Binding var selectedVideoIDs: Set<UUID>
     let onSelectionChange: (Set<UUID>) -> Void
 
-    @StateObject private var videoFileManager = VideoFileManager.shared
     @State private var sortOrder: [KeyPathComparator<Row>] = []
-    @State private var trackedVideoIDs: Set<UUID> = []
 
     private struct Row: Identifiable {
         let id: UUID
@@ -62,24 +60,6 @@ struct VideoResultsTableView: View {
         .onChange(of: selectedVideoIDs) { _, newSelection in
             onSelectionChange(newSelection)
         }
-        .onAppear {
-            updateTracking(for: videos)
-            Task {
-                await videoFileManager.refreshTransferStates(for: videos)
-            }
-        }
-        .onChange(of: videos.compactMap(\.id)) { _, _ in
-            updateTracking(for: videos)
-            Task {
-                await videoFileManager.refreshTransferStates(for: videos)
-            }
-        }
-        .onDisappear {
-            for id in trackedVideoIDs {
-                videoFileManager.endTracking(videoID: id)
-            }
-            trackedVideoIDs.removeAll()
-        }
     }
 
     private var rows: [Row] {
@@ -105,69 +85,27 @@ struct VideoResultsTableView: View {
     }
 
     private func cloudSortRank(for video: Video) -> Int {
-        switch transferState(for: video) {
-        case .error:
-            return 0
-        case .queuedForUploading:
-            return 1
-        case .uploading:
-            return 2
-        case .inCloudOnly:
-            return 3
-        case .downloading:
-            return 4
-        case .downloaded:
-            return 5
-        }
-    }
-
-    private func transferState(for video: Video) -> VideoCloudTransferState {
-        if let videoID = video.id,
-           let snapshot = videoFileManager.transferSnapshots[videoID] {
-            return snapshot.state
-        }
-
         if let rawState = video.fileAvailabilityState,
            let status = VideoFileStatus(rawValue: rawState) {
             switch status {
-            case .local:
-                return .downloaded
-            case .downloading:
-                return .downloading(progress: nil)
-            case .cloudOnly, .missing:
-                return .inCloudOnly
             case .error:
-                return .error(
-                    operation: .download,
-                    message: "Transfer failed",
-                    retryCount: 0,
-                    canRetry: true
-                )
+                return 0
+            case .missing:
+                return 1
+            case .cloudOnly:
+                return 2
+            case .downloading:
+                return 3
+            case .local:
+                return 4
             }
         }
 
         if let cloudRelativePath = video.cloudRelativePath, !cloudRelativePath.isEmpty {
-            return .inCloudOnly
+            return 2
         }
 
-        return .downloaded
-    }
-
-    private func updateTracking(for videos: [Video]) {
-        let newIDs = Set(videos.compactMap(\.id))
-
-        let removedIDs = trackedVideoIDs.subtracting(newIDs)
-        for id in removedIDs {
-            videoFileManager.endTracking(videoID: id)
-        }
-
-        let addedIDs = newIDs.subtracting(trackedVideoIDs)
-        for video in videos {
-            guard let videoID = video.id, addedIDs.contains(videoID) else { continue }
-            videoFileManager.beginTracking(video: video)
-        }
-
-        trackedVideoIDs = newIDs
+        return 4
     }
 
     private func toggleFavorite(_ video: Video) {
@@ -188,7 +126,7 @@ private struct VideoResultTitleCell: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            VideoThumbnailView(video: video, size: CGSize(width: 40, height: 28))
+            VideoThumbnailView(video: video, size: CGSize(width: 40, height: 28), showsDurationOverlay: false, showsCloudStatusOverlay: false)
                 .frame(width: 40, height: 28)
                 .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
 
@@ -229,8 +167,8 @@ private struct VideoWatchStatusCell: View {
 struct VideoICloudStatusCell: View {
     let video: Video
 
-    @StateObject private var videoFileManager = VideoFileManager.shared
-    @State private var fallbackSnapshot: VideoCloudTransferSnapshot?
+    private let videoFileManager = VideoFileManager.shared
+    @State private var snapshot: VideoCloudTransferSnapshot?
 
     var body: some View {
         HStack(spacing: 6) {
@@ -310,10 +248,8 @@ struct VideoICloudStatusCell: View {
         .lineLimit(1)
         .truncationMode(.tail)
         .help(effectiveSnapshot.detailMessage)
-        .task {
-            await refreshSnapshot()
-        }
         .onAppear {
+            refreshSnapshotFromManager()
             videoFileManager.beginTracking(video: video)
         }
         .onDisappear {
@@ -323,20 +259,54 @@ struct VideoICloudStatusCell: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .videoStorageAvailabilityChanged)) { notification in
             guard shouldRefresh(for: notification) else { return }
-            Task {
-                await refreshSnapshot()
-            }
+            refreshSnapshotFromManager()
         }
     }
 
     private var effectiveSnapshot: VideoCloudTransferSnapshot {
+        if let snapshot {
+            return snapshot
+        }
+
         if let videoID = video.id,
            let snapshot = videoFileManager.transferSnapshots[videoID] {
             return snapshot
         }
 
-        if let fallbackSnapshot {
-            return fallbackSnapshot
+        if let rawState = video.fileAvailabilityState,
+           let status = VideoFileStatus(rawValue: rawState) {
+            let state: VideoCloudTransferState
+            switch status {
+            case .local:
+                state = .downloaded
+            case .downloading:
+                state = .downloading(progress: nil)
+            case .cloudOnly, .missing:
+                state = .inCloudOnly
+            case .error:
+                state = .error(
+                    operation: .download,
+                    message: "Transfer failed",
+                    retryCount: 0,
+                    canRetry: true
+                )
+            }
+
+            return VideoCloudTransferSnapshot(
+                videoID: video.id ?? UUID(),
+                videoTitle: video.title ?? video.fileName ?? "Untitled",
+                state: state,
+                updatedAt: Date()
+            )
+        }
+
+        if let cloudRelativePath = video.cloudRelativePath, !cloudRelativePath.isEmpty {
+            return VideoCloudTransferSnapshot(
+                videoID: video.id ?? UUID(),
+                videoTitle: video.title ?? video.fileName ?? "Untitled",
+                state: .inCloudOnly,
+                updatedAt: Date()
+            )
         }
 
         return VideoCloudTransferSnapshot.placeholder(title: video.title ?? video.fileName ?? "Untitled")
@@ -347,16 +317,16 @@ struct VideoICloudStatusCell: View {
     }
 
     private func shouldRefresh(for notification: Notification) -> Bool {
-        guard let videoID = video.id else { return true }
+        guard let videoID = video.id else { return false }
         guard let changedID = notification.userInfo?["videoID"] as? UUID else {
-            return true
+            return false
         }
         return changedID == videoID
     }
 
-    @MainActor
-    private func refreshSnapshot() async {
-        fallbackSnapshot = await videoFileManager.refreshTransferState(for: video)
+    private func refreshSnapshotFromManager() {
+        guard let videoID = video.id else { return }
+        snapshot = videoFileManager.transferSnapshots[videoID]
     }
 
     private func startDownload() {
@@ -370,14 +340,14 @@ struct VideoICloudStatusCell: View {
                     message: error.localizedDescription
                 )
             }
-            await refreshSnapshot()
+            refreshSnapshotFromManager()
         }
     }
 
     private func retryTransfer() {
         Task {
             await videoFileManager.retryTransfer(for: video)
-            await refreshSnapshot()
+            refreshSnapshotFromManager()
         }
     }
 }

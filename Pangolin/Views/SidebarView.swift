@@ -73,21 +73,31 @@ struct SidebarView: View {
         #endif
         // Removed Sidebar toolbar to avoid duplicates and overflow.
         // Add-folder is now owned by MainView's toolbar.
-        .sheet(item: $folderToDelete) { deletionItem in
-            DeletionConfirmationView(
-                items: [deletionItem],
-                onConfirm: {
-                    Task {
-                        await confirmDeletion(deletionItem)
+        .alert(
+            sidebarDeletionAlertContent.title,
+            isPresented: Binding(
+                get: { folderToDelete != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        cancelDeletion()
                     }
-                },
-                onCancel: {
-                    cancelDeletion()
                 }
             )
-            .onAppear {
-                print("🗑️ SIDEBAR: Sheet rendering DeletionConfirmationView for: \(deletionItem.name)")
+        ) {
+            Button("Cancel", role: .cancel) {
+                cancelDeletion()
             }
+            Button("Delete", role: .destructive) {
+                guard let deletionItem = folderToDelete else {
+                    cancelDeletion()
+                    return
+                }
+                Task {
+                    await confirmDeletion(deletionItem)
+                }
+            }
+        } message: {
+            Text(sidebarDeletionAlertContent.message)
         }
         .onKeyPress { keyPress in
             if keyPress.key == .return,
@@ -141,6 +151,13 @@ struct SidebarView: View {
         userFolders = store.userFolders()
     }
     
+    private var sidebarDeletionAlertContent: DeletionAlertContent {
+        guard let folderToDelete else {
+            return [].deletionAlertContent
+        }
+        return [folderToDelete].deletionAlertContent
+    }
+    
     private func deleteFolder(_ folder: Folder) {
         print("🗑️ SIDEBAR: deleteFolder called for: \(folder.name ?? "nil") (ID: \(folder.id ?? UUID()))")
         isDeletingFolder = true
@@ -148,7 +165,7 @@ struct SidebarView: View {
         let deletionItem = DeletionItem(folder: folder)
         print("🗑️ SIDEBAR: Created deletion item: \(deletionItem.name)")
         folderToDelete = deletionItem
-        print("🗑️ SIDEBAR: Set folderToDelete item, this should trigger sheet")
+        print("🗑️ SIDEBAR: Set folderToDelete item, this should trigger alert")
     }
     
     private func confirmDeletion(_ deletionItem: DeletionItem) async {
@@ -278,23 +295,28 @@ private struct FolderRowView: View {
     @State private var isDropTargeted = false
     @State private var editedName: String = ""
     @State private var shouldCommitOnDisappear = false
+    
+    private var folderDisplayName: String {
+        folder.name ?? "Untitled Folder"
+    }
 
     var body: some View {
         Label {
             nameEditorView
                 .frame(maxWidth: .infinity, alignment: .leading)
         } icon: {
-            Image(systemName: folder.isSmartFolder ? getSmartFolderIcon(folder.name!) : "folder")
+            Image(systemName: folder.isSmartFolder ? getSmartFolderIcon(folderDisplayName) : "folder")
                 .foregroundColor(folder.isSmartFolder ? .blue : .orange)
         }
         .contentShape(Rectangle())
         .contextMenu {
             if showContextMenu {
                 Button("Rename") {
-                    renamingFolderID = folder.id
+                    guard let folderID = folder.id else { return }
+                    renamingFolderID = folderID
                     Task { @MainActor in
                         try? await Task.sleep(nanoseconds: 100_000_000)
-                        focusedField = folder.id
+                        focusedField = folderID
                     }
                 }
                 Button("Delete", role: .destructive) {
@@ -336,7 +358,7 @@ private struct FolderRowView: View {
                 .textFieldStyle(.plain)
                 .focused($focusedField, equals: folder.id)
                 .onAppear {
-                    editedName = folder.name!
+                    editedName = folderDisplayName
                     shouldCommitOnDisappear = true
                 }
                 .onSubmit {
@@ -357,7 +379,7 @@ private struct FolderRowView: View {
                     }
                 }
         } else {
-            Text(folder.name!)
+            Text(folderDisplayName)
         }
     }
     
@@ -365,12 +387,17 @@ private struct FolderRowView: View {
         shouldCommitOnDisappear = false
         
         let trimmedName = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty && trimmedName != folder.name! else {
+        guard let folderID = folder.id else {
+            await MainActor.run { cancelRename() }
+            return
+        }
+
+        guard !trimmedName.isEmpty && trimmedName != (folder.name ?? "") else {
             await MainActor.run { cancelRename() }
             return
         }
         
-        await store.renameItem(id: folder.id!, to: trimmedName)
+        await store.renameItem(id: folderID, to: trimmedName)
         
         await MainActor.run {
             renamingFolderID = nil
@@ -379,7 +406,7 @@ private struct FolderRowView: View {
     }
 
     private func cancelRename() {
-        editedName = folder.name!
+        editedName = folderDisplayName
         shouldCommitOnDisappear = false
         renamingFolderID = nil
         focusedField = nil

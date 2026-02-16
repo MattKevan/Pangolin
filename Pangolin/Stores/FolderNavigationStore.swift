@@ -67,30 +67,25 @@ class FolderNavigationStore: ObservableObject {
     // MARK: - Dependencies
     private let libraryManager: LibraryManager
     private var cancellables = Set<AnyCancellable>()
+    private var contextSaveCancellable: AnyCancellable?
     private var isRevealingVideoLocation = false
     private var suppressNextSidebarSelectionChange = false
     
     init(libraryManager: LibraryManager) {
         self.libraryManager = libraryManager
-        
-        // Subscribe to Core Data saves to auto-refresh the UI
-        if let context = libraryManager.viewContext {
-            NotificationCenter.default
-                .publisher(for: .NSManagedObjectContextDidSave, object: context)
-                .debounce(for: .milliseconds(50), scheduler: DispatchQueue.main) // Prevent refresh storms
-                .sink { [weak self] _ in
-                    print("🧠 STORE: Context saved, refreshing content.")
 
-                    // Try to refresh context with query generation if needed
-                    if let stack = self?.libraryManager.currentCoreDataStack {
-                        stack.refreshViewContextIfNeeded()
-                    }
+        libraryManager.$currentLibrary
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.observeContextSaveNotifications()
+                self.ensureInitialSelectionIfNeeded()
+                self.refreshContent()
+            }
+            .store(in: &cancellables)
 
-                    self?.refreshContent()
-                }
-                .store(in: &cancellables)
-        }
-
+        observeContextSaveNotifications()
         
         // Subscribe to internal navigation changes to refresh content
         $currentFolderID
@@ -102,31 +97,8 @@ class FolderNavigationStore: ObservableObject {
             }
             .store(in: &cancellables)
         
-        // Set initial folder and load initial content
-        Task {
-            guard let context = libraryManager.viewContext,
-                  let library = libraryManager.currentLibrary else {
-                refreshContent()
-                return
-            }
-            
-            let request = Folder.fetchRequest()
-            request.predicate = NSPredicate(format: "library == %@ AND isTopLevel == YES AND isSmartFolder == YES AND name == %@", library, "All Videos")
-            request.fetchLimit = 1
-            
-            do {
-                if let allVideosFolder = try context.fetch(request).first {
-                    selectedTopLevelFolder = allVideosFolder
-                    selectedSidebarItem = .folder(allVideosFolder)
-                    currentFolderID = allVideosFolder.id // This triggers the sink above to load content
-                } else {
-                    refreshContent()
-                }
-            } catch {
-                print("Error setting initial folder: \(error)")
-                refreshContent()
-            }
-        }
+        ensureInitialSelectionIfNeeded()
+        refreshContent()
     }
     
     // MARK: - Search Support
@@ -206,7 +178,7 @@ class FolderNavigationStore: ObservableObject {
         
         do {
             if let allVideosFolder = try context.fetch(request).first {
-                selectedSidebarItem = .folder(allVideosFolder)
+                applySidebarFolderSelectionWithoutCallback(allVideosFolder, clearSelectedVideo: true)
             }
         } catch {
             print("Error selecting All Videos folder: \(error)")
@@ -215,6 +187,10 @@ class FolderNavigationStore: ObservableObject {
     
     // MARK: - Content Fetching
     private func refreshContent() {
+        if currentFolderID == nil {
+            ensureInitialSelectionIfNeeded()
+        }
+
         guard let context = libraryManager.viewContext,
               let library = libraryManager.currentLibrary,
               let folderID = currentFolderID else {
@@ -299,6 +275,77 @@ class FolderNavigationStore: ObservableObject {
         }
 
         return false
+    }
+
+    private func observeContextSaveNotifications() {
+        contextSaveCancellable?.cancel()
+
+        guard let context = libraryManager.viewContext else {
+            contextSaveCancellable = nil
+            return
+        }
+
+        contextSaveCancellable = NotificationCenter.default
+            .publisher(for: .NSManagedObjectContextDidSave, object: context)
+            .debounce(for: .milliseconds(50), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                print("🧠 STORE: Context saved, refreshing content.")
+
+                if let stack = self?.libraryManager.currentCoreDataStack {
+                    stack.refreshViewContextIfNeeded()
+                }
+
+                self?.refreshContent()
+            }
+    }
+
+    private func ensureInitialSelectionIfNeeded() {
+        guard selectedSidebarItem == nil,
+              selectedTopLevelFolder == nil,
+              currentFolderID == nil,
+              !isSearchMode,
+              let context = libraryManager.viewContext,
+              let library = libraryManager.currentLibrary else {
+            return
+        }
+
+        let allVideosRequest = Folder.fetchRequest()
+        allVideosRequest.predicate = NSPredicate(
+            format: "library == %@ AND isTopLevel == YES AND isSmartFolder == YES AND name == %@",
+            library,
+            "All Videos"
+        )
+        allVideosRequest.fetchLimit = 1
+
+        do {
+            if let allVideosFolder = try context.fetch(allVideosRequest).first {
+                applySidebarFolderSelectionWithoutCallback(allVideosFolder, clearSelectedVideo: false)
+                return
+            }
+
+            let fallbackRequest = Folder.fetchRequest()
+            fallbackRequest.predicate = NSPredicate(format: "library == %@ AND isTopLevel == YES", library)
+            fallbackRequest.sortDescriptors = [NSSortDescriptor(keyPath: \Folder.name, ascending: true)]
+            fallbackRequest.fetchLimit = 1
+
+            if let firstTopLevelFolder = try context.fetch(fallbackRequest).first {
+                applySidebarFolderSelectionWithoutCallback(firstTopLevelFolder, clearSelectedVideo: false)
+            }
+        } catch {
+            print("Error setting initial folder selection: \(error)")
+        }
+    }
+
+    private func applySidebarFolderSelectionWithoutCallback(_ folder: Folder, clearSelectedVideo: Bool) {
+        let targetSelection: SidebarSelection = .folder(folder)
+        if selectionKey(selectedSidebarItem) != selectionKey(targetSelection) {
+            suppressNextSidebarSelectionChange = true
+        }
+        selectedSidebarItem = targetSelection
+        if isSearchMode {
+            isSearchMode = false
+        }
+        applyFolderSelection(folder, clearSelectedVideo: clearSelectedVideo)
     }
     
     // MARK: - Content Access (for Sidebar)

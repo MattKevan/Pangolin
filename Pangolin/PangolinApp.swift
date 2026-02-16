@@ -2,6 +2,7 @@
 
 import SwiftUI
 import Combine
+import AppIntents
 
 @main
 struct PangolinApp: App {
@@ -12,20 +13,24 @@ struct PangolinApp: App {
 
     var body: some Scene {
         WindowGroup {
-            VStack {
-                if libraryManager.isLibraryOpen {
-                    MainView(libraryManager: libraryManager)
-                        .environmentObject(libraryManager)
-                        .environmentObject(videoFileManager)
-                } else {
-                    StartupStatusView(
+            ZStack {
+                MainView(libraryManager: libraryManager)
+                    .environmentObject(libraryManager)
+                    .environmentObject(videoFileManager)
+                    .allowsHitTesting(libraryManager.isLibraryOpen)
+
+                if !libraryManager.isLibraryOpen {
+                    StartupOverlayView(
                         error: libraryManager.error,
+                        loadingProgress: libraryManager.loadingProgress,
                         retryAction: retryLibraryOpen,
                         resetAction: resetCorruptedLibrary
                     )
+                    .transition(.opacity)
                 }
             }
             .frame(minWidth: 600, minHeight: 500)
+            .animation(.easeOut(duration: 0.2), value: libraryManager.isLibraryOpen)
             .onAppear {
                 if !hasAttemptedStartup {
                     startLibraryStartup()
@@ -145,8 +150,44 @@ struct PangolinApp: App {
     }
 }
 
+private struct StartupOverlayView: View {
+    let error: LibraryError?
+    let loadingProgress: Double
+    let retryAction: () -> Void
+    let resetAction: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.22)
+                .ignoresSafeArea()
+
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .ignoresSafeArea()
+
+            StartupStatusView(
+                error: error,
+                loadingProgress: loadingProgress,
+                retryAction: retryAction,
+                resetAction: resetAction
+            )
+            .padding(.horizontal, 28)
+            .padding(.vertical, 24)
+            .background(.thickMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.16), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.24), radius: 28, x: 0, y: 14)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .allowsHitTesting(true)
+    }
+}
+
 private struct StartupStatusView: View {
     let error: LibraryError?
+    let loadingProgress: Double
     let retryAction: () -> Void
     let resetAction: () -> Void
 
@@ -189,6 +230,12 @@ private struct StartupStatusView: View {
                 Text("Setting up your cloud-backed library in Documents/Pangolin.")
                     .font(.caption)
                     .foregroundColor(.secondary)
+
+                if loadingProgress > 0 {
+                    ProgressView(value: min(max(loadingProgress, 0), 1))
+                        .progressViewStyle(.linear)
+                        .frame(width: 280)
+                }
             }
         }
         .padding(24)

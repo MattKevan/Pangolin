@@ -243,7 +243,7 @@ struct MainView: View {
     
     private var isTwoColumnMode: Bool {
         if folderStore.isSearchMode { return true }
-        guard let folder = folderStore.selectedTopLevelFolder else { return false }
+        guard let folder = folderStore.selectedTopLevelFolder ?? folderStore.currentFolder else { return false }
         if folder.isSmartFolder,
            let name = folder.name,
            ["All Videos", "Recent", "Favorites"].contains(name) {
@@ -376,8 +376,13 @@ private struct RootEventsModifier: ViewModifier {
 private struct RootAlertModifier: ViewModifier {
     @ObservedObject var libraryManager: LibraryManager
 
+    @ViewBuilder
     func body(content: Content) -> some View {
-        content.pangolinAlert(error: $libraryManager.error)
+        if libraryManager.isLibraryOpen {
+            content.pangolinAlert(error: $libraryManager.error)
+        } else {
+            content
+        }
     }
 }
 
@@ -441,7 +446,7 @@ private struct DetailColumnView: View {
     
     private var isTwoColumnMode: Bool {
         if folderStore.isSearchMode { return true }
-        guard let folder = folderStore.selectedTopLevelFolder else { return false }
+        guard let folder = folderStore.selectedTopLevelFolder ?? folderStore.currentFolder else { return false }
         if folder.isSmartFolder,
            let name = folder.name,
            ["All Videos", "Recent", "Favorites"].contains(name) {

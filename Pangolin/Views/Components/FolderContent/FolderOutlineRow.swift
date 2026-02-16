@@ -31,7 +31,7 @@ struct FolderOutlineRow: View {
                 .foregroundColor(.accentColor)
                 .frame(width: 34, height: 22)
         case .video(let video):
-            VideoThumbnailView(video: video, size: CGSize(width: 34, height: 22))
+            VideoThumbnailView(video: video, size: CGSize(width: 34, height: 22), showsDurationOverlay: false, showsCloudStatusOverlay: false)
                 .frame(width: 34, height: 22)
                 .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
         }
@@ -50,8 +50,8 @@ struct FolderOutlineRow: View {
 private struct VideoICloudStatusSymbol: View {
     let video: Video
 
-    @StateObject private var videoFileManager = VideoFileManager.shared
-    @State private var fallbackSnapshot: VideoCloudTransferSnapshot?
+    private let videoFileManager = VideoFileManager.shared
+    @State private var snapshot: VideoCloudTransferSnapshot?
 
     var body: some View {
         HStack(spacing: 4) {
@@ -67,10 +67,8 @@ private struct VideoICloudStatusSymbol: View {
         }
         .frame(minWidth: 18, alignment: .trailing)
         .help(effectiveSnapshot.displayName)
-        .task {
-            await refreshSnapshot()
-        }
         .onAppear {
+            refreshSnapshotFromManager()
             videoFileManager.beginTracking(video: video)
         }
         .onDisappear {
@@ -80,20 +78,54 @@ private struct VideoICloudStatusSymbol: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .videoStorageAvailabilityChanged)) { notification in
             guard shouldRefresh(for: notification) else { return }
-            Task {
-                await refreshSnapshot()
-            }
+            refreshSnapshotFromManager()
         }
     }
 
     private var effectiveSnapshot: VideoCloudTransferSnapshot {
+        if let snapshot {
+            return snapshot
+        }
+
         if let videoID = video.id,
            let snapshot = videoFileManager.transferSnapshots[videoID] {
             return snapshot
         }
 
-        if let fallbackSnapshot {
-            return fallbackSnapshot
+        if let rawState = video.fileAvailabilityState,
+           let status = VideoFileStatus(rawValue: rawState) {
+            let state: VideoCloudTransferState
+            switch status {
+            case .local:
+                state = .downloaded
+            case .downloading:
+                state = .downloading(progress: nil)
+            case .cloudOnly, .missing:
+                state = .inCloudOnly
+            case .error:
+                state = .error(
+                    operation: .download,
+                    message: "Transfer failed",
+                    retryCount: 0,
+                    canRetry: true
+                )
+            }
+
+            return VideoCloudTransferSnapshot(
+                videoID: video.id ?? UUID(),
+                videoTitle: video.title ?? video.fileName ?? "Untitled",
+                state: state,
+                updatedAt: Date()
+            )
+        }
+
+        if let cloudRelativePath = video.cloudRelativePath, !cloudRelativePath.isEmpty {
+            return VideoCloudTransferSnapshot(
+                videoID: video.id ?? UUID(),
+                videoTitle: video.title ?? video.fileName ?? "Untitled",
+                state: .inCloudOnly,
+                updatedAt: Date()
+            )
         }
 
         return VideoCloudTransferSnapshot.placeholder(title: video.title ?? video.fileName ?? "Untitled")
@@ -138,15 +170,15 @@ private struct VideoICloudStatusSymbol: View {
     }
 
     private func shouldRefresh(for notification: Notification) -> Bool {
-        guard let videoID = video.id else { return true }
+        guard let videoID = video.id else { return false }
         guard let changedID = notification.userInfo?["videoID"] as? UUID else {
-            return true
+            return false
         }
         return changedID == videoID
     }
 
-    @MainActor
-    private func refreshSnapshot() async {
-        fallbackSnapshot = await videoFileManager.refreshTransferState(for: video)
+    private func refreshSnapshotFromManager() {
+        guard let videoID = video.id else { return }
+        snapshot = videoFileManager.transferSnapshots[videoID]
     }
 }
