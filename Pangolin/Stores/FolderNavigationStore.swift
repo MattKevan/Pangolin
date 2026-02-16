@@ -120,10 +120,19 @@ class FolderNavigationStore: ObservableObject {
             if isRevealingVideoLocation {
                 return
             }
-            applyFolderSelection(folder, clearSelectedVideo: true)
+            applyFolderSelection(folder, clearSelectedVideo: false)
+
+            if folder.isSmartFolder {
+                selectedVideo = nil
+            } else {
+                selectedVideo = firstVideo(in: folder)
+            }
         case .video(let video):
             if isSearchMode {
                 isSearchMode = false
+            }
+            if let folder = video.folder {
+                applyFolderSelection(folder, clearSelectedVideo: false)
             }
             if selectedVideo?.id != video.id {
                 selectedVideo = video
@@ -137,18 +146,39 @@ class FolderNavigationStore: ObservableObject {
     }
 
     private func applyFolderSelection(_ folder: Folder, clearSelectedVideo: Bool) {
-        if folder.isTopLevel && !navigationPath.isEmpty {
+        if !navigationPath.isEmpty {
             navigationPath = NavigationPath()
         }
-        if selectedTopLevelFolder?.id != folder.id {
-            selectedTopLevelFolder = folder
+
+        let topLevelFolder = topLevelAncestor(for: folder)
+        if selectedTopLevelFolder?.id != topLevelFolder.id {
+            selectedTopLevelFolder = topLevelFolder
         }
+
         if currentFolderID != folder.id {
             currentFolderID = folder.id
         }
         if clearSelectedVideo && selectedVideo != nil {
             selectedVideo = nil
         }
+    }
+
+    private func topLevelAncestor(for folder: Folder) -> Folder {
+        var top = folder
+        while let parent = top.parentFolder {
+            top = parent
+        }
+        return top
+    }
+
+    private func firstVideo(in folder: Folder) -> Video? {
+        for childFolder in folder.childFoldersArray {
+            if let nestedMatch = firstVideo(in: childFolder) {
+                return nestedMatch
+            }
+        }
+
+        return folder.videosArray.first
     }
 
     private func selectionKey(_ selection: SidebarSelection?) -> String {
@@ -418,53 +448,50 @@ class FolderNavigationStore: ObservableObject {
             return
         }
 
-        var top = folder
-        while let parent = top.parentFolder {
-            top = parent
-        }
-        guard let topID = top.id else { return }
+        let top = topLevelAncestor(for: folder)
 
         // We set folder/navigation state directly below; suppress the deferred sidebar callback
         // so selectedVideo is not cleared as part of normal folder selection behavior.
-        let targetSidebarSelection: SidebarSelection = .folder(top)
+        let targetSidebarSelection: SidebarSelection = .video(video)
         if selectionKey(selectedSidebarItem) != selectionKey(targetSidebarSelection) {
             suppressNextSidebarSelectionChange = true
         }
         selectedSidebarItem = targetSidebarSelection
         isSearchMode = false
         selectedTopLevelFolder = top
-        currentFolderID = topID
+        currentFolderID = folder.id
 
         // Outline mode represents hierarchy in-column, so we don't use stack-like back path here.
         navigationPath = NavigationPath()
     }
     
     // MARK: - Folder Management
-    func createFolder(name: String, in parentFolderID: UUID? = nil) async {
+    @discardableResult
+    func createFolder(name: String, in parentFolderID: UUID? = nil) async -> UUID? {
         print("📁 STORE: createFolder called with name '\(name)' and parentID: \(parentFolderID?.uuidString ?? "nil")")
         
         guard let context = libraryManager.viewContext else {
             print("📁 STORE: No view context available")
             errorMessage = "Could not create folder - no context"
-            return
+            return nil
         }
         
         guard let library = libraryManager.currentLibrary else {
             print("📁 STORE: No current library available")
             errorMessage = "Could not create folder - no library"
-            return
+            return nil
         }
         
         guard let folderEntityDescription = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Folder"] else {
             print("📁 STORE: Could not get Folder entity description")
             errorMessage = "Could not create folder - no entity"
-            return
+            return nil
         }
         
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { 
             print("📁 STORE: Empty trimmed name")
-            return 
+            return nil
         }
         
         print("📁 STORE: Creating folder with library: \(library.name ?? "Unknown")")
@@ -497,56 +524,159 @@ class FolderNavigationStore: ObservableObject {
             } catch {
                 errorMessage = "Failed to find parent folder: \(error.localizedDescription)"
                 context.rollback()
-                return
+                return nil
             }
         }
         
         print("📁 STORE: Saving context...")
         await libraryManager.save()
         print("📁 STORE: Context saved successfully")
+        return folder.id
     }
     
     func moveItems(_ itemIDs: Set<UUID>, to destinationFolderID: UUID?) async {
         guard let context = libraryManager.viewContext,
-              libraryManager.currentLibrary != nil, !itemIDs.isEmpty else { return }
-        
+              let library = libraryManager.currentLibrary,
+              !itemIDs.isEmpty else { return }
+
         do {
             let destinationFolder: Folder?
-            if let destID = destinationFolderID {
-                let destRequest = Folder.fetchRequest()
-                destRequest.predicate = NSPredicate(format: "id == %@", destID as CVarArg)
-                destinationFolder = try context.fetch(destRequest).first
+            if let destinationFolderID {
+                let destinationRequest = Folder.fetchRequest()
+                destinationRequest.predicate = NSPredicate(
+                    format: "library == %@ AND id == %@",
+                    library,
+                    destinationFolderID as CVarArg
+                )
+                destinationRequest.fetchLimit = 1
+
+                guard let fetchedDestination = try context.fetch(destinationRequest).first else {
+                    errorMessage = "Destination folder could not be found."
+                    return
+                }
+
+                guard !fetchedDestination.isSmartFolder else {
+                    errorMessage = "Cannot move items into a smart folder."
+                    return
+                }
+
+                destinationFolder = fetchedDestination
             } else {
                 destinationFolder = nil
             }
-            
-            var itemsToMove: [NSManagedObject] = []
-            
-            let videoRequest = Video.fetchRequest()
-            videoRequest.predicate = NSPredicate(format: "id IN %@", itemIDs)
-            itemsToMove.append(contentsOf: try context.fetch(videoRequest))
-            
-            let folderRequest = Folder.fetchRequest()
-            folderRequest.predicate = NSPredicate(format: "id IN %@", itemIDs)
-            itemsToMove.append(contentsOf: try context.fetch(folderRequest))
 
-            for item in itemsToMove {
-                if let video = item as? Video {
-                    video.folder = destinationFolder
-                } else if let folder = item as? Folder {
-                    folder.parentFolder = destinationFolder
-                    folder.isTopLevel = (destinationFolder == nil)
-                    folder.dateModified = Date()
+            let videoRequest = Video.fetchRequest()
+            videoRequest.predicate = NSPredicate(format: "library == %@ AND id IN %@", library, itemIDs)
+            let videosToMove = try context.fetch(videoRequest)
+
+            let folderRequest = Folder.fetchRequest()
+            folderRequest.predicate = NSPredicate(format: "library == %@ AND id IN %@", library, itemIDs)
+            let foldersToMove = try context.fetch(folderRequest)
+
+            guard !videosToMove.isEmpty || !foldersToMove.isEmpty else { return }
+
+            let selectedFolderIDs = Set(foldersToMove.compactMap(\.id))
+            let effectiveFolders = foldersToMove.filter { folder in
+                !hasSelectedAncestor(folder: folder, selectedFolderIDs: selectedFolderIDs)
+            }
+            let effectiveVideos = videosToMove.filter { video in
+                guard let parentFolder = video.folder else { return true }
+                return !isFolderOrAncestorSelected(parentFolder, selectedFolderIDs: selectedFolderIDs)
+            }
+
+            if destinationFolder == nil && !effectiveVideos.isEmpty && effectiveFolders.isEmpty {
+                errorMessage = "Videos must stay inside a folder. Move videos into a folder destination."
+                return
+            }
+
+            let videosForMove: [Video]
+            if destinationFolder == nil {
+                videosForMove = []
+            } else {
+                videosForMove = effectiveVideos
+            }
+
+            if let destinationFolder {
+                for folder in effectiveFolders {
+                    if folder.objectID == destinationFolder.objectID {
+                        errorMessage = "Cannot move a folder into itself."
+                        return
+                    }
+
+                    if isDescendant(candidate: destinationFolder, of: folder) {
+                        errorMessage = "Cannot move a folder into one of its descendants."
+                        return
+                    }
                 }
             }
-            
-            if context.hasChanges {
+
+            let now = Date()
+            var hasChanges = false
+
+            for video in videosForMove where video.folder != destinationFolder {
+                video.folder = destinationFolder
+                hasChanges = true
+            }
+
+            for folder in effectiveFolders {
+                let shouldBeTopLevel = (destinationFolder == nil)
+                let parentChanged = folder.parentFolder != destinationFolder
+                let topLevelChanged = folder.isTopLevel != shouldBeTopLevel
+
+                guard parentChanged || topLevelChanged else { continue }
+
+                folder.parentFolder = destinationFolder
+                folder.isTopLevel = shouldBeTopLevel
+                folder.dateModified = now
+                hasChanges = true
+            }
+
+            if hasChanges {
                 await libraryManager.save()
             }
         } catch {
             errorMessage = "Failed to move items: \(error.localizedDescription)"
             context.rollback()
         }
+    }
+
+    private func hasSelectedAncestor(folder: Folder, selectedFolderIDs: Set<UUID>) -> Bool {
+        var current = folder.parentFolder
+
+        while let currentFolder = current {
+            if let currentID = currentFolder.id, selectedFolderIDs.contains(currentID) {
+                return true
+            }
+            current = currentFolder.parentFolder
+        }
+
+        return false
+    }
+
+    private func isFolderOrAncestorSelected(_ folder: Folder, selectedFolderIDs: Set<UUID>) -> Bool {
+        var current: Folder? = folder
+
+        while let currentFolder = current {
+            if let currentID = currentFolder.id, selectedFolderIDs.contains(currentID) {
+                return true
+            }
+            current = currentFolder.parentFolder
+        }
+
+        return false
+    }
+
+    private func isDescendant(candidate: Folder, of ancestor: Folder) -> Bool {
+        var current = candidate.parentFolder
+
+        while let currentFolder = current {
+            if currentFolder.objectID == ancestor.objectID {
+                return true
+            }
+            current = currentFolder.parentFolder
+        }
+
+        return false
     }
     
     // MARK: - Sorting

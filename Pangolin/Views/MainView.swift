@@ -28,12 +28,7 @@ struct MainView: View {
     @StateObject private var searchManager = SearchManager()
     @StateObject private var processingQueueManager = ProcessingQueueManager.shared
     
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var showingCreateFolder = false
     @State private var showingImportPicker = false
-    
-    // Prevent duplicate auto-triggers during rapid selection changes
-    @State private var isAutoTranscribing = false
     
     // Popover state for task indicator
     @State private var showTaskPopover = false
@@ -54,36 +49,17 @@ struct MainView: View {
             folderStore: folderStore,
             searchManager: searchManager,
             libraryManager: libraryManager,
-            transcriptionService: processingQueueManager.transcriptionService,
-            processingQueueManager: processingQueueManager,
             showingImportPicker: $showingImportPicker,
-            showingCreateFolder: $showingCreateFolder,
-            showTaskPopover: $showTaskPopover,
-            updateColumnVisibility: updateColumnVisibility,
             handleAutoTranscribe: handleAutoTranscribe,
             handleVideoImport: handleVideoImport
         )
     }
 
     private var rootNavigationSplitView: some View {
-        if isTwoColumnMode {
-            return AnyView(
-                NavigationSplitView {
-                    sidebarColumn
-                } detail: {
-                    twoColumnDetail
-                }
-            )
-        } else {
-            return AnyView(
-                NavigationSplitView(columnVisibility: $columnVisibility) {
-                    sidebarColumn
-                } content: {
-                    contentColumn
-                } detail: {
-                    detailColumn
-                }
-            )
+        NavigationSplitView {
+            sidebarColumn
+        } detail: {
+            detailColumn
         }
     }
 
@@ -94,27 +70,6 @@ struct MainView: View {
             .environmentObject(libraryManager)
             .environmentObject(searchManager)
             .applyManagedObjectContext(libraryManager.viewContext)
-    }
-
-    private var contentColumn: some View {
-        ContentColumnView(isTwoColumnMode: isTwoColumnMode)
-            .environmentObject(folderStore)
-            .environmentObject(searchManager)
-            .environmentObject(libraryManager)
-            .navigationSplitViewColumnWidth(
-                min: isTwoColumnMode ? 0 : 260,
-                ideal: isTwoColumnMode ? 0 : 380,
-                max: isTwoColumnMode ? 0 : 800
-            )
-    }
-
-    private var twoColumnDetail: some View {
-        DetailColumnView()
-            .environmentObject(folderStore)
-            .environmentObject(searchManager)
-            .environmentObject(libraryManager)
-            .environmentObject(transcriptionService)
-            .navigationSplitViewColumnWidth(min: 420, ideal: 760)
     }
 
     private var detailColumn: some View {
@@ -137,7 +92,7 @@ struct MainView: View {
                         .disabled(libraryManager.currentLibrary == nil)
 
                         Button {
-                            showingCreateFolder = true
+                            NotificationCenter.default.post(name: .triggerCreateFolder, object: nil)
                         } label: {
                             Image(systemName: "folder.badge.plus")
                         }
@@ -236,22 +191,6 @@ struct MainView: View {
         guard libraryManager.currentLibrary != nil else { return }
         processingQueueManager.enqueueTranscription(for: [video])
     }
-    
-    private func updateColumnVisibility() {
-        columnVisibility = isTwoColumnMode ? .doubleColumn : .all
-    }
-    
-    private var isTwoColumnMode: Bool {
-        if folderStore.isSearchMode { return true }
-        guard let folder = folderStore.selectedTopLevelFolder ?? folderStore.currentFolder else { return false }
-        if folder.isSmartFolder,
-           let name = folder.name,
-           ["All Videos", "Recent", "Favorites"].contains(name) {
-            return true
-        }
-        return false
-    }
-    
 }
 
 private struct RootContainerView<Content: View>: View {
@@ -259,21 +198,14 @@ private struct RootContainerView<Content: View>: View {
     @ObservedObject var folderStore: FolderNavigationStore
     @ObservedObject var searchManager: SearchManager
     @ObservedObject var libraryManager: LibraryManager
-    @ObservedObject var transcriptionService: SpeechTranscriptionService
-    @ObservedObject var processingQueueManager: ProcessingQueueManager
     @Binding var showingImportPicker: Bool
-    @Binding var showingCreateFolder: Bool
-    @Binding var showTaskPopover: Bool
-    let updateColumnVisibility: () -> Void
     let handleAutoTranscribe: () -> Void
     let handleVideoImport: (Result<[URL], Error>) -> Void
     
     var body: some View {
         content
             .modifier(RootImportModifier(
-                folderStore: folderStore,
                 showingImportPicker: $showingImportPicker,
-                showingCreateFolder: $showingCreateFolder,
                 handleVideoImport: handleVideoImport
             ))
             .modifier(RootSearchModifier(
@@ -285,7 +217,6 @@ private struct RootContainerView<Content: View>: View {
                 searchManager: searchManager,
                 libraryManager: libraryManager,
                 showingImportPicker: $showingImportPicker,
-                updateColumnVisibility: updateColumnVisibility,
                 handleAutoTranscribe: handleAutoTranscribe
             ))
             .modifier(RootAlertModifier(libraryManager: libraryManager))
@@ -293,9 +224,7 @@ private struct RootContainerView<Content: View>: View {
 }
 
 private struct RootImportModifier: ViewModifier {
-    @ObservedObject var folderStore: FolderNavigationStore
     @Binding var showingImportPicker: Bool
-    @Binding var showingCreateFolder: Bool
     let handleVideoImport: (Result<[URL], Error>) -> Void
 
     func body(content: Content) -> some View {
@@ -306,10 +235,6 @@ private struct RootImportModifier: ViewModifier {
                 allowsMultipleSelection: true
             ) { result in
                 handleVideoImport(result)
-            }
-            .sheet(isPresented: $showingCreateFolder) {
-                CreateFolderView(parentFolderID: nil) // Always create top-level user folders
-                    .environmentObject(folderStore)
             }
     }
 }
@@ -348,7 +273,6 @@ private struct RootEventsModifier: ViewModifier {
     @ObservedObject var searchManager: SearchManager
     @ObservedObject var libraryManager: LibraryManager
     @Binding var showingImportPicker: Bool
-    let updateColumnVisibility: () -> Void
     let handleAutoTranscribe: () -> Void
 
     func body(content: Content) -> some View {
@@ -356,13 +280,9 @@ private struct RootEventsModifier: ViewModifier {
             .navigationTitle(folderStore.selectedVideo?.title ?? libraryManager.currentLibrary?.name ?? "Pangolin")
             .onAppear {
                 StoragePolicyManager.shared.setProtectedSelectedVideoID(folderStore.selectedVideo?.id)
-                updateColumnVisibility()
             }
-            .onChange(of: folderStore.isSearchMode) { _, _ in updateColumnVisibility() }
-            .onChange(of: folderStore.selectedTopLevelFolder?.id) { _, _ in updateColumnVisibility() }
             .onChange(of: folderStore.selectedVideo?.id) { _, newVideoID in
                 StoragePolicyManager.shared.setProtectedSelectedVideoID(newVideoID)
-                updateColumnVisibility()
                 handleAutoTranscribe()
             }
             .onChange(of: folderStore.selectedSidebarItem) { _, newSelection in
@@ -396,29 +316,6 @@ private struct RootAlertModifier: ViewModifier {
     }
 }
 
-
-// MARK: - Content Column View
-private struct ContentColumnView: View {
-    @EnvironmentObject private var folderStore: FolderNavigationStore
-    @EnvironmentObject private var searchManager: SearchManager
-    @EnvironmentObject private var libraryManager: LibraryManager
-    let isTwoColumnMode: Bool
-
-    var body: some View {
-        Group {
-            if isTwoColumnMode {
-                EmptyView()
-            } else {
-                // Normal Mode: Show folder content list
-                FolderContentView()
-                    .environmentObject(folderStore)
-                    .environmentObject(libraryManager)
-            }
-        }
-        .frame(minWidth: isTwoColumnMode ? 0 : nil, maxWidth: isTwoColumnMode ? 0 : nil)
-    }
-}
-
 // MARK: - Detail Column View
 private struct DetailColumnView: View {
     @EnvironmentObject private var folderStore: FolderNavigationStore
@@ -428,17 +325,15 @@ private struct DetailColumnView: View {
 
     var body: some View {
         Group {
-            if isTwoColumnMode {
-                if folderStore.isSearchMode {
-                    SearchResultsView()
-                        .environmentObject(searchManager)
-                        .environmentObject(folderStore)
-                        .environmentObject(libraryManager)
-                } else {
-                    FolderContentView()
-                        .environmentObject(folderStore)
-                        .environmentObject(libraryManager)
-                }
+            if folderStore.isSearchMode {
+                SearchResultsView()
+                    .environmentObject(searchManager)
+                    .environmentObject(folderStore)
+                    .environmentObject(libraryManager)
+            } else if isShowingSmartFolderContent {
+                FolderContentView()
+                    .environmentObject(folderStore)
+                    .environmentObject(libraryManager)
             } else if let selectedVideo = folderStore.selectedVideo {
                 DetailView(video: selectedVideo)
                     .environmentObject(folderStore)
@@ -453,16 +348,10 @@ private struct DetailColumnView: View {
             }
         }
     }
-    
-    private var isTwoColumnMode: Bool {
-        if folderStore.isSearchMode { return true }
-        guard let folder = folderStore.selectedTopLevelFolder ?? folderStore.currentFolder else { return false }
-        if folder.isSmartFolder,
-           let name = folder.name,
-           ["All Videos", "Recent", "Favorites"].contains(name) {
-            return true
-        }
-        return false
+
+    private var isShowingSmartFolderContent: Bool {
+        guard let folder = folderStore.currentFolder else { return false }
+        return folder.isSmartFolder
     }
 }
 

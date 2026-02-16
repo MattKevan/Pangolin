@@ -9,27 +9,46 @@ import SwiftUI
 import CoreData
 import Combine
 import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#endif
 
 struct SidebarView: View {
     @EnvironmentObject private var store: FolderNavigationStore
     @EnvironmentObject private var libraryManager: LibraryManager
-    @Environment(\.managedObjectContext) private var viewContext
     
-    @State private var isShowingCreateFolder = false
-    @State private var editingFolder: Folder?
     @State private var renamingFolderID: UUID? = nil
     @FocusState private var focusedField: UUID?
     @State private var folderToDelete: DeletionItem?
+    @State private var sidebarSelections = Set<SidebarSelection>()
+    @State private var isSyncingSidebarSelections = false
     
     @State private var systemFolders: [Folder] = []
     @State private var userFolders: [Folder] = []
+    @State private var expandedFolderIDs: Set<UUID> = []
     @State private var isDeletingFolder = false
+    @State private var isInternalRootDropTargeted = false
     @State private var isExternalDropTargeted = false
 
     private let processingQueueManager = ProcessingQueueManager.shared
+
+    private struct VisibleLibraryItem: Identifiable {
+        let item: HierarchicalContentItem
+        let depth: Int
+
+        var id: UUID { item.id }
+    }
+
+    private var libraryRootItems: [HierarchicalContentItem] {
+        userFolders.map(HierarchicalContentItem.init(folder:))
+    }
+
+    private var visibleLibraryItems: [VisibleLibraryItem] {
+        flattenVisibleLibraryItems(from: libraryRootItems, depth: 0)
+    }
     
     var body: some View {
-        List(selection: $store.selectedSidebarItem) {
+        List(selection: $sidebarSelections) {
             // Search item
             Section("Pangolin") {
                 Label("Search", systemImage: "magnifyingglass")
@@ -40,9 +59,9 @@ struct SidebarView: View {
                     FolderRowView(
                         folder: folder,
                         showContextMenu: false,
-                        editingFolder: $editingFolder,
                         renamingFolderID: $renamingFolderID,
                         focusedField: $focusedField,
+                        onCreateSubfolder: { _ in },
                         onDelete: {}
                     )
                     .contentShape(Rectangle()) // Make the entire row clickable
@@ -50,19 +69,25 @@ struct SidebarView: View {
                 }
             }
             
-            // Library top-level folders
+            // Library hierarchy (folders + videos)
             Section("Library") {
-                ForEach(userFolders) { folder in
-                    FolderRowView(
-                        folder: folder,
-                        showContextMenu: true,
-                        editingFolder: $editingFolder,
+                ForEach(visibleLibraryItems) { visibleItem in
+                    SidebarLibraryOutlineRow(
+                        item: visibleItem.item,
+                        depth: visibleItem.depth,
+                        isExpanded: expandedFolderIDs.contains(visibleItem.item.id),
+                        dragItemIDs: dragItemIDs(for: visibleItem.item.id),
                         renamingFolderID: $renamingFolderID,
                         focusedField: $focusedField,
-                        onDelete: { deleteFolder(folder) }
+                        onToggleExpansion: {
+                            toggleFolderExpansion(for: visibleItem.item)
+                        },
+                        onCreateSubfolder: createChildFolder,
+                        onDeleteFolder: deleteFolder
                     )
                     .contentShape(Rectangle())
-                    .tag(SidebarSelection.folder(folder))
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 8))
+                    .tag(sidebarSelection(for: visibleItem.item))
                 }
             }
         }
@@ -71,6 +96,12 @@ struct SidebarView: View {
         #else
         .listStyle(InsetGroupedListStyle())
         #endif
+        .contextMenu {
+            Button("New Folder") {
+                createTopLevelFolder()
+            }
+            .disabled(libraryManager.currentLibrary == nil)
+        }
         // Removed Sidebar toolbar to avoid duplicates and overflow.
         // Add-folder is now owned by MainView's toolbar.
         .alert(
@@ -100,6 +131,11 @@ struct SidebarView: View {
             Text(sidebarDeletionAlertContent.message)
         }
         .onKeyPress { keyPress in
+            // When an inline editor is active, let the TextField handle Return/Delete.
+            if renamingFolderID != nil || focusedField != nil {
+                return .ignored
+            }
+
             if keyPress.key == .return,
                case .folder(let selected) = store.selectedSidebarItem,
                !selected.isSmartFolder { // Only allow renaming for user folders
@@ -120,6 +156,9 @@ struct SidebarView: View {
         .onReceive(NotificationCenter.default.publisher(for: .triggerRename)) { _ in
             triggerRenameFromMenu()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .triggerCreateFolder)) { _ in
+            createFolderFromCurrentSelection()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .NSManagedObjectContextDidSave)) { _ in
             if !isDeletingFolder {
                 refreshFolders()
@@ -130,6 +169,22 @@ struct SidebarView: View {
         }
         .onAppear {
             refreshFolders()
+            syncSidebarSelections(with: store.selectedSidebarItem)
+        }
+        .onChange(of: sidebarSelectionExpansionKey) { _, _ in
+            syncExpandedFoldersForSelection()
+        }
+        .onChange(of: store.selectedVideo?.id) { _, _ in
+            syncExpandedFoldersForSelection()
+        }
+        .onChange(of: sidebarSelections) { oldSelection, newSelection in
+            syncStoreSelection(oldSelection: oldSelection, newSelection: newSelection)
+        }
+        .onChange(of: store.selectedSidebarItem) { _, newSelection in
+            syncSidebarSelections(with: newSelection)
+        }
+        .onDrop(of: [.data], isTargeted: $isInternalRootDropTargeted) { providers in
+            handleInternalRootDrop(providers: providers)
         }
         .onDrop(of: [.fileURL], isTargeted: $isExternalDropTargeted) { providers in
             handleExternalFileDrop(providers: providers)
@@ -149,6 +204,73 @@ struct SidebarView: View {
     private func refreshFolders() {
         systemFolders = store.systemFolders()
         userFolders = store.userFolders()
+        syncExpandedFoldersForSelection()
+    }
+
+    private func syncStoreSelection(oldSelection: Set<SidebarSelection>, newSelection: Set<SidebarSelection>) {
+        guard !isSyncingSidebarSelections else { return }
+
+        let nextSelection: SidebarSelection?
+        if newSelection.isEmpty {
+            nextSelection = nil
+        } else if let currentSelection = store.selectedSidebarItem, newSelection.contains(currentSelection) {
+            nextSelection = currentSelection
+        } else if let newlyAdded = newSelection.subtracting(oldSelection).first {
+            nextSelection = newlyAdded
+        } else {
+            nextSelection = newSelection.first
+        }
+
+        guard !selectionKeysEqual(lhs: store.selectedSidebarItem, rhs: nextSelection) else { return }
+
+        isSyncingSidebarSelections = true
+        store.selectedSidebarItem = nextSelection
+        isSyncingSidebarSelections = false
+    }
+
+    private func syncSidebarSelections(with selection: SidebarSelection?) {
+        guard !isSyncingSidebarSelections else { return }
+        let nextSelections = selection.map { Set([$0]) } ?? []
+        guard sidebarSelections != nextSelections else { return }
+
+        isSyncingSidebarSelections = true
+        sidebarSelections = nextSelections
+        isSyncingSidebarSelections = false
+    }
+
+    private func selectionKeysEqual(lhs: SidebarSelection?, rhs: SidebarSelection?) -> Bool {
+        switch (lhs, rhs) {
+        case (.search, .search):
+            return true
+        case let (.folder(leftFolder), .folder(rightFolder)):
+            return leftFolder.id == rightFolder.id
+        case let (.video(leftVideo), .video(rightVideo)):
+            return leftVideo.id == rightVideo.id
+        case (.none, .none):
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func dragItemIDs(for itemID: UUID) -> [UUID] {
+        let selectedMovableIDs = Set(sidebarSelections.compactMap { selection -> UUID? in
+            switch selection {
+            case .search:
+                return nil
+            case .folder(let folder):
+                guard !folder.isSmartFolder else { return nil }
+                return folder.id
+            case .video(let video):
+                return video.id
+            }
+        })
+
+        if selectedMovableIDs.contains(itemID), selectedMovableIDs.count > 1 {
+            return Array(selectedMovableIDs)
+        }
+
+        return [itemID]
     }
     
     private var sidebarDeletionAlertContent: DeletionAlertContent {
@@ -204,6 +326,167 @@ struct SidebarView: View {
         }
     }
 
+    private func createFolderFromCurrentSelection() {
+        let parentFolderID = selectedParentFolderIDForNewFolder()
+        createFolder(parentFolderID: parentFolderID)
+    }
+
+    private func createTopLevelFolder() {
+        createFolder(parentFolderID: nil)
+    }
+
+    private func createChildFolder(_ parentFolder: Folder) {
+        createFolder(parentFolderID: parentFolder.id)
+    }
+
+    private func selectedParentFolderIDForNewFolder() -> UUID? {
+        switch store.selectedSidebarItem {
+        case .folder(let folder):
+            return folder.isSmartFolder ? nil : folder.id
+        case .video(let video):
+            guard let folder = video.folder, !folder.isSmartFolder else { return nil }
+            return folder.id
+        case .search, .none:
+            guard let currentFolder = store.currentFolder, !currentFolder.isSmartFolder else { return nil }
+            return currentFolder.id
+        }
+    }
+
+    private func createFolder(parentFolderID: UUID?) {
+        guard libraryManager.currentLibrary != nil else { return }
+
+        if let parentFolderID {
+            expandedFolderIDs.insert(parentFolderID)
+        }
+
+        Task { @MainActor in
+            guard let createdFolderID = await store.createFolder(name: "Untitled Folder", in: parentFolderID) else {
+                return
+            }
+
+            refreshFolders()
+            beginInlineRename(for: createdFolderID)
+        }
+    }
+
+    private func beginInlineRename(for folderID: UUID) {
+        renamingFolderID = folderID
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            focusedField = folderID
+            #if os(macOS)
+            try? await Task.sleep(nanoseconds: 20_000_000)
+            NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
+            #endif
+        }
+    }
+
+    private var sidebarSelectionExpansionKey: String {
+        switch store.selectedSidebarItem {
+        case .search:
+            return "search"
+        case .folder(let folder):
+            return "folder:\(folder.id?.uuidString ?? "nil")"
+        case .video(let video):
+            return "video:\(video.id?.uuidString ?? "nil")"
+        case .none:
+            return "none"
+        }
+    }
+
+    private func sidebarSelection(for item: HierarchicalContentItem) -> SidebarSelection {
+        switch item.contentType {
+        case .folder(let folder):
+            return .folder(folder)
+        case .video(let video):
+            return .video(video)
+        }
+    }
+
+    private func toggleFolderExpansion(for item: HierarchicalContentItem) {
+        guard item.isFolder else { return }
+
+        if expandedFolderIDs.contains(item.id) {
+            expandedFolderIDs.remove(item.id)
+        } else {
+            expandedFolderIDs.insert(item.id)
+        }
+    }
+
+    private func flattenVisibleLibraryItems(from items: [HierarchicalContentItem], depth: Int) -> [VisibleLibraryItem] {
+        var flattened: [VisibleLibraryItem] = []
+
+        for item in items {
+            flattened.append(VisibleLibraryItem(item: item, depth: depth))
+
+            if item.isFolder,
+               expandedFolderIDs.contains(item.id),
+               let children = item.children,
+               !children.isEmpty {
+                flattened.append(contentsOf: flattenVisibleLibraryItems(from: children, depth: depth + 1))
+            }
+        }
+
+        return flattened
+    }
+
+    private func syncExpandedFoldersForSelection() {
+        if case .folder(let selectedFolder) = store.selectedSidebarItem,
+           let folderID = selectedFolder.id,
+           let path = folderPath(to: folderID, in: libraryRootItems) {
+            expandedFolderIDs.formUnion(path)
+            return
+        }
+
+        if case .video(let selectedVideo) = store.selectedSidebarItem,
+           let videoID = selectedVideo.id,
+           let path = folderPathToVideo(videoID, in: libraryRootItems) {
+            expandedFolderIDs.formUnion(path)
+            return
+        }
+
+        if let selectedVideoID = store.selectedVideo?.id,
+           let path = folderPathToVideo(selectedVideoID, in: libraryRootItems) {
+            expandedFolderIDs.formUnion(path)
+        }
+    }
+
+    private func folderPath(to folderID: UUID, in items: [HierarchicalContentItem]) -> [UUID]? {
+        for item in items {
+            if let folder = item.folder, folder.id == folderID {
+                return [item.id]
+            }
+
+            if let children = item.children,
+               let childPath = folderPath(to: folderID, in: children) {
+                if item.isFolder {
+                    return [item.id] + childPath
+                }
+                return childPath
+            }
+        }
+
+        return nil
+    }
+
+    private func folderPathToVideo(_ videoID: UUID, in items: [HierarchicalContentItem]) -> [UUID]? {
+        for item in items {
+            if let video = item.video, video.id == videoID {
+                return []
+            }
+
+            if let children = item.children,
+               let childPath = folderPathToVideo(videoID, in: children) {
+                if item.isFolder {
+                    return [item.id] + childPath
+                }
+                return childPath
+            }
+        }
+
+        return nil
+    }
+
     private func handleExternalFileDrop(providers: [NSItemProvider]) -> Bool {
         guard let library = libraryManager.currentLibrary,
               let context = libraryManager.viewContext else {
@@ -249,6 +532,41 @@ struct SidebarView: View {
         return true
     }
 
+    private func handleInternalRootDrop(providers: [NSItemProvider]) -> Bool {
+        let matchingProviders = providers.filter {
+            $0.hasItemConformingToTypeIdentifier(UTType.data.identifier)
+        }
+        guard !matchingProviders.isEmpty else { return false }
+
+        let lock = NSLock()
+        var itemIDs = Set<UUID>()
+        let group = DispatchGroup()
+
+        for provider in matchingProviders {
+            group.enter()
+            let _ = provider.loadDataRepresentation(for: .data) { data, _ in
+                defer { group.leave() }
+                guard let data,
+                      let transfer = try? JSONDecoder().decode(ContentTransfer.self, from: data) else {
+                    return
+                }
+
+                lock.lock()
+                itemIDs.formUnion(transfer.itemIDs)
+                lock.unlock()
+            }
+        }
+
+        group.notify(queue: .main) {
+            guard !itemIDs.isEmpty else { return }
+            Task { @MainActor in
+                await store.moveItems(itemIDs, to: nil)
+            }
+        }
+
+        return true
+    }
+
     private func droppedURL(from item: NSSecureCoding?) -> URL? {
         if let url = item as? URL {
             return url
@@ -287,9 +605,9 @@ private struct FolderRowView: View {
     @EnvironmentObject private var store: FolderNavigationStore
     let folder: Folder
     let showContextMenu: Bool
-    @Binding var editingFolder: Folder?
     @Binding var renamingFolderID: UUID?
     @FocusState.Binding var focusedField: UUID?
+    let onCreateSubfolder: (Folder) -> Void
     let onDelete: () -> Void
     
     @State private var isDropTargeted = false
@@ -311,6 +629,9 @@ private struct FolderRowView: View {
         .contentShape(Rectangle())
         .contextMenu {
             if showContextMenu {
+                Button("New Folder") {
+                    onCreateSubfolder(folder)
+                }
                 Button("Rename") {
                     guard let folderID = folder.id else { return }
                     renamingFolderID = folderID
@@ -422,4 +743,197 @@ private struct FolderRowView: View {
     }
 }
 
-// MARK: - Sidebar Library Row
+// MARK: - Sidebar Library Outline Row
+private struct SidebarLibraryOutlineRow: View {
+    @EnvironmentObject private var store: FolderNavigationStore
+
+    let item: HierarchicalContentItem
+    let depth: Int
+    let isExpanded: Bool
+    let dragItemIDs: [UUID]
+    @Binding var renamingFolderID: UUID?
+    @FocusState.Binding var focusedField: UUID?
+    let onToggleExpansion: () -> Void
+    let onCreateSubfolder: (Folder) -> Void
+    let onDeleteFolder: (Folder) -> Void
+
+    @State private var isDropTargeted = false
+    @State private var editedName = ""
+    @State private var shouldCommitOnDisappear = false
+
+    private var hasChildren: Bool {
+        (item.children?.isEmpty == false) && item.isFolder
+    }
+
+    private var folder: Folder? {
+        if case .folder(let folder) = item.contentType {
+            return folder
+        }
+        return nil
+    }
+
+    private var video: Video? {
+        if case .video(let video) = item.contentType {
+            return video
+        }
+        return nil
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Color.clear
+                .frame(width: CGFloat(depth) * 10)
+
+            if hasChildren {
+                Button {
+                    onToggleExpansion()
+                } label: {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .frame(width: 8, height: 8)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Color.clear
+                    .frame(width: 8, height: 8)
+            }
+
+            rowIcon
+
+            rowTitleView
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(height: 18)
+        .contentShape(Rectangle())
+        .draggable(ContentTransfer(itemIDs: dragItemIDs))
+        .contextMenu {
+            if let folder, !folder.isSmartFolder {
+                Button("New Folder") {
+                    onCreateSubfolder(folder)
+                }
+
+                Button("Rename") {
+                    guard let folderID = folder.id else { return }
+                    renamingFolderID = folderID
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 100_000_000)
+                        focusedField = folderID
+                    }
+                }
+
+                Button("Delete", role: .destructive) {
+                    onDeleteFolder(folder)
+                }
+            }
+        }
+        .onDrop(of: [.data], isTargeted: $isDropTargeted) { providers in
+            guard let folder, !folder.isSmartFolder else { return false }
+            guard let provider = providers.first else { return false }
+
+            let _ = provider.loadDataRepresentation(for: .data) { data, _ in
+                if let data,
+                   let transfer = try? JSONDecoder().decode(ContentTransfer.self, from: data) {
+                    Task { @MainActor in
+                        await store.moveItems(Set(transfer.itemIDs), to: folder.id)
+                    }
+                }
+            }
+
+            return true
+        }
+        .overlay {
+            if isDropTargeted, folder != nil {
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(Color.accentColor, lineWidth: 2)
+                    #if os(macOS)
+                    .padding(-4)
+                    #endif
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var rowIcon: some View {
+        if folder != nil {
+            Image(systemName: "folder.fill")
+                .foregroundColor(.orange)
+                .frame(width: 18, height: 18)
+        } else if video != nil {
+            Image(systemName: "video.fill")
+                .foregroundColor(.blue)
+                .frame(width: 18, height: 18)
+        }
+    }
+
+    @ViewBuilder
+    private var rowTitleView: some View {
+        if let folder {
+            folderTitleView(folder: folder)
+        } else if let video {
+            Text(video.title ?? video.fileName ?? "Untitled")
+                .lineLimit(1)
+        }
+    }
+
+    @ViewBuilder
+    private func folderTitleView(folder: Folder) -> some View {
+        if renamingFolderID == folder.id {
+            TextField("Name", text: $editedName)
+                .textFieldStyle(.plain)
+                .focused($focusedField, equals: folder.id)
+                .onAppear {
+                    editedName = folder.name ?? "Untitled Folder"
+                    shouldCommitOnDisappear = true
+                }
+                .onSubmit {
+                    shouldCommitOnDisappear = false
+                    Task { await commitRename(for: folder) }
+                }
+                .onKeyPress { keyPress in
+                    if keyPress.key == .escape {
+                        shouldCommitOnDisappear = false
+                        cancelRename()
+                        return .handled
+                    }
+                    return .ignored
+                }
+                .onChange(of: focusedField) { oldValue, newValue in
+                    if oldValue == folder.id && newValue != folder.id && shouldCommitOnDisappear {
+                        Task { await commitRename(for: folder) }
+                    }
+                }
+        } else {
+            Text(folder.name ?? "Untitled Folder")
+                .lineLimit(1)
+        }
+    }
+
+    private func commitRename(for folder: Folder) async {
+        shouldCommitOnDisappear = false
+
+        let trimmedName = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let folderID = folder.id else {
+            await MainActor.run { cancelRename() }
+            return
+        }
+
+        guard !trimmedName.isEmpty && trimmedName != (folder.name ?? "") else {
+            await MainActor.run { cancelRename() }
+            return
+        }
+
+        await store.renameItem(id: folderID, to: trimmedName)
+
+        await MainActor.run {
+            renamingFolderID = nil
+            focusedField = nil
+        }
+    }
+
+    private func cancelRename() {
+        shouldCommitOnDisappear = false
+        renamingFolderID = nil
+        focusedField = nil
+    }
+}
