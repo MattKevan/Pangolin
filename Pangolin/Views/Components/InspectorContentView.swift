@@ -30,14 +30,22 @@ enum InspectorTab: CaseIterable, Hashable {
         case .info: return "info.circle"
         }
     }
+
+    var supportsRightControlsInspector: Bool {
+        switch self {
+        case .transcript, .translation, .summary:
+            return true
+        case .info:
+            return false
+        }
+    }
 }
 
 struct InspectorContentView: View {
     @EnvironmentObject private var libraryManager: LibraryManager
     @EnvironmentObject private var transcriptionService: SpeechTranscriptionService
     let video: Video?
-    
-    @State private var selectedTab: InspectorTab = .transcript
+    @Binding var selectedTab: InspectorTab
     
     var body: some View {
         VStack(spacing: 0) {
@@ -102,4 +110,3 @@ struct InspectorContentView: View {
         }
     }
 }
-

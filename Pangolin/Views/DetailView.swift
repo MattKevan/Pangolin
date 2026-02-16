@@ -19,6 +19,8 @@ struct DetailView: View {
     
     @StateObject private var playerViewModel = VideoPlayerViewModel()
     @State private var splitRatio: Double = 1.0 / 3.0
+    @State private var selectedInspectorTab: InspectorTab = .transcript
+    @State private var isControlsInspectorPresented = true
     
     private var windowBackgroundColor: Color {
         #if os(macOS)
@@ -71,7 +73,7 @@ struct DetailView: View {
                 }
                 
                 // Bottom: Inline Inspector (fills remaining space)
-                InspectorContentView(video: effectiveSelectedVideo)
+                InspectorContentView(video: effectiveSelectedVideo, selectedTab: $selectedInspectorTab)
                     .environmentObject(libraryManager)
                     .environmentObject(transcriptionService)
                     .frame(maxHeight: .infinity)
@@ -81,6 +83,7 @@ struct DetailView: View {
                 if let initial = video, store.selectedVideo == nil {
                     store.selectVideo(initial)
                 }
+                syncControlsInspectorVisibility()
             }
             .onChange(of: store.selectedVideo?.id) { _, _ in
                 // Load selected video so duration/slider are available; playback remains paused until user presses play.
@@ -94,13 +97,56 @@ struct DetailView: View {
                     playerViewModel.currentTime = 0
                     playerViewModel.duration = 0
                 }
+                syncControlsInspectorVisibility()
+            }
+            .onChange(of: selectedInspectorTab) { _, _ in
+                syncControlsInspectorVisibility()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .toolbar {
+                if canShowControlsInspector {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            isControlsInspectorPresented.toggle()
+                        } label: {
+                            Image(systemName: "sidebar.right")
+                        }
+                        .help(isControlsInspectorPresented ? "Hide Processing Controls" : "Show Processing Controls")
+                    }
+                }
+            }
+            #if os(macOS)
+            .inspector(isPresented: controlsInspectorBinding) {
+                if let selectedVideo = effectiveSelectedVideo,
+                   selectedInspectorTab.supportsRightControlsInspector {
+                    ProcessingControlsInspectorView(tab: selectedInspectorTab, video: selectedVideo)
+                        .environmentObject(libraryManager)
+                        .environmentObject(transcriptionService)
+                }
+            }
+            #endif
         }
     }
     
     // The effective selected video comes from the store; falls back to the initializer parameter if store has none.
     private var effectiveSelectedVideo: Video? {
         return store.selectedVideo ?? video
+    }
+
+    private var canShowControlsInspector: Bool {
+        effectiveSelectedVideo != nil && selectedInspectorTab.supportsRightControlsInspector
+    }
+
+    #if os(macOS)
+    private var controlsInspectorBinding: Binding<Bool> {
+        Binding(
+            get: { canShowControlsInspector && isControlsInspectorPresented },
+            set: { isControlsInspectorPresented = $0 }
+        )
+    }
+    #endif
+
+    private func syncControlsInspectorVisibility() {
+        isControlsInspectorPresented = canShowControlsInspector
     }
 }
