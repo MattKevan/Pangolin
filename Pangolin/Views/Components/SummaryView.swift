@@ -8,9 +8,7 @@ struct SummaryView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Summary")
-                    .font(.title2)
-                    .fontWeight(.bold)
+                
 
                 content
             }
@@ -24,7 +22,7 @@ struct SummaryView: View {
             VStack {
                 Spacer(minLength: 0)
                 ContentUnavailableView(
-                    "Transcript Required",
+                    "Transcript required",
                     systemImage: "doc.text.below.ecg",
                     description: Text("A transcript is required to generate a summary. Go to the Transcript tab and generate one first.")
                 )
@@ -49,18 +47,14 @@ struct SummaryView: View {
                     .foregroundColor(.secondary)
             }
             .padding()
-            #if os(macOS)
-            .background(Color(NSColor.controlBackgroundColor))
-            #else
-            .background(.regularMaterial)
-            #endif
+           
             .cornerRadius(8)
         } else if let errorMessage = summaryErrorMessage {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Image(systemName: "exclamationmark.triangle")
                         .foregroundColor(.orange)
-                    Text("Summary Error")
+                    Text("Summary error")
                         .font(.headline)
                 }
 
@@ -73,43 +67,20 @@ struct SummaryView: View {
             .cornerRadius(8)
         } else if let summary = video.transcriptSummary {
             VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("Summary")
-                        .font(.headline)
-                        .foregroundColor(.secondary)
-
-                    Spacer()
-
-                    if let summaryDate = video.summaryDateGenerated {
-                        Text("Generated \(summaryDate.formatted(date: .abbreviated, time: .shortened))")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-
-                Divider()
+                
 
                 Markdown(summary)
                     .markdownTheme(.gitHub)
                     .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
-                    #if os(macOS)
-                    .background(Color(NSColor.textBackgroundColor))
-                    #else
-                    .background(Color(UIColor.systemBackground))
-                    #endif
-                    .cornerRadius(8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-                    )
+                    .frame(maxWidth: 720, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    
             }
         } else {
             VStack {
                 Spacer(minLength: 0)
                 ContentUnavailableView(
-                    "No Summary Available",
+                    "No summary available",
                     systemImage: "doc.text.below.ecg",
                     description: Text("Use the controls inspector to generate a summary.")
                 )

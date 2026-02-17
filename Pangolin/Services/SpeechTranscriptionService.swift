@@ -1234,7 +1234,8 @@ class SpeechTranscriptionService: ObservableObject {
         let instructionsText = preset.combinedInstructions(with: customPrompt)
         let instructions = Instructions("""
         You are an expert summarizer. Follow these rules:
-        - Use proper Markdown with headings (##) and bullet points
+        - Output Markdown only (no plain text outside markdown, no code fences)
+        - Use clear headings (##) and lists when useful
         - Keep content faithful and concise
         - Avoid repetition
         - Preserve important names, dates, figures
@@ -1256,7 +1257,8 @@ class SpeechTranscriptionService: ObservableObject {
         let instructionsText = preset.combinedInstructions(with: customPrompt)
         let instructions = Instructions("""
         You are an expert at synthesizing multiple summaries into a cohesive, non-redundant final summary.
-        - Use Markdown with clear headings (##) and bullet points
+        - Output Markdown only (no plain text outside markdown, no code fences)
+        - Use clear headings (##) and lists when useful
         - Remove duplicates and merge related points
         - Maintain logical flow and highlight key insights
 

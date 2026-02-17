@@ -15,15 +15,13 @@ struct TranslationView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Translation")
-                    .font(.title2)
-                    .fontWeight(.bold)
+               
                 
                 if video.transcriptText == nil {
                     VStack {
                         Spacer(minLength: 0)
                         ContentUnavailableView(
-                            "Transcript Required",
+                            "Transcript required",
                             systemImage: "doc.text.below.ecg",
                             description: Text("A transcript is required before translation. Go to the Transcript tab and generate one first.")
                         )
@@ -36,7 +34,7 @@ struct TranslationView: View {
                         HStack {
                             Image(systemName: "globe")
                                 .foregroundColor(.green)
-                            Text("Translating text...")
+                            Text("Translating...")
                                 .font(.headline)
                         }
                         
@@ -59,7 +57,7 @@ struct TranslationView: View {
                         HStack {
                             Image(systemName: "exclamationmark.triangle")
                                 .foregroundColor(.orange)
-                            Text("Translation Error")
+                            Text("Translation error")
                                 .font(.headline)
                         }
                         
@@ -86,23 +84,7 @@ struct TranslationView: View {
                     .cornerRadius(8)
                 } else if let translatedText = video.translatedText {
                     VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            if let language = video.translatedLanguage {
-                                Label(displayLanguageName(for: language), systemImage: "globe")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            
-                            Spacer()
-                            
-                            if let dateGenerated = video.translationDateGenerated {
-                                Text("Generated \(dateGenerated, formatter: DateFormatter.shortDate)")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        
-                        Divider()
+                       
                         
                         ScrollView {
                             Text(translatedText)

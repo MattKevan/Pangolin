@@ -8,9 +8,7 @@ struct TranscriptionView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Transcript")
-                    .font(.title2)
-                    .fontWeight(.bold)
+                
 
                 if isTranscriptionRunningForVideo {
                     HStack(spacing: 8) {
@@ -24,23 +22,7 @@ struct TranscriptionView: View {
 
                 if let transcriptText = video.transcriptText {
                     VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            if let language = video.transcriptLanguage {
-                                Label(displayLanguageName(for: language), systemImage: "globe")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            
-                            Spacer()
-                            
-                            if let dateGenerated = video.transcriptDateGenerated {
-                                Text("Generated \(dateGenerated, formatter: DateFormatter.shortDate)")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
                         
-                        Divider()
                         
                         ScrollView {
                             Text(transcriptText)
@@ -71,7 +53,7 @@ struct TranscriptionView: View {
                         HStack {
                             Image(systemName: "exclamationmark.triangle")
                                 .foregroundStyle(.orange)
-                            Text("Transcription Error")
+                            Text("Transcription error")
                                 .font(.headline)
                         }
 

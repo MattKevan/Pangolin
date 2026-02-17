@@ -141,8 +141,21 @@ class ProcessingQueueManager: ObservableObject {
         enqueueVideoTasks(for: videos, types: [.translate], force: force, targetLocale: targetLocale)
     }
 
-    func enqueueSummarization(for videos: [Video], force: Bool = false) {
-        enqueueVideoTasks(for: videos, types: [.summarize], force: force)
+    func enqueueSummarization(
+        for videos: [Video],
+        force: Bool = false,
+        preset: SpeechTranscriptionService.SummaryPreset = .detailed,
+        customPrompt: String? = nil
+    ) {
+        let trimmedPrompt = customPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalizedPrompt = trimmedPrompt.isEmpty ? nil : trimmedPrompt
+        enqueueVideoTasks(
+            for: videos,
+            types: [.summarize],
+            force: force,
+            summaryPreset: preset,
+            summaryCustomPrompt: normalizedPrompt
+        )
     }
 
     func enqueueFullWorkflow(for videos: [Video]) {
@@ -157,7 +170,15 @@ class ProcessingQueueManager: ObservableObject {
         enqueueVideoTasks(for: videos, types: [.ensureLocalAvailability], force: force)
     }
 
-    private func enqueueVideoTasks(for videos: [Video], types: [ProcessingTaskType], force: Bool, preferredLocale: Locale? = nil, targetLocale: Locale? = nil) {
+    private func enqueueVideoTasks(
+        for videos: [Video],
+        types: [ProcessingTaskType],
+        force: Bool,
+        preferredLocale: Locale? = nil,
+        targetLocale: Locale? = nil,
+        summaryPreset: SpeechTranscriptionService.SummaryPreset? = nil,
+        summaryCustomPrompt: String? = nil
+    ) {
         let videoIDs = videos.compactMap { $0.id }
         for video in videos {
             guard let id = video.id else { continue }
@@ -176,7 +197,9 @@ class ProcessingQueueManager: ObservableObject {
                     itemName: video.title ?? video.fileName,
                     force: force,
                     preferredLocaleIdentifier: preferredLocale?.identifier,
-                    targetLocaleIdentifier: targetLocale?.identifier
+                    targetLocaleIdentifier: targetLocale?.identifier,
+                    summaryPresetRawValue: type == .summarize ? summaryPreset?.rawValue : nil,
+                    summaryCustomPrompt: type == .summarize ? summaryCustomPrompt : nil
                 )
                 processingQueue.addTask(task)
             }
@@ -428,7 +451,13 @@ class ProcessingQueueManager: ObservableObject {
         guard let video = fetchVideo(for: task) else {
             throw FileSystemError.fileNotFound
         }
-        await transcriptionService.summarizeVideo(video, libraryManager: LibraryManager.shared, preset: .detailed)
+        let preset = task.summaryPresetRawValue.flatMap(SpeechTranscriptionService.SummaryPreset.init(rawValue:)) ?? .detailed
+        await transcriptionService.summarizeVideo(
+            video,
+            libraryManager: LibraryManager.shared,
+            preset: preset,
+            customPrompt: task.summaryCustomPrompt
+        )
         if let error = transcriptionService.errorMessage {
             throw TranscriptionError.summarizationFailed(error)
         }

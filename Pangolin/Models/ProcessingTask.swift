@@ -105,6 +105,8 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
     let followUpTypes: [ProcessingTaskType]
     let preferredLocaleIdentifier: String?
     let targetLocaleIdentifier: String?
+    let summaryPresetRawValue: String?
+    let summaryCustomPrompt: String?
     @Published var status: ProcessingTaskStatus
     @Published var progress: Double
     @Published var errorMessage: String?
@@ -113,7 +115,17 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
     @Published var startedAt: Date?
     @Published var completedAt: Date?
     
-    init(videoID: UUID, type: ProcessingTaskType, itemName: String? = nil, force: Bool = false, followUpTypes: [ProcessingTaskType] = [], preferredLocaleIdentifier: String? = nil, targetLocaleIdentifier: String? = nil) {
+    init(
+        videoID: UUID,
+        type: ProcessingTaskType,
+        itemName: String? = nil,
+        force: Bool = false,
+        followUpTypes: [ProcessingTaskType] = [],
+        preferredLocaleIdentifier: String? = nil,
+        targetLocaleIdentifier: String? = nil,
+        summaryPresetRawValue: String? = nil,
+        summaryCustomPrompt: String? = nil
+    ) {
         self.id = UUID()
         self.videoID = videoID
         self.sourceURLPath = nil
@@ -124,6 +136,8 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         self.followUpTypes = followUpTypes
         self.preferredLocaleIdentifier = preferredLocaleIdentifier
         self.targetLocaleIdentifier = targetLocaleIdentifier
+        self.summaryPresetRawValue = summaryPresetRawValue
+        self.summaryCustomPrompt = summaryCustomPrompt
         self.status = .pending
         self.progress = 0.0
         self.errorMessage = nil
@@ -144,6 +158,8 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         self.followUpTypes = followUpTypes
         self.preferredLocaleIdentifier = nil
         self.targetLocaleIdentifier = nil
+        self.summaryPresetRawValue = nil
+        self.summaryCustomPrompt = nil
         self.status = .pending
         self.progress = 0.0
         self.errorMessage = nil
@@ -156,7 +172,7 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
     // MARK: - Codable Implementation
     
     enum CodingKeys: String, CodingKey {
-        case id, videoID, sourceURLPath, libraryID, type, itemName, force, followUpTypes, preferredLocaleIdentifier, targetLocaleIdentifier, status, progress, errorMessage, statusMessage
+        case id, videoID, sourceURLPath, libraryID, type, itemName, force, followUpTypes, preferredLocaleIdentifier, targetLocaleIdentifier, summaryPresetRawValue, summaryCustomPrompt, status, progress, errorMessage, statusMessage
         case createdAt, startedAt, completedAt
     }
     
@@ -173,6 +189,8 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         followUpTypes = try container.decodeIfPresent([ProcessingTaskType].self, forKey: .followUpTypes) ?? []
         preferredLocaleIdentifier = try container.decodeIfPresent(String.self, forKey: .preferredLocaleIdentifier)
         targetLocaleIdentifier = try container.decodeIfPresent(String.self, forKey: .targetLocaleIdentifier)
+        summaryPresetRawValue = try container.decodeIfPresent(String.self, forKey: .summaryPresetRawValue)
+        summaryCustomPrompt = try container.decodeIfPresent(String.self, forKey: .summaryCustomPrompt)
         status = try container.decode(ProcessingTaskStatus.self, forKey: .status)
         progress = try container.decode(Double.self, forKey: .progress)
         errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
@@ -195,6 +213,8 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         try container.encode(followUpTypes, forKey: .followUpTypes)
         try container.encodeIfPresent(preferredLocaleIdentifier, forKey: .preferredLocaleIdentifier)
         try container.encodeIfPresent(targetLocaleIdentifier, forKey: .targetLocaleIdentifier)
+        try container.encodeIfPresent(summaryPresetRawValue, forKey: .summaryPresetRawValue)
+        try container.encodeIfPresent(summaryCustomPrompt, forKey: .summaryCustomPrompt)
         try container.encode(status, forKey: .status)
         try container.encode(progress, forKey: .progress)
         try container.encodeIfPresent(errorMessage, forKey: .errorMessage)

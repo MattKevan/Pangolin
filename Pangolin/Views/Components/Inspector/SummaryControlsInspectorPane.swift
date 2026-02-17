@@ -11,17 +11,52 @@ struct SummaryControlsInspectorPane: View {
 
     @State private var didCopyRendered = false
     @State private var didCopyMarkdown = false
+    @State private var selectedStyle: SummaryStyle = .shortBullets
+    @State private var shortBulletsPrompt = SummaryControlsInspectorPane.defaultShortBulletsPrompt
+    @State private var articleRewritePrompt = SummaryControlsInspectorPane.defaultArticleRewritePrompt
+    @State private var customPrompt = ""
+
+    private enum SummaryStyle: String, CaseIterable, Identifiable {
+        case shortBullets
+        case articleRewrite
+        case customPrompt
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .shortBullets:
+                return "Short bullet points"
+            case .articleRewrite:
+                return "Longer article rewrite"
+            case .customPrompt:
+                return "Custom prompt"
+            }
+        }
+    }
+
+    private static let defaultShortBulletsPrompt = """
+    Create a concise summary in Markdown with short bullet points.
+    Focus on key points, decisions, and outcomes.
+    Keep it brief, high-signal, and easy to skim.
+    """
+
+    private static let defaultArticleRewritePrompt = """
+    Rewrite this into a longer, narrative article in Markdown.
+    Use clear section headings, cohesive paragraphs, and include bullet lists only when they improve clarity.
+    Keep it accurate to the source content and avoid invented details.
+    """
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Summary Controls")
+            Text("Summary")
                 .font(.headline)
 
             if isSummarizing {
                 HStack(spacing: 8) {
                     ProgressView(value: summaryProgress)
                         .progressViewStyle(.linear)
-                    Text("Summarizing...")
+                    Text("Summarising...")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -38,7 +73,7 @@ struct SummaryControlsInspectorPane: View {
 
                     HStack(spacing: 8) {
                         if errorMessage.contains("Apple Intelligence") {
-                            Button("Open Settings") {
+                            Button("Open settings") {
                                 openAppleIntelligenceSettings()
                             }
                             .buttonStyle(.bordered)
@@ -46,7 +81,7 @@ struct SummaryControlsInspectorPane: View {
                         }
 
                         Button("Retry") {
-                            processingQueueManager.enqueueSummarization(for: [video], force: true)
+                            runSummarization(force: true)
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
@@ -58,11 +93,12 @@ struct SummaryControlsInspectorPane: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             }
 
+            summaryCustomizationControls
             summaryActionButton
 
             if let summary = video.transcriptSummary, !summary.isEmpty {
                 Divider()
-                Text("Share & Copy")
+                Text("Share & copy")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -75,7 +111,7 @@ struct SummaryControlsInspectorPane: View {
                     copyToPasteboard(renderedPlainText(fromMarkdown: summary))
                     flashCopiedRendered()
                 } label: {
-                    Label("Copy Rendered", systemImage: "doc.on.doc")
+                    Label("Copy rendered", systemImage: "doc.on.doc")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -84,7 +120,7 @@ struct SummaryControlsInspectorPane: View {
                     copyToPasteboard(summary)
                     flashCopiedMarkdown()
                 } label: {
-                    Label("Copy Markdown", systemImage: "chevron.left.slash.chevron.right")
+                    Label("Copy markdown", systemImage: "chevron.left.slash.chevron.right")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -100,6 +136,7 @@ struct SummaryControlsInspectorPane: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var canGenerateSummary: Bool {
@@ -108,21 +145,41 @@ struct SummaryControlsInspectorPane: View {
 
     @ViewBuilder
     private var summaryActionButton: some View {
-        if video.transcriptSummary == nil {
-            Button("Generate") {
-                processingQueueManager.enqueueSummarization(for: [video])
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .disabled(!canGenerateSummary || isSummarizing)
-        } else {
-            Button("Regenerate") {
-                processingQueueManager.enqueueSummarization(for: [video], force: true)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .disabled(!canGenerateSummary || isSummarizing)
+        Button("Summarise") {
+            runSummarization(force: true)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .buttonStyle(.borderedProminent)
+        .controlSize(.small)
+        .disabled(!canGenerateSummary || isSummarizing)
+    }
+
+    private var summaryCustomizationControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Summary style")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 6) {
+                ForEach(SummaryStyle.allCases) { style in
+                    styleSelectionButton(style)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text("Custom prompt")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            TextEditor(text: selectedPromptBinding)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minHeight: 88)
+                .padding(6)
+                .background(Color.secondary.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .disabled(isSummarizing)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var summaryTask: ProcessingTask? {
@@ -180,5 +237,70 @@ struct SummaryControlsInspectorPane: View {
             NSWorkspace.shared.open(url)
         }
         #endif
+    }
+
+    private var selectedPromptBinding: Binding<String> {
+        switch selectedStyle {
+        case .shortBullets:
+            return $shortBulletsPrompt
+        case .articleRewrite:
+            return $articleRewritePrompt
+        case .customPrompt:
+            return $customPrompt
+        }
+    }
+
+    @ViewBuilder
+    private func styleSelectionButton(_ style: SummaryStyle) -> some View {
+        let isSelected = selectedStyle == style
+
+        Button {
+            selectedStyle = style
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                    .foregroundColor(isSelected ? .accentColor : .secondary)
+                Text(style.title)
+                    .foregroundColor(.primary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(styleRowBackground(isSelected: isSelected))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func styleRowBackground(isSelected: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 8)
+            .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
+    }
+
+    private var resolvedSummaryRequest: (preset: SpeechTranscriptionService.SummaryPreset, customPrompt: String?) {
+        switch selectedStyle {
+        case .shortBullets:
+            let trimmed = shortBulletsPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            let prompt = trimmed.isEmpty ? Self.defaultShortBulletsPrompt : trimmed
+            return (.custom, prompt)
+        case .articleRewrite:
+            let trimmed = articleRewritePrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            let prompt = trimmed.isEmpty ? Self.defaultArticleRewritePrompt : trimmed
+            return (.custom, prompt)
+        case .customPrompt:
+            let trimmedCustom = customPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            let optionalCustom = trimmedCustom.isEmpty ? nil : trimmedCustom
+            return (.custom, optionalCustom)
+        }
+    }
+
+    private func runSummarization(force: Bool) {
+        let request = resolvedSummaryRequest
+        processingQueueManager.enqueueSummarization(
+            for: [video],
+            force: force,
+            preset: request.preset,
+            customPrompt: request.customPrompt
+        )
     }
 }
