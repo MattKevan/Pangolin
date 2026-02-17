@@ -30,28 +30,14 @@ struct TranslationView: View {
                     }
                     .frame(maxWidth: .infinity, minHeight: 320)
                 } else if isTranslationActive {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Image(systemName: "globe")
-                                .foregroundColor(.green)
-                            Text("Translating...")
-                                .font(.headline)
-                        }
-                        
-                        ProgressView(value: translationProgress)
-                            .progressViewStyle(LinearProgressViewStyle())
-                        
-                        Text("Using Apple's translation service")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                    VStack(spacing: 10) {
+                        ProgressView()
+                            .controlSize(.regular)
+                        Text("Translating")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
                     }
-                    .padding()
-                    #if os(macOS)
-                    .background(Color(NSColor.controlBackgroundColor))
-                    #else
-                    .background(.regularMaterial)
-                    #endif
-                    .cornerRadius(8)
+                    .frame(maxWidth: .infinity, minHeight: 320)
                 } else if let errorMessage = translationErrorMessage {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
@@ -139,10 +125,6 @@ struct TranslationView: View {
 
     private var isTranslationActive: Bool {
         translationTask?.status.isActive == true
-    }
-
-    private var translationProgress: Double {
-        translationTask?.progress ?? 0.0
     }
 
     private var translationErrorMessage: String? {
