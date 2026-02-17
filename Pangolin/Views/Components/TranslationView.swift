@@ -121,12 +121,12 @@ struct TranslationView: View {
 
                 Text(translatedText)
                     .font(.system(size: 17))
-                    .lineSpacing(8)
+                    .lineSpacing(14)
                     .textSelection(.enabled)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: 720, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.horizontal, 12)
+                    //.padding(.horizontal, 12)
             }
         } else if let loadError {
             ContentUnavailableView(
@@ -156,13 +156,13 @@ struct TranslationView: View {
         ScrollViewReader { proxy in
             let inlineTokens = makeInlineTokens(from: chunkIndex.allEntries)
             ScrollView {
-                TranscriptWordWrapLayout(horizontalSpacing: 0, verticalSpacing: 2) {
+                TranscriptWordWrapLayout(horizontalSpacing: 0, verticalSpacing: 8) {
                     ForEach(inlineTokens) { token in
                         Text(token.text)
                             .fixedSize(horizontal: true, vertical: false)
                             .foregroundStyle(Color.primary)
                             .padding(.horizontal, 0)
-                            .padding(.vertical, 1)
+                            .padding(.vertical, 2)
                             .background(activeChunkID == token.chunkID ? Color.accentColor.opacity(0.2) : Color.clear)
                             .contentShape(Rectangle())
                             .onTapGesture {

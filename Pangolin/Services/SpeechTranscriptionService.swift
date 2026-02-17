@@ -261,8 +261,8 @@ class SpeechTranscriptionService: ObservableObject {
                 print("⚠️ Failed to write transcript to disk: \(error)")
             }
             
-            // NOTE: Removed automatic translation. Translation must be initiated manually
-            // via translateVideo(_:libraryManager:targetLanguage:).
+            // Automatic translation enqueueing is handled by ProcessingQueueManager
+            // after this transcription task completes.
             
             await libraryManager.save()
             

@@ -67,13 +67,13 @@ struct TranscriptionView: View {
             ScrollViewReader { proxy in
                 let inlineTokens = makeInlineTokens(from: chunkIndex.allEntries)
                 ScrollView {
-                    TranscriptWordWrapLayout(horizontalSpacing: 0, verticalSpacing: 2) {
+                    TranscriptWordWrapLayout(horizontalSpacing: 0, verticalSpacing: 8) {
                         ForEach(inlineTokens) { token in
                             Text(token.text)
                                 .fixedSize(horizontal: true, vertical: false)
                                 .foregroundStyle(Color.primary)
                                 .padding(.horizontal, 0)
-                                .padding(.vertical, 1)
+                                .padding(.vertical, 2)
                                 .background(activeChunkID == token.chunkID ? Color.accentColor.opacity(0.2) : Color.clear)
                                 .contentShape(Rectangle())
                                 .onTapGesture {

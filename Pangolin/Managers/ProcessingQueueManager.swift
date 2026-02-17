@@ -438,9 +438,7 @@ class ProcessingQueueManager: ObservableObject {
             throw TaskFailure(message: error)
         }
 
-        if shouldAutoTranslateToSystemLanguage(for: video) {
-            enqueueTranslation(for: [video], targetLocale: Locale.current, force: true)
-        }
+        enqueueAutoTranslationIfNeeded(afterTranscriptionFor: video)
     }
 
     private func executeTranslation(_ task: ProcessingTask) async throws {
@@ -590,21 +588,44 @@ class ProcessingQueueManager: ObservableObject {
         }
     }
 
+    private func enqueueAutoTranslationIfNeeded(afterTranscriptionFor video: Video) {
+        guard shouldAutoTranslateToSystemLanguage(for: video) else {
+            return
+        }
+        enqueueTranslation(for: [video], targetLocale: .autoupdatingCurrent, force: true)
+    }
+
     private func shouldAutoTranslateToSystemLanguage(for video: Video) -> Bool {
-        guard let transcriptLanguageIdentifier = video.transcriptLanguage,
-              !transcriptLanguageIdentifier.isEmpty else {
+        guard let transcriptText = video.transcriptText,
+              !transcriptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }
 
-        let transcriptLocale = Locale(identifier: transcriptLanguageIdentifier)
-        let transcriptLanguageCode = normalizedLanguageCode(from: transcriptLocale)
-        let systemLanguageCode = normalizedLanguageCode(from: Locale.current)
+        let transcriptLocale = resolvedTranscriptLocale(for: video)
+        let transcriptLanguageCode = transcriptLocale.flatMap(normalizedLanguageCode)
+        let systemLanguageCode = normalizedLanguageCode(from: .autoupdatingCurrent)
 
         guard let transcriptLanguageCode, let systemLanguageCode else {
             return false
         }
 
         return transcriptLanguageCode != systemLanguageCode
+    }
+
+    private func resolvedTranscriptLocale(for video: Video) -> Locale? {
+        if let transcriptLanguageIdentifier = video.transcriptLanguage,
+           !transcriptLanguageIdentifier.isEmpty {
+            return Locale(identifier: transcriptLanguageIdentifier)
+        }
+
+        guard let timedURL = LibraryManager.shared.timedTranscriptURL(for: video),
+              FileManager.default.fileExists(atPath: timedURL.path),
+              let transcript = try? LibraryManager.shared.readTimedTranscript(from: timedURL),
+              !transcript.localeIdentifier.isEmpty else {
+            return nil
+        }
+
+        return Locale(identifier: transcript.localeIdentifier)
     }
 
     private func normalizedLanguageCode(from locale: Locale) -> String? {
