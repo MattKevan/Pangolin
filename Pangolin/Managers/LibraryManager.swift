@@ -903,6 +903,12 @@ extension LibraryManager {
         return dirs.translations.appendingPathComponent("\(id.uuidString)_\(safeLang).txt")
     }
 
+    func timedTranslationURL(for video: Video, languageCode: String) -> URL? {
+        guard let id = video.id, let dirs = textArtifactsDirectories(for: video.library) else { return nil }
+        let safeLang = languageCode.replacingOccurrences(of: "/", with: "-")
+        return dirs.translations.appendingPathComponent("\(id.uuidString)_\(safeLang).timed.json")
+    }
+
     func translationURLs(for video: Video) -> [URL] {
         guard let id = video.id, let dirs = textArtifactsDirectories(for: video.library) else { return [] }
         let prefix = id.uuidString + "_"
@@ -935,6 +941,28 @@ extension LibraryManager {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(TimedTranscript.self, from: Data(contentsOf: url))
+    }
+
+    func writeTimedTranslationAtomically(_ translation: TimedTranslation, to url: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(translation)
+        let fm = FileManager.default
+        let dir = url.deletingLastPathComponent()
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let tmp = dir.appendingPathComponent(UUID().uuidString)
+        try data.write(to: tmp, options: .atomic)
+        if fm.fileExists(atPath: url.path) {
+            try fm.removeItem(at: url)
+        }
+        try fm.moveItem(at: tmp, to: url)
+    }
+
+    func readTimedTranslation(from url: URL) throws -> TimedTranslation {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(TimedTranslation.self, from: Data(contentsOf: url))
     }
 
     func writeTextAtomically(_ text: String, to url: URL) throws {

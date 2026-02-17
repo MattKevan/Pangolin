@@ -87,7 +87,7 @@ struct InspectorContentView: View {
                     .environmentObject(transcriptionService)
                     .background(.clear)
             case .translation:
-                TranslationView(video: selected)
+                TranslationView(video: selected, playerViewModel: playerViewModel)
                     .environmentObject(libraryManager)
                     .environmentObject(transcriptionService)
                     .background(.clear)

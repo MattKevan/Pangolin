@@ -80,6 +80,11 @@ struct TranscriptionOutput: Sendable {
     let timedTranscript: TimedTranscript
 }
 
+struct TranslationOutput: Sendable {
+    let plainText: String
+    let timedTranslation: TimedTranslation
+}
+
 class SpeechTranscriptionService: ObservableObject {
     @Published var isTranscribing = false
     @Published var isSummarizing = false
@@ -289,25 +294,33 @@ class SpeechTranscriptionService: ObservableObject {
         await setStatus("Starting translation...")
         
         do {
+            let timedTranscript = try await MainActor.run { () throws -> TimedTranscript in
+                guard let url = libraryManager.timedTranscriptURL(for: video),
+                      FileManager.default.fileExists(atPath: url.path) else {
+                    throw TranscriptionError.translationFailed("Timed transcript not found. Please transcribe this video again.")
+                }
+                return try libraryManager.readTimedTranscript(from: url)
+            }
+
             let computationResult = try await Task.detached(priority: .userInitiated) { [weak self] in
                 guard let self else {
                     throw TranscriptionError.translationFailed("Translation service unavailable.")
                 }
                 return try await self.computeTranslation(
                     transcriptText: transcriptText,
+                    timedTranscript: timedTranscript,
                     transcriptLanguageIdentifier: initialState.transcriptLanguage,
                     targetLanguage: targetLanguage
                 )
             }.value
 
             if computationResult.translationSkipped {
-                await setStatus("Translation not needed - already in target language")
-                await setProgress(1.0)
-                return
+                await setStatus("Source already matches target language.")
             }
 
             await setProgress(0.3)
-            let translatedText = computationResult.translatedText
+            let translationOutput = computationResult.output
+            let translatedText = translationOutput.plainText
             let targetCode = computationResult.targetLanguageIdentifier
             
             await setProgress(0.9)
@@ -328,6 +341,9 @@ class SpeechTranscriptionService: ObservableObject {
                     try libraryManager.ensureTextArtifactDirectories()
                     if let url = libraryManager.translationURL(for: video, languageCode: targetCode) {
                         try libraryManager.writeTextAtomically(translatedText, to: url)
+                    }
+                    if let timedURL = libraryManager.timedTranslationURL(for: video, languageCode: targetCode) {
+                        try libraryManager.writeTimedTranslationAtomically(translationOutput.timedTranslation, to: timedURL)
                     }
                 }
             } catch {
@@ -446,23 +462,15 @@ class SpeechTranscriptionService: ObservableObject {
     }
 
     private struct TranslationComputationResult {
-        let translatedText: String
+        let output: TranslationOutput
         let targetLanguageIdentifier: String
         let resolvedSourceLanguageIdentifier: String?
         let translationSkipped: Bool
-
-        static var skipped: TranslationComputationResult {
-            TranslationComputationResult(
-                translatedText: "",
-                targetLanguageIdentifier: "",
-                resolvedSourceLanguageIdentifier: nil,
-                translationSkipped: true
-            )
-        }
     }
 
     private func computeTranslation(
         transcriptText: String,
+        timedTranscript: TimedTranscript,
         transcriptLanguageIdentifier: String?,
         targetLanguage: Locale.Language?
     ) async throws -> TranslationComputationResult {
@@ -498,17 +506,116 @@ class SpeechTranscriptionService: ObservableObject {
             throw TranscriptionError.translationNotSupported(sourceCode, targetCode)
         }
 
-        if sourceCode == targetCode {
-            return .skipped
+        let sourceChunks = TimedTranslation.sentenceSourceChunks(from: timedTranscript)
+        guard !sourceChunks.isEmpty else {
+            throw TranscriptionError.translationFailed("Timed transcript has no sentence chunks available for translation.")
         }
 
-        let translatedText = try await translateText(transcriptText, from: sourceLanguage, to: chosenTargetLanguage)
+        let translatedChunks: [TimedTranslationChunk]
+        let translationSkipped: Bool
+        if sourceCode == targetCode {
+            translatedChunks = sourceChunks.map {
+                TimedTranslationChunk(
+                    id: $0.id,
+                    startSeconds: $0.startSeconds,
+                    endSeconds: $0.endSeconds,
+                    sourceText: $0.text,
+                    targetText: $0.text
+                )
+            }
+            translationSkipped = true
+        } else {
+            translatedChunks = try await translateSentenceChunks(
+                sourceChunks,
+                from: sourceLanguage,
+                to: chosenTargetLanguage
+            )
+            translationSkipped = false
+        }
+
+        let translatedText = translatedChunks
+            .map(\.targetText)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let timedTranslation = TimedTranslation(
+            videoID: timedTranscript.videoID,
+            sourceLocaleIdentifier: sourceCode,
+            targetLocaleIdentifier: targetCode,
+            generatedAt: Date(),
+            chunks: translatedChunks
+        )
+
         return TranslationComputationResult(
-            translatedText: translatedText,
+            output: TranslationOutput(plainText: translatedText, timedTranslation: timedTranslation),
             targetLanguageIdentifier: targetCode,
             resolvedSourceLanguageIdentifier: resolvedSourceLanguageIdentifier,
-            translationSkipped: false
+            translationSkipped: translationSkipped
         )
+    }
+
+    private func translateSentenceChunks(
+        _ sourceChunks: [TimedTranslation.SourceChunk],
+        from sourceLanguage: Locale.Language,
+        to targetLanguage: Locale.Language
+    ) async throws -> [TimedTranslationChunk] {
+        await setStatus("Checking translation models...")
+        let session = TranslationSession(installedSource: sourceLanguage, target: targetLanguage)
+        await MainActor.run {
+            self.translationSession = session
+        }
+
+        try await session.prepareTranslation()
+        await setStatus("Translating \(sourceChunks.count) chunks...")
+
+        let requests = sourceChunks.map {
+            TranslationSession.Request(sourceText: $0.text, clientIdentifier: $0.id)
+        }
+        var translatedByID: [String: String] = [:]
+
+        do {
+            for try await response in session.translate(batch: requests) {
+                guard let clientIdentifier = response.clientIdentifier else { continue }
+                translatedByID[clientIdentifier] = response.targetText
+            }
+        } catch {
+            throw mapTranslationError(error, sourceLanguage: sourceLanguage, targetLanguage: targetLanguage)
+        }
+
+        return try Self.assembleTimedTranslationChunks(
+            sourceChunks: sourceChunks,
+            translatedTextsByID: translatedByID
+        )
+    }
+
+    static func assembleTimedTranslationChunks(
+        sourceChunks: [TimedTranslation.SourceChunk],
+        translatedTextsByID: [String: String]
+    ) throws -> [TimedTranslationChunk] {
+        var chunks: [TimedTranslationChunk] = []
+        chunks.reserveCapacity(sourceChunks.count)
+
+        for sourceChunk in sourceChunks {
+            guard let translated = translatedTextsByID[sourceChunk.id] else {
+                throw TranscriptionError.translationFailed("Missing translated text for chunk '\(sourceChunk.id)'.")
+            }
+            let targetText = translated.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !targetText.isEmpty else {
+                throw TranscriptionError.translationFailed("Received empty translation for chunk '\(sourceChunk.id)'.")
+            }
+
+            chunks.append(
+                TimedTranslationChunk(
+                    id: sourceChunk.id,
+                    startSeconds: sourceChunk.startSeconds,
+                    endSeconds: sourceChunk.endSeconds,
+                    sourceText: sourceChunk.text,
+                    targetText: targetText
+                )
+            )
+        }
+
+        return chunks
     }
 
     // MARK: - Model preparation helpers (cache-aware)
@@ -1299,39 +1406,28 @@ class SpeechTranscriptionService: ObservableObject {
         await setErrorMessage("Transcription cancelled.")
     }
 
-    private func translateText(_ text: String, from sourceLanguage: Locale.Language, to targetLanguage: Locale.Language) async throws -> String {
-        await setStatus("Checking translation models...")
-        let session = TranslationSession(installedSource: sourceLanguage, target: targetLanguage)
-        await MainActor.run {
-            self.translationSession = session
+    private func mapTranslationError(
+        _ error: Error,
+        sourceLanguage: Locale.Language,
+        targetLanguage: Locale.Language
+    ) -> Error {
+        let sourceCode = sourceLanguage.languageCode?.identifier ?? "unknown"
+        let targetCode = targetLanguage.languageCode?.identifier ?? "unknown"
+
+        if let translationError = error as? TranslationError,
+           String(describing: translationError).contains("notInstalled") {
+            return TranscriptionError.translationModelsNotInstalled(sourceCode, targetCode)
         }
-        try await session.prepareTranslation()
-        await setStatus("Translating to \(targetLanguage.languageCode?.identifier ?? "target language")...")
-        do {
-            let response = try await session.translate(text)
-            return response.targetText
-        } catch {
-            if let translationError = error as? TranslationError,
-               String(describing: translationError).contains("notInstalled") {
-                throw TranscriptionError.translationModelsNotInstalled(
-                    sourceLanguage.languageCode?.identifier ?? "unknown",
-                    targetLanguage.languageCode?.identifier ?? "unknown"
-                )
-            }
-            if error.localizedDescription.contains("not supported") {
-                throw TranscriptionError.translationNotSupported(
-                    sourceLanguage.languageCode?.identifier ?? "unknown",
-                    targetLanguage.languageCode?.identifier ?? "unknown"
-                )
-            } else if error.localizedDescription.contains("notInstalled") || error.localizedDescription.contains("Code=16") {
-                throw TranscriptionError.translationModelsNotInstalled(
-                    sourceLanguage.languageCode?.identifier ?? "unknown",
-                    targetLanguage.languageCode?.identifier ?? "unknown"
-                )
-            } else {
-                throw TranscriptionError.translationFailed(error.localizedDescription)
-            }
+
+        if error.localizedDescription.contains("not supported") {
+            return TranscriptionError.translationNotSupported(sourceCode, targetCode)
         }
+
+        if error.localizedDescription.contains("notInstalled") || error.localizedDescription.contains("Code=16") {
+            return TranscriptionError.translationModelsNotInstalled(sourceCode, targetCode)
+        }
+
+        return TranscriptionError.translationFailed(error.localizedDescription)
     }
 
     private func detectLanguageFromText(_ text: String) -> Locale.Language {

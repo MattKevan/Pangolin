@@ -523,8 +523,12 @@ class ProcessingQueueManager: ObservableObject {
         if task.force { return false }
         guard let videoID = task.videoID else { return false }
         if task.type == .translate, let target = task.targetLocaleIdentifier, let video = fetchVideo(for: task) {
-            if let translatedLanguage = video.translatedLanguage, translatedLanguage == target,
-               let text = video.translatedText, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let targetLanguageCode = normalizedLanguageCode(from: Locale(identifier: target))
+            let translatedLanguageCode = video.translatedLanguage.map { normalizedLanguageCode(from: Locale(identifier: $0)) } ?? nil
+            if targetLanguageCode == translatedLanguageCode,
+               let translatedLanguage = video.translatedLanguage,
+               let text = video.translatedText, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               hasTimedTranslationArtifact(for: video, languageCode: translatedLanguage) {
                 return true
             }
             return false
@@ -553,14 +557,26 @@ class ProcessingQueueManager: ObservableObject {
             if let text = video.transcriptText { return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             return false
         case .translate:
-            if let text = video.translatedText { return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            return false
+            guard let text = video.translatedText,
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let translatedLanguage = video.translatedLanguage,
+                  !translatedLanguage.isEmpty else {
+                return false
+            }
+            return hasTimedTranslationArtifact(for: video, languageCode: translatedLanguage)
         case .summarize:
             if let text = video.transcriptSummary { return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             return false
         case .fileOperation:
             return false
         }
+    }
+
+    private func hasTimedTranslationArtifact(for video: Video, languageCode: String) -> Bool {
+        guard let url = LibraryManager.shared.timedTranslationURL(for: video, languageCode: languageCode) else {
+            return false
+        }
+        return FileManager.default.fileExists(atPath: url.path)
     }
 
     private func shouldKeepExistingTask(_ task: ProcessingTask, videoID: UUID, type: ProcessingTaskType) -> Bool {
