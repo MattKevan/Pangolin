@@ -19,16 +19,6 @@ struct TranscriptionView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if isTranscriptionRunningForVideo {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Transcribing...")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
             if let errorMessage = transcriptionErrorMessage {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
@@ -60,6 +50,11 @@ struct TranscriptionView: View {
         }
         .onChange(of: video.transcriptDateGenerated) { _, _ in
             loadTimedTranscript()
+        }
+        .onChange(of: isTranscriptionActiveForVideo) { _, isActive in
+            if !isActive {
+                loadTimedTranscript()
+            }
         }
         .onChange(of: playerViewModel.currentTime) { _, newTime in
             updateActiveChunk(for: newTime)
@@ -102,6 +97,15 @@ struct TranscriptionView: View {
                     }
                 }
             }
+        } else if isTranscriptionActiveForVideo {
+            VStack(spacing: 10) {
+                ProgressView()
+                    .controlSize(.regular)
+                Text("Transcribing")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, minHeight: 320)
         } else if let loadError {
             ContentUnavailableView(
                 "Timed transcript unavailable",
@@ -111,9 +115,9 @@ struct TranscriptionView: View {
             .frame(maxWidth: .infinity, minHeight: 320)
         } else {
             ContentUnavailableView(
-                "No transcript available",
+                "No transcript yet",
                 systemImage: "doc.text",
-                description: Text("Tap 'Transcribe' to create a timestamped transcript.")
+                description: Text("Transcript has not been generated for this video.")
             )
             .frame(maxWidth: .infinity, minHeight: 320)
         }
@@ -175,8 +179,8 @@ struct TranscriptionView: View {
         processingQueueManager.task(for: video, type: .transcribe)
     }
 
-    private var isTranscriptionRunningForVideo: Bool {
-        transcriptionTask?.status == .processing
+    private var isTranscriptionActiveForVideo: Bool {
+        transcriptionTask?.status.isActive == true
     }
 
     private var transcriptionErrorMessage: String? {

@@ -437,6 +437,10 @@ class ProcessingQueueManager: ObservableObject {
         if let error = transcriptionService.errorMessage {
             throw TaskFailure(message: error)
         }
+
+        if shouldAutoTranslateToSystemLanguage(for: video) {
+            enqueueTranslation(for: [video], targetLocale: Locale.current, force: true)
+        }
     }
 
     private func executeTranslation(_ task: ProcessingTask) async throws {
@@ -568,5 +572,29 @@ class ProcessingQueueManager: ObservableObject {
         case .failed, .cancelled:
             return false
         }
+    }
+
+    private func shouldAutoTranslateToSystemLanguage(for video: Video) -> Bool {
+        guard let transcriptLanguageIdentifier = video.transcriptLanguage,
+              !transcriptLanguageIdentifier.isEmpty else {
+            return false
+        }
+
+        let transcriptLocale = Locale(identifier: transcriptLanguageIdentifier)
+        let transcriptLanguageCode = normalizedLanguageCode(from: transcriptLocale)
+        let systemLanguageCode = normalizedLanguageCode(from: Locale.current)
+
+        guard let transcriptLanguageCode, let systemLanguageCode else {
+            return false
+        }
+
+        return transcriptLanguageCode != systemLanguageCode
+    }
+
+    private func normalizedLanguageCode(from locale: Locale) -> String? {
+        let code = locale.language.languageCode?.identifier
+            ?? locale.identifier.split(separator: "-").first.map(String.init)
+            ?? locale.identifier.split(separator: "_").first.map(String.init)
+        return code?.lowercased()
     }
 }

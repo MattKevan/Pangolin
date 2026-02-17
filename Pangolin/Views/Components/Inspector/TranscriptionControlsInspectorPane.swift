@@ -18,7 +18,7 @@ struct TranscriptionControlsInspectorPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Transcript Controls")
+            Text("Transcription settings")
                 .font(.headline)
 
             VStack(alignment: .leading, spacing: 10) {
@@ -107,16 +107,7 @@ struct TranscriptionControlsInspectorPane: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            if isTranscriptionRunningForVideo {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Transcribing...")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            
 
             transcriptionActionButton
         }
