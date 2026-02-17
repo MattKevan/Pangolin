@@ -77,7 +77,7 @@ struct TranscriptionView: View {
                                 .background(activeChunkID == token.chunkID ? Color.accentColor.opacity(0.2) : Color.clear)
                                 .contentShape(Rectangle())
                                 .onTapGesture {
-                                    playerViewModel.seek(to: token.seekSeconds)
+                                    playerViewModel.seek(to: token.seekSeconds, in: video)
                                 }
                                 .id(token.id)
                         }

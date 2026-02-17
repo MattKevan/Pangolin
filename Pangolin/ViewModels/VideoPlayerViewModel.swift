@@ -39,7 +39,9 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     private var timeObserver: Any?
     private var playbackEndedCancellable: AnyCancellable?
     private var durationStatusCancellable: AnyCancellable?
+    private var playerStateCancellable: AnyCancellable?
     private var buildTask: Task<Void, Never>?
+    private var pendingSeek: (videoID: UUID?, seconds: TimeInterval)?
     
     override init() {
         super.init()
@@ -62,6 +64,14 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         currentVideo = video
         isLoading = true
         let shouldAutoPlay = autoPlay
+        currentTime = resumePosition(for: video) ?? 0
+        let pendingSeekForVideo: TimeInterval? = {
+            guard let pendingSeek, pendingSeek.videoID == video.id else { return nil }
+            return pendingSeek.seconds
+        }()
+        if pendingSeekForVideo != nil {
+            pendingSeek = nil
+        }
         
         // Collect subtitles
         if let subs = video.subtitles as? Set<Subtitle> {
@@ -81,13 +91,15 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
                     let newPlayer = AVPlayer(playerItem: item)
                     newPlayer.volume = volume
                     player = newPlayer
+                    observePlaybackState(for: newPlayer)
                     
                     // Also ensure duration is updated (in case builder didn't)
                     await updateDuration(from: item)
                     
-                    // Restore playback position
-                    if video.playbackPosition > 0 {
-                        await player?.seek(to: CMTime(seconds: video.playbackPosition, preferredTimescale: 600))
+                    // Prefer a pending explicit seek target; otherwise resume if not fully watched.
+                    if let startPosition = pendingSeekForVideo ?? resumePosition(for: video) {
+                        await player?.seek(to: CMTime(seconds: startPosition, preferredTimescale: 600))
+                        currentTime = startPosition
                     }
                     
                     await setupTimeObserverIfAsync()
@@ -98,8 +110,15 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
                 } catch {
                     // Fallback to simple item on failure
                     let item = AVPlayerItem(url: resolvedURL)
-                    player = AVPlayer(playerItem: item)
+                    let newPlayer = AVPlayer(playerItem: item)
+                    newPlayer.volume = volume
+                    player = newPlayer
+                    observePlaybackState(for: newPlayer)
                     await updateDuration(from: item)
+                    if let startPosition = pendingSeekForVideo ?? resumePosition(for: video) {
+                        await player?.seek(to: CMTime(seconds: startPosition, preferredTimescale: 600))
+                        currentTime = startPosition
+                    }
                     await setupTimeObserverIfAsync()
                     await setupNotificationsIfAsync()
                     if shouldAutoPlay {
@@ -134,7 +153,59 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     }
     
     func seek(to time: TimeInterval) {
-        player?.seek(to: CMTime(seconds: time, preferredTimescale: 600))
+        let target = max(0, time.isFinite ? time : 0)
+        guard let player else {
+            currentTime = target
+            if let currentVideo {
+                currentVideo.playbackPosition = target
+                pendingSeek = (currentVideo.id, target)
+                if !isLoading {
+                    loadVideo(currentVideo, autoPlay: isPlaying)
+                }
+            }
+            return
+        }
+
+        let wasPlaying = isPlaying || player.rate != 0
+        let targetTime = CMTime(seconds: target, preferredTimescale: 600)
+
+        player.seek(to: targetTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            guard let self else { return }
+            DispatchQueue.main.async {
+                if wasPlaying {
+                    self.player?.play()
+                    self.player?.rate = self.playbackRate
+                    self.isPlaying = true
+                } else {
+                    self.player?.pause()
+                    self.isPlaying = false
+                }
+                self.currentTime = target
+            }
+        }
+    }
+
+    func seek(to time: TimeInterval, in video: Video) {
+        let target = max(0, time.isFinite ? time : 0)
+        let isSameVideo = currentVideo?.id == video.id
+
+        if isSameVideo, player != nil {
+            seek(to: target)
+            return
+        }
+
+        pendingSeek = (video.id, target)
+        currentTime = target
+        video.playbackPosition = target
+
+        if isSameVideo {
+            if !isLoading {
+                loadVideo(video, autoPlay: isPlaying)
+            }
+            return
+        }
+
+        loadVideo(video, autoPlay: false)
     }
     
     func skipForward(_ seconds: TimeInterval = 10) {
@@ -406,6 +477,8 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         playbackEndedCancellable = nil
         durationStatusCancellable?.cancel()
         durationStatusCancellable = nil
+        playerStateCancellable?.cancel()
+        playerStateCancellable = nil
     }
 
     @MainActor
@@ -423,14 +496,49 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     private func handlePlaybackEnded() {
         isPlaying = false
         if let video = currentVideo {
+            if video.duration > 0 {
+                video.playbackPosition = video.duration
+            }
             video.playCount += 1
             video.lastPlayed = Date()
         }
+    }
+
+    private func resumePosition(for video: Video) -> TimeInterval? {
+        let position = video.playbackPosition
+        guard position.isFinite, position > 0 else { return nil }
+
+        let totalDuration = video.duration
+        guard totalDuration.isFinite, totalDuration > 0 else {
+            return position
+        }
+
+        let progress = position / totalDuration
+        let remaining = totalDuration - position
+
+        // Treat near-end playback as fully watched and restart from the beginning.
+        if progress >= 0.99 || remaining <= 1.0 {
+            return nil
+        }
+
+        return position
+    }
+
+    @MainActor
+    private func observePlaybackState(for player: AVPlayer) {
+        playerStateCancellable?.cancel()
+        playerStateCancellable = player.publisher(for: \.timeControlStatus)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                self?.isPlaying = (status == .playing)
+            }
+        isPlaying = player.timeControlStatus == .playing
     }
     
     deinit {
         playbackEndedCancellable?.cancel()
         durationStatusCancellable?.cancel()
+        playerStateCancellable?.cancel()
         if let observer = timeObserver { player?.removeTimeObserver(observer) }
         buildTask?.cancel()
     }

@@ -83,6 +83,10 @@ struct DetailView: View {
                 if let initial = video, store.selectedVideo == nil {
                     store.selectVideo(initial)
                 }
+                if let selected = effectiveSelectedVideo,
+                   ((playerViewModel.currentVideo?.id != selected.id) || (playerViewModel.player == nil)) {
+                    playerViewModel.loadVideo(selected)
+                }
                 syncControlsInspectorVisibility()
             }
             .onChange(of: store.selectedVideo?.id) { _, _ in

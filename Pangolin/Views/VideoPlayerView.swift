@@ -9,7 +9,7 @@ struct VideoPlayerView: NSViewRepresentable {
     func makeNSView(context: Context) -> AVPlayerView {
         let playerView = AVPlayerView()
         playerView.player = viewModel.player
-        playerView.controlsStyle = .none // We'll use custom controls
+        playerView.controlsStyle = .floating
         playerView.showsFullScreenToggleButton = true
         playerView.allowsPictureInPicturePlayback = true
         viewModel.playerView = playerView
@@ -22,23 +22,19 @@ struct VideoPlayerView: NSViewRepresentable {
     }
 }
 #elseif os(iOS)
-struct VideoPlayerView: UIViewRepresentable {
+struct VideoPlayerView: UIViewControllerRepresentable {
     @ObservedObject var viewModel: VideoPlayerViewModel
-    
-    func makeUIView(context: Context) -> UIView {
-        // We need to wrap the AVPlayerViewController to use its view
+
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
         controller.player = viewModel.player
-        controller.showsPlaybackControls = false // Custom controls
-        
-        // This makes sure the view from the controller is returned
-        return controller.view
+        controller.showsPlaybackControls = true
+        controller.allowsPictureInPicturePlayback = true
+        return controller
     }
-    
-    func updateUIView(_ uiView: UIView, context: Context) {
-        // This is tricky because we don't have direct access to the controller.
-        // For simple player updates, swapping the player on the viewModel should be sufficient.
-        // More complex updates might require a Coordinator.
+
+    func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {
+        uiViewController.player = viewModel.player
     }
 }
 #endif
