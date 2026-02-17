@@ -77,6 +77,95 @@ struct TimedTranscriptTests {
         #expect(index.activeWord(at: 1.1) == nil)
     }
 
+    @Test("Chunk index groups words by punctuation or chunk size")
+    func chunkIndexGroupsWordsByPunctuationOrSize() {
+        let transcript = TimedTranscript(
+            videoID: UUID(),
+            localeIdentifier: "en-US",
+            generatedAt: Date(),
+            segments: [
+                TimedSegment(
+                    startSeconds: 0,
+                    endSeconds: 6,
+                    text: "This is a sentence. Another small line",
+                    words: [
+                        TimedWord(startSeconds: 0.0, endSeconds: 0.5, text: "This"),
+                        TimedWord(startSeconds: 0.5, endSeconds: 1.0, text: "is"),
+                        TimedWord(startSeconds: 1.0, endSeconds: 1.5, text: "a"),
+                        TimedWord(startSeconds: 1.5, endSeconds: 2.0, text: "sentence."),
+                        TimedWord(startSeconds: 2.0, endSeconds: 2.5, text: "Another"),
+                        TimedWord(startSeconds: 2.5, endSeconds: 3.0, text: "small"),
+                        TimedWord(startSeconds: 3.0, endSeconds: 3.5, text: "line"),
+                    ]
+                )
+            ]
+        )
+
+        let chunks = transcript.makeChunkIndex(maxWordsPerChunk: 3).allEntries
+        #expect(chunks.count == 3)
+        #expect(chunks[0].text == "This is a")
+        #expect(chunks[1].text == "sentence.")
+        #expect(chunks[2].text == "Another small line")
+    }
+
+    @Test("Chunk index finds active chunk at boundaries")
+    func chunkIndexActiveChunkBoundaries() {
+        let transcript = TimedTranscript(
+            videoID: UUID(),
+            localeIdentifier: "en-US",
+            generatedAt: Date(),
+            segments: [
+                TimedSegment(
+                    startSeconds: 0,
+                    endSeconds: 4,
+                    text: "One. Two.",
+                    words: [
+                        TimedWord(startSeconds: 0.0, endSeconds: 1.0, text: "One."),
+                        TimedWord(startSeconds: 1.2, endSeconds: 2.0, text: "Two."),
+                    ]
+                )
+            ]
+        )
+
+        let index = transcript.makeChunkIndex(maxWordsPerChunk: 8)
+        #expect(index.activeChunk(at: 0.1)?.text == "One.")
+        #expect(index.activeChunk(at: 1.5)?.text == "Two.")
+        #expect(index.activeChunk(at: 2.5) == nil)
+    }
+
+    @Test("Chunk index does not force boundaries at segment edges")
+    func chunkIndexCanBridgeSegments() {
+        let transcript = TimedTranscript(
+            videoID: UUID(),
+            localeIdentifier: "en-US",
+            generatedAt: Date(),
+            segments: [
+                TimedSegment(
+                    startSeconds: 0,
+                    endSeconds: 1,
+                    text: "This is",
+                    words: [
+                        TimedWord(startSeconds: 0.0, endSeconds: 0.4, text: "This"),
+                        TimedWord(startSeconds: 0.4, endSeconds: 0.8, text: "is"),
+                    ]
+                ),
+                TimedSegment(
+                    startSeconds: 0.8,
+                    endSeconds: 2.0,
+                    text: "one sentence.",
+                    words: [
+                        TimedWord(startSeconds: 0.8, endSeconds: 1.2, text: "one"),
+                        TimedWord(startSeconds: 1.2, endSeconds: 1.8, text: "sentence."),
+                    ]
+                ),
+            ]
+        )
+
+        let chunks = transcript.makeChunkIndex(maxWordsPerChunk: 12).allEntries
+        #expect(chunks.count == 1)
+        #expect(chunks[0].text == "This is one sentence.")
+    }
+
     @Test("Migration to 1.1.0 wipes text fields and artifacts")
     @MainActor
     func migrationWipesLegacyTextData() async throws {

@@ -10,13 +10,16 @@ struct TranscriptWordWrapLayout: Layout {
         cache: inout ()
     ) -> CGSize {
         let maxWidth = proposal.width ?? .greatestFiniteMagnitude
+        let measurementProposal = maxWidth.isFinite
+            ? ProposedViewSize(width: maxWidth, height: nil)
+            : .unspecified
         var cursorX: CGFloat = 0
         var cursorY: CGFloat = 0
         var rowHeight: CGFloat = 0
         var usedWidth: CGFloat = 0
 
         for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
+            let size = subview.sizeThatFits(measurementProposal)
 
             if cursorX > 0, cursorX + size.width > maxWidth {
                 usedWidth = max(usedWidth, cursorX - horizontalSpacing)
@@ -46,12 +49,13 @@ struct TranscriptWordWrapLayout: Layout {
         cache: inout ()
     ) {
         let maxWidth = bounds.width
+        let measurementProposal = ProposedViewSize(width: maxWidth, height: nil)
         var cursorX = bounds.minX
         var cursorY = bounds.minY
         var rowHeight: CGFloat = 0
 
         for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
+            let size = subview.sizeThatFits(measurementProposal)
 
             if cursorX > bounds.minX, cursorX + size.width > bounds.minX + maxWidth {
                 cursorX = bounds.minX

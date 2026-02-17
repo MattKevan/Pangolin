@@ -6,9 +6,16 @@ struct TranscriptionView: View {
     @ObservedObject var playerViewModel: VideoPlayerViewModel
     @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
 
-    @State private var timedIndex: TimedTranscript.FlatIndex?
-    @State private var activeWordID: UUID?
+    @State private var chunkIndex: TimedTranscript.ChunkIndex?
+    @State private var activeChunkID: UUID?
     @State private var loadError: String?
+
+    private struct InlineToken: Identifiable {
+        let id: String
+        let chunkID: UUID
+        let seekSeconds: TimeInterval
+        let text: String
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -46,7 +53,7 @@ struct TranscriptionView: View {
         .padding()
         .onAppear {
             loadTimedTranscript()
-            updateActiveWord(for: playerViewModel.currentTime)
+            updateActiveChunk(for: playerViewModel.currentTime)
         }
         .onChange(of: video.id) { _, _ in
             loadTimedTranscript()
@@ -55,38 +62,43 @@ struct TranscriptionView: View {
             loadTimedTranscript()
         }
         .onChange(of: playerViewModel.currentTime) { _, newTime in
-            updateActiveWord(for: newTime)
+            updateActiveChunk(for: newTime)
         }
     }
 
     @ViewBuilder
     private var content: some View {
-        if let timedIndex {
+        if let chunkIndex {
             ScrollViewReader { proxy in
+                let inlineTokens = makeInlineTokens(from: chunkIndex.allEntries)
                 ScrollView {
-                    TranscriptWordWrapLayout(horizontalSpacing: 6, verticalSpacing: 8) {
-                        ForEach(timedIndex.allEntries) { entry in
-                            Button {
-                                playerViewModel.seek(to: entry.startSeconds)
-                            } label: {
-                                Text(entry.word.text)
-                                    .font(.system(size: 17))
-                                    .foregroundStyle(activeWordID == entry.id ? Color.white : Color.primary)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 4)
-                                    .background(activeWordID == entry.id ? Color.accentColor : Color.secondary.opacity(0.12))
-                                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                            }
-                            .buttonStyle(.plain)
-                            .id(entry.id)
+                    TranscriptWordWrapLayout(horizontalSpacing: 0, verticalSpacing: 2) {
+                        ForEach(inlineTokens) { token in
+                            Text(token.text)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .foregroundStyle(Color.primary)
+                                .padding(.horizontal, 0)
+                                .padding(.vertical, 1)
+                                .background(activeChunkID == token.chunkID ? Color.accentColor.opacity(0.2) : Color.clear)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    playerViewModel.seek(to: token.seekSeconds)
+                                }
+                                .id(token.id)
                         }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .font(.system(size: 17))
+                    .lineSpacing(8)
+                    .textSelection(.enabled)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: 720, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.horizontal, 12)
                 }
-                .onChange(of: activeWordID) { _, wordID in
-                    guard let wordID else { return }
+                .onChange(of: activeChunkID) { _, chunkID in
+                    guard let chunkID else { return }
                     withAnimation(.easeInOut(duration: 0.12)) {
-                        proxy.scrollTo(wordID, anchor: .center)
+                        proxy.scrollTo(chunkID.uuidString, anchor: .center)
                     }
                 }
             }
@@ -109,26 +121,54 @@ struct TranscriptionView: View {
 
     private func loadTimedTranscript() {
         guard let url = libraryManager.timedTranscriptURL(for: video) else {
-            timedIndex = nil
+            chunkIndex = nil
             loadError = nil
-            activeWordID = nil
+            activeChunkID = nil
             return
         }
 
         do {
             let transcript = try libraryManager.readTimedTranscript(from: url)
-            timedIndex = transcript.makeFlatIndex()
+            chunkIndex = transcript.makeChunkIndex()
             loadError = nil
-            updateActiveWord(for: playerViewModel.currentTime)
+            updateActiveChunk(for: playerViewModel.currentTime)
         } catch {
-            timedIndex = nil
+            chunkIndex = nil
             loadError = "Failed to load timed transcript: \(error.localizedDescription)"
-            activeWordID = nil
+            activeChunkID = nil
         }
     }
 
-    private func updateActiveWord(for time: TimeInterval) {
-        activeWordID = timedIndex?.activeWord(at: time)?.id
+    private func updateActiveChunk(for time: TimeInterval) {
+        activeChunkID = chunkIndex?.activeChunk(at: time)?.id
+    }
+
+    private func makeInlineTokens(from entries: [TimedTranscript.ChunkIndex.Entry]) -> [InlineToken] {
+        var tokens: [InlineToken] = []
+        tokens.reserveCapacity(entries.count * 6)
+
+        for entry in entries {
+            let words = entry.text
+                .split(whereSeparator: \.isWhitespace)
+                .map(String.init)
+                .filter { !$0.isEmpty }
+
+            guard !words.isEmpty else { continue }
+
+            for (index, word) in words.enumerated() {
+                let tokenID = index == 0 ? entry.id.uuidString : "\(entry.id.uuidString)-\(index)"
+                tokens.append(
+                    InlineToken(
+                        id: tokenID,
+                        chunkID: entry.id,
+                        seekSeconds: entry.startSeconds,
+                        text: word + " "
+                    )
+                )
+            }
+        }
+
+        return tokens
     }
 
     private var transcriptionTask: ProcessingTask? {
