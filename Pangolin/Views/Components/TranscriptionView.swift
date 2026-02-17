@@ -89,7 +89,7 @@ struct TranscriptionView: View {
                     }
                     .font(.system(size: 17))
                     .lineSpacing(8)
-                    .textSelection(.enabled)
+                    //.textSelection(.enabled)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: 720, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .center)

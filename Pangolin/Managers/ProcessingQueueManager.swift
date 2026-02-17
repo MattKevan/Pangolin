@@ -7,6 +7,11 @@ import Combine
 
 @MainActor
 class ProcessingQueueManager: ObservableObject {
+    private struct TaskFailure: LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
     static let shared = ProcessingQueueManager()
 
     private let processingQueue = ProcessingQueue()
@@ -430,7 +435,7 @@ class ProcessingQueueManager: ObservableObject {
         }()
         await transcriptionService.transcribeVideo(video, libraryManager: LibraryManager.shared, preferredLocale: preferredLocale)
         if let error = transcriptionService.errorMessage {
-            throw TranscriptionError.analysisFailed(error)
+            throw TaskFailure(message: error)
         }
     }
 

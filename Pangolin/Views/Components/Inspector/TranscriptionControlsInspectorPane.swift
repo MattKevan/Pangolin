@@ -2,9 +2,17 @@ import SwiftUI
 import Speech
 
 struct TranscriptionControlsInspectorPane: View {
+    private enum InputMode: String, CaseIterable, Identifiable {
+        case autoDetect
+        case manual
+
+        var id: String { rawValue }
+    }
+
     @ObservedObject var video: Video
     @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
 
+    @State private var inputMode: InputMode = .autoDetect
     @State private var inputSelection: Locale? = nil
     @State private var supportedLocales: [Locale] = []
 
@@ -13,54 +21,60 @@ struct TranscriptionControlsInspectorPane: View {
             Text("Transcript Controls")
                 .font(.headline)
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
                 Text("Language")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Menu {
-                    Button {
-                        inputSelection = nil
-                    } label: {
-                        HStack {
-                            Label("Auto Detect", systemImage: "sparkles")
-                            Spacer()
-                            if inputSelection == nil {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
+                Picker("", selection: $inputMode) {
+                    Text(autoDetectOptionLabel).tag(InputMode.autoDetect)
+                    Text("Select language").tag(InputMode.manual)
+                }
+                .pickerStyle(.radioGroup)
+                .labelsHidden()
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Divider()
-
-                    ForEach(sortedSupportedLocales, id: \.identifier) { locale in
-                        Button {
-                            inputSelection = locale
-                        } label: {
-                            HStack {
-                                Text(displayName(for: locale))
-                                Spacer()
-                                if inputSelection?.identifier == locale.identifier {
-                                    Image(systemName: "checkmark")
+                if inputMode == .manual {
+                    Menu {
+                        ForEach(sortedSupportedLocales, id: \.identifier) { locale in
+                            Button {
+                                inputSelection = locale
+                            } label: {
+                                HStack {
+                                    Text(displayName(for: locale))
+                                    Spacer()
+                                    if inputSelection?.identifier == locale.identifier {
+                                        Image(systemName: "checkmark")
+                                    }
                                 }
                             }
                         }
+                    } label: {
+                        HStack {
+                            Text(inputSelectionLabel)
+                            Spacer()
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(Color.secondary.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
                     }
-                } label: {
-                    HStack {
-                        Text(inputSelectionLabel)
-                        Spacer()
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .background(Color.secondary.opacity(0.12))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .disabled(supportedLocales.isEmpty)
                 }
-                .disabled(supportedLocales.isEmpty)
+
+                if inputMode == .autoDetect {
+                    Text(autoDetectStatusLabel)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             if let errorMessage = transcriptionErrorMessage {
                 VStack(alignment: .leading, spacing: 8) {
@@ -71,15 +85,26 @@ struct TranscriptionControlsInspectorPane: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    Button("Retry") {
-                        processingQueueManager.enqueueTranscription(for: [video], preferredLocale: inputSelection, force: true)
+                    HStack(spacing: 8) {
+                        if inputMode == .autoDetect {
+                            Button("Use selected language") {
+                                inputMode = .manual
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+
+                        Button(retryButtonTitle) {
+                            processingQueueManager.enqueueTranscription(for: [video], preferredLocale: selectedPreferredLocale, force: true)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
                 }
                 .padding(10)
                 .background(Color.orange.opacity(0.12))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             if isTranscriptionRunningForVideo {
@@ -90,10 +115,12 @@ struct TranscriptionControlsInspectorPane: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             transcriptionActionButton
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: video.id) {
             await refreshLanguageControls(for: video.transcriptLanguage)
         }
@@ -107,21 +134,17 @@ struct TranscriptionControlsInspectorPane: View {
 
     @ViewBuilder
     private var transcriptionActionButton: some View {
-        if video.transcriptText == nil {
-            Button("Transcribe") {
-                processingQueueManager.enqueueTranscription(for: [video], preferredLocale: inputSelection)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .disabled(supportedLocales.isEmpty || isTranscriptionRunningForVideo)
-        } else {
-            Button("Regenerate") {
-                processingQueueManager.enqueueTranscription(for: [video], preferredLocale: inputSelection, force: true)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .disabled(supportedLocales.isEmpty || isTranscriptionRunningForVideo)
+        Button("Transcribe") {
+            processingQueueManager.enqueueTranscription(
+                for: [video],
+                preferredLocale: selectedPreferredLocale,
+                force: video.transcriptText != nil
+            )
         }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .disabled(!canStartTranscription)
     }
 
     private func displayName(for locale: Locale) -> String {
@@ -132,7 +155,37 @@ struct TranscriptionControlsInspectorPane: View {
         if let inputSelection {
             return displayName(for: inputSelection)
         }
-        return "Auto Detect"
+        return "Choose language"
+    }
+
+    private var selectedPreferredLocale: Locale? {
+        inputMode == .manual ? inputSelection : nil
+    }
+
+    private var canStartTranscription: Bool {
+        guard !isTranscriptionRunningForVideo else { return false }
+        if inputMode == .manual {
+            return inputSelection != nil && !supportedLocales.isEmpty
+        }
+        return true
+    }
+
+    private var autoDetectOptionLabel: String {
+        "Auto-detect language"
+    }
+
+    private var autoDetectStatusLabel: String {
+        guard let detectedIdentifier = video.transcriptLanguage,
+              !detectedIdentifier.isEmpty else {
+            return "Language will be detected automatically for this video."
+        }
+
+        let localized = Locale.current.localizedString(forIdentifier: detectedIdentifier) ?? detectedIdentifier
+        return "Detected for this video: \(localized)"
+    }
+
+    private var retryButtonTitle: String {
+        inputMode == .manual ? "Retry with selected language" : "Retry auto-detect"
     }
 
     private var transcriptionTask: ProcessingTask? {
@@ -149,35 +202,27 @@ struct TranscriptionControlsInspectorPane: View {
 
     private func refreshLanguageControls(for transcriptLanguageIdentifier: String?) async {
         let locales = await Array(SpeechTranscriber.supportedLocales)
+        let resolvedSelection: Locale? = await {
+            guard let transcriptLanguageIdentifier, !transcriptLanguageIdentifier.isEmpty else {
+                return nil
+            }
+
+            if let matched = locales.first(where: { $0.identifier == transcriptLanguageIdentifier }) {
+                return matched
+            }
+
+            if let equivalent = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: transcriptLanguageIdentifier)),
+               locales.contains(where: { $0.identifier == equivalent.identifier }) {
+                return equivalent
+            }
+
+            return nil
+        }()
+
         await MainActor.run {
             supportedLocales = locales
-        }
-
-        guard let transcriptLanguageIdentifier, !transcriptLanguageIdentifier.isEmpty else {
-            await MainActor.run {
-                // Default to per-video auto-detect when no transcript metadata exists.
-                inputSelection = nil
-            }
-            return
-        }
-
-        if let matched = locales.first(where: { $0.identifier == transcriptLanguageIdentifier }) {
-            await MainActor.run {
-                inputSelection = matched
-            }
-            return
-        }
-
-        if let equivalent = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: transcriptLanguageIdentifier)),
-           locales.contains(where: { $0.identifier == equivalent.identifier }) {
-            await MainActor.run {
-                inputSelection = equivalent
-            }
-            return
-        }
-
-        await MainActor.run {
-            inputSelection = nil
+            inputMode = .autoDetect
+            inputSelection = resolvedSelection ?? locales.first
         }
     }
 }

@@ -24,13 +24,14 @@ enum TranscriptionError: LocalizedError {
         case .permissionDenied:
             return "Speech recognition permission was denied."
         case .languageNotSupported(let locale):
-            return "The language '\(locale.identifier)' is not supported for transcription on this device."
+            let localized = Locale.current.localizedString(forIdentifier: locale.identifier) ?? locale.identifier
+            return "Detected language '\(localized)' (\(locale.identifier)) is not supported for transcription on this device."
         case .audioExtractionFailed:
             return "Failed to extract a usable audio track from the video file."
         case .videoFileNotFound:
             return "The video file could not be found. It may have been moved or deleted."
         case .noSpeechDetected:
-            return "No speech could be detected in the video's audio track."
+            return "No recognizable speech could be detected in the video's audio track."
         case .assetInstallationFailed:
             return "Failed to download required language models. Please check your internet connection."
         case .analysisFailed(let reason):
@@ -51,13 +52,13 @@ enum TranscriptionError: LocalizedError {
         case .permissionDenied:
             return "Please go to System Settings > Privacy & Security > Speech Recognition and grant access to Pangolin."
         case .languageNotSupported:
-            return "Ensure your Mac is connected to the internet to see all available languages."
+            return "Try selecting a supported language manually in Transcript Controls, or connect to the internet so additional language assets can be installed."
         case .audioExtractionFailed:
             return "Try converting the video to a standard format like MP4 and re-importing it."
         case .videoFileNotFound:
             return "Please re-import the video into your Pangolin library."
         case .noSpeechDetected:
-            return "The video's audio may be silent or contain only music."
+            return "The audio may be silent/noisy. Verify audio playback, then retry or select the language manually in Transcript Controls."
         case .assetInstallationFailed:
             return "Ensure you have a stable internet connection and sufficient disk space, then try again."
         case .analysisFailed:
@@ -263,8 +264,7 @@ class SpeechTranscriptionService: ObservableObject {
             await setProgress(1.0)
             await setStatus("Transcription complete!")
         } catch {
-            let localizedError = error as? LocalizedError
-            await setErrorMessage(localizedError?.errorDescription ?? "An unknown error occurred.")
+            await setErrorMessage(userVisibleMessage(for: error))
             print("🚨 Transcription error: \(error)")
         }
         
@@ -339,8 +339,7 @@ class SpeechTranscriptionService: ObservableObject {
             await setProgress(1.0)
             await setStatus("Translation complete!")
         } catch {
-            let localizedError = error as? LocalizedError
-            await setErrorMessage(localizedError?.errorDescription ?? "An unknown error occurred.")
+            await setErrorMessage(userVisibleMessage(for: error))
             print("🚨 Translation error: \(error)")
         }
         
@@ -439,8 +438,7 @@ class SpeechTranscriptionService: ObservableObject {
             await setProgress(1.0)
             await setStatus("Summary complete!")
         } catch {
-            let localizedError = error as? LocalizedError
-            await setErrorMessage(localizedError?.errorDescription ?? error.localizedDescription)
+            await setErrorMessage(userVisibleMessage(for: error))
             print("🚨 Summarization error: \(error)")
         }
         
@@ -851,39 +849,140 @@ class SpeechTranscriptionService: ObservableObject {
             a.isInterleaved == b.isInterleaved
     }
 
+    private struct LanguageProbeResult {
+        let probeLocale: Locale
+        let detectedLanguageCode: String
+        let supportedDetectedLocale: Locale?
+        let confidence: Double
+        let transcriptLength: Int
+
+        var score: Double {
+            // Confidence drives ranking; transcript length is a secondary signal.
+            confidence + min(Double(transcriptLength) / 500.0, 0.25)
+        }
+    }
+
     private func detectLanguage(from sampleAudioURL: URL) async throws -> Locale {
-        // Fallback to system-equivalent supported locale
-        let systemLocale = Locale.current
-        let supportedSystemLocale = await SpeechTranscriber.supportedLocale(equivalentTo: systemLocale) ?? Locale(identifier: "en-US")
-        
-        // Preflight model installation for fallback (cache-aware)
-        do {
-            await setStatus("Preparing language model (\(supportedSystemLocale.identifier))...")
-            try await prepareModelIfNeeded(for: supportedSystemLocale)
-        } catch {
-            // Non-fatal: continue with detection attempt using whatever is available
+        let confidenceThreshold = 0.45
+
+        // Fallback to system-equivalent supported locale.
+        let supportedSystemLocale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale.current) ?? Locale(identifier: "en-US")
+        let supportedLocales = await SpeechTranscriber.supportedLocales
+        let supportedLocaleIDs = Set(supportedLocales.map(\.identifier))
+
+        // Probe a small, robust set to avoid false positives from a single-locale pass.
+        var probeLocales: [Locale] = [supportedSystemLocale]
+
+        if let englishLocale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: "en-US")),
+           !probeLocales.contains(where: { $0.identifier == englishLocale.identifier }) {
+            probeLocales.append(englishLocale)
         }
-        
-        // Preliminary transcription for detection
-        do {
-            let preliminaryOutput = try await performTranscription(
-                fullAudioURL: sampleAudioURL,
-                locale: supportedSystemLocale,
-                videoID: UUID()
-            )
-            let languageRecognizer = NLLanguageRecognizer()
-            languageRecognizer.processString(preliminaryOutput.plainText)
-            guard let languageCode = languageRecognizer.dominantLanguage?.rawValue else {
-                return supportedSystemLocale
-            }
-            if let supported = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: languageCode)) {
-                let set = await SpeechTranscriber.supportedLocales
-                return set.contains(supported) ? supported : supportedSystemLocale
-            }
-            return supportedSystemLocale
-        } catch {
-            return supportedSystemLocale
+
+        if let spanishLocale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: "es-ES")),
+           !probeLocales.contains(where: { $0.identifier == spanishLocale.identifier }) {
+            probeLocales.append(spanishLocale)
         }
+
+        var probeResults: [LanguageProbeResult] = []
+        var foundRecognizableSpeech = false
+
+        for (index, probeLocale) in probeLocales.enumerated() {
+            do {
+                await setStatus("Detecting language (\(index + 1)/\(probeLocales.count))...")
+                try await prepareModelIfNeeded(for: probeLocale)
+
+                let preliminaryOutput = try await performTranscription(
+                    fullAudioURL: sampleAudioURL,
+                    locale: probeLocale,
+                    videoID: UUID()
+                )
+
+                if containsRecognizableSpeech(preliminaryOutput.plainText) {
+                    foundRecognizableSpeech = true
+                }
+
+                if let result = await languageProbeResult(
+                    from: preliminaryOutput.plainText,
+                    probeLocale: probeLocale,
+                    supportedLocaleIDs: supportedLocaleIDs
+                ) {
+                    probeResults.append(result)
+                }
+            } catch {
+                // Non-fatal per probe: continue with remaining probes.
+                continue
+            }
+        }
+
+        guard foundRecognizableSpeech, !probeResults.isEmpty else {
+            throw TranscriptionError.noSpeechDetected
+        }
+
+        if let bestSupported = probeResults
+            .filter({ $0.supportedDetectedLocale != nil })
+            .max(by: { $0.score < $1.score }),
+           let supportedLocale = bestSupported.supportedDetectedLocale,
+           bestSupported.confidence >= confidenceThreshold {
+            print("🧠 DETECTED: Chose \(supportedLocale.identifier) via probe \(bestSupported.probeLocale.identifier) (confidence: \(bestSupported.confidence), textLen: \(bestSupported.transcriptLength))")
+            return supportedLocale
+        }
+
+        if let bestAny = probeResults.max(by: { $0.score < $1.score }) {
+            if bestAny.confidence < confidenceThreshold {
+                throw TranscriptionError.noSpeechDetected
+            }
+            throw TranscriptionError.languageNotSupported(Locale(identifier: bestAny.detectedLanguageCode))
+        }
+
+        throw TranscriptionError.noSpeechDetected
+    }
+
+    private func languageProbeResult(
+        from text: String,
+        probeLocale: Locale,
+        supportedLocaleIDs: Set<String>
+    ) async -> LanguageProbeResult? {
+        let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard containsRecognizableSpeech(normalizedText) else { return nil }
+
+        let languageRecognizer = NLLanguageRecognizer()
+        languageRecognizer.processString(normalizedText)
+
+        guard let (detectedLanguage, confidence) = languageRecognizer.languageHypotheses(withMaximum: 3)
+            .max(by: { $0.value < $1.value }) else { return nil }
+
+        let detectedLanguageCode = detectedLanguage.rawValue
+        let detectedLocale = Locale(identifier: detectedLanguageCode)
+        let supportedDetectedLocale: Locale?
+        if let supported = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: detectedLanguage.rawValue)),
+           supportedLocaleIDs.contains(supported.identifier) {
+            supportedDetectedLocale = supported
+        } else {
+            supportedDetectedLocale = nil
+        }
+
+        return LanguageProbeResult(
+            probeLocale: probeLocale,
+            detectedLanguageCode: detectedLocale.identifier,
+            supportedDetectedLocale: supportedDetectedLocale,
+            confidence: confidence,
+            transcriptLength: normalizedText.count
+        )
+    }
+
+    private func containsRecognizableSpeech(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        let letterCount = trimmed.unicodeScalars.reduce(into: 0) { partialResult, scalar in
+            if CharacterSet.letters.contains(scalar) {
+                partialResult += 1
+            }
+        }
+        let wordCount = trimmed.split(whereSeparator: \.isWhitespace).count
+
+        // Works for space-delimited and non-space-delimited writing systems.
+        return letterCount >= 8 || (letterCount >= 4 && wordCount >= 2)
     }
 
     private func performTranscription(fullAudioURL: URL, locale: Locale, videoID: UUID) async throws -> TranscriptionOutput {
@@ -1017,7 +1116,9 @@ class SpeechTranscriptionService: ObservableObject {
                 let output = try await awaitResultsWithTimeout(resultsTask, timeoutSeconds: max(30, analysisTimeout / 2), analyzer: analyzer)
                 print("⏱️ resultsTask completion: \(Date().timeIntervalSince(resultsStart))s")
 
-                if output.plainText.isEmpty { throw TranscriptionError.noSpeechDetected }
+                if !containsRecognizableSpeech(output.plainText) {
+                    throw TranscriptionError.noSpeechDetected
+                }
                 if !audioExtensions.contains(fileExtension) {
                     try? FileManager.default.removeItem(at: audioURLToTranscribe)
                 }
@@ -1419,6 +1520,26 @@ class SpeechTranscriptionService: ObservableObject {
         await MainActor.run {
             self.errorMessage = message
         }
+    }
+
+    private func userVisibleMessage(for error: Error) -> String {
+        if let localized = error as? LocalizedError {
+            let description = localized.errorDescription?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let suggestion = localized.recoverySuggestion?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+            if !description.isEmpty, !suggestion.isEmpty, description != suggestion {
+                return "\(description)\n\n\(suggestion)"
+            }
+            if !description.isEmpty {
+                return description
+            }
+            if !suggestion.isEmpty {
+                return suggestion
+            }
+        }
+
+        let fallback = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        return fallback.isEmpty ? "An unknown error occurred." : fallback
     }
 
     private func isTranscribingOnMain() async -> Bool {
