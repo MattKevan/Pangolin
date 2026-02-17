@@ -187,8 +187,11 @@ class ProcessingQueueManager: ObservableObject {
                 if let existing = processingQueue.taskForVideo(id, type: type) {
                     if force {
                         processingQueue.removeTask(existing)
-                    } else {
+                    } else if shouldKeepExistingTask(existing, videoID: id, type: type) {
                         continue
+                    } else {
+                        // Remove stale/non-blocking historical task and enqueue a fresh one.
+                        processingQueue.removeTask(existing)
                     }
                 }
                 let task = ProcessingTask(
@@ -468,7 +471,21 @@ class ProcessingQueueManager: ObservableObject {
     private func ensureDependencies(for video: Video, type: ProcessingTaskType) {
         guard let id = video.id else { return }
         for dependency in type.dependencies {
-            if processingQueue.taskForVideo(id, type: dependency) == nil {
+            if let existingDependencyTask = processingQueue.taskForVideo(id, type: dependency) {
+                switch existingDependencyTask.status {
+                case .pending, .waitingForDependencies, .processing:
+                    continue
+                case .completed:
+                    if hasRequiredData(videoID: id, type: dependency) {
+                        continue
+                    }
+                    processingQueue.removeTask(existingDependencyTask)
+                case .failed, .cancelled:
+                    processingQueue.removeTask(existingDependencyTask)
+                }
+            }
+
+            if !hasRequiredData(videoID: id, type: dependency) {
                 let depTask = ProcessingTask(videoID: id, type: dependency, itemName: video.title ?? video.fileName)
                 processingQueue.addTask(depTask)
             }
@@ -533,6 +550,17 @@ class ProcessingQueueManager: ObservableObject {
             if let text = video.transcriptSummary { return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             return false
         case .fileOperation:
+            return false
+        }
+    }
+
+    private func shouldKeepExistingTask(_ task: ProcessingTask, videoID: UUID, type: ProcessingTaskType) -> Bool {
+        switch task.status {
+        case .pending, .waitingForDependencies, .processing:
+            return true
+        case .completed:
+            return hasRequiredData(videoID: videoID, type: type)
+        case .failed, .cancelled:
             return false
         }
     }

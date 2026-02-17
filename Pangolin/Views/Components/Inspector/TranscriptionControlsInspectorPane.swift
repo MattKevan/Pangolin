@@ -94,24 +94,8 @@ struct TranscriptionControlsInspectorPane: View {
 
             transcriptionActionButton
         }
-        .task {
-            let locales = await Array(SpeechTranscriber.supportedLocales)
-            await MainActor.run {
-                supportedLocales = locales
-            }
-
-            if let langID = video.transcriptLanguage {
-                if let matched = locales.first(where: { $0.identifier == langID }) {
-                    inputSelection = matched
-                } else if let equivalent = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: langID)),
-                          locales.contains(where: { $0.identifier == equivalent.identifier }) {
-                    inputSelection = equivalent
-                } else {
-                    inputSelection = nil
-                }
-            } else {
-                inputSelection = nil
-            }
+        .task(id: video.id) {
+            await refreshLanguageControls(for: video.transcriptLanguage)
         }
     }
 
@@ -161,5 +145,39 @@ struct TranscriptionControlsInspectorPane: View {
 
     private var transcriptionErrorMessage: String? {
         transcriptionTask?.errorMessage
+    }
+
+    private func refreshLanguageControls(for transcriptLanguageIdentifier: String?) async {
+        let locales = await Array(SpeechTranscriber.supportedLocales)
+        await MainActor.run {
+            supportedLocales = locales
+        }
+
+        guard let transcriptLanguageIdentifier, !transcriptLanguageIdentifier.isEmpty else {
+            await MainActor.run {
+                // Default to per-video auto-detect when no transcript metadata exists.
+                inputSelection = nil
+            }
+            return
+        }
+
+        if let matched = locales.first(where: { $0.identifier == transcriptLanguageIdentifier }) {
+            await MainActor.run {
+                inputSelection = matched
+            }
+            return
+        }
+
+        if let equivalent = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: transcriptLanguageIdentifier)),
+           locales.contains(where: { $0.identifier == equivalent.identifier }) {
+            await MainActor.run {
+                inputSelection = equivalent
+            }
+            return
+        }
+
+        await MainActor.run {
+            inputSelection = nil
+        }
     }
 }

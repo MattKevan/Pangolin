@@ -118,24 +118,8 @@ struct TranslationControlsInspectorPane: View {
 
             translationActionButton
         }
-        .task {
-            let locales = await Array(SpeechTranscriber.supportedLocales)
-            await MainActor.run {
-                supportedLocales = locales
-            }
-
-            if let systemEquivalent = await SpeechTranscriber.supportedLocale(equivalentTo: Locale.current),
-               locales.contains(where: { $0.identifier == systemEquivalent.identifier }) {
-                await MainActor.run {
-                    systemSupportedLocale = systemEquivalent
-                    outputSelection = systemEquivalent
-                }
-            } else {
-                await MainActor.run {
-                    systemSupportedLocale = nil
-                    outputSelection = locales.first
-                }
-            }
+        .task(id: video.id) {
+            await refreshTranslationControls()
         }
     }
 
@@ -221,5 +205,25 @@ struct TranslationControlsInspectorPane: View {
 
     private var translationErrorMessage: String? {
         translationTask?.errorMessage
+    }
+
+    private func refreshTranslationControls() async {
+        let locales = await Array(SpeechTranscriber.supportedLocales)
+        await MainActor.run {
+            supportedLocales = locales
+        }
+
+        if let systemEquivalent = await SpeechTranscriber.supportedLocale(equivalentTo: Locale.current),
+           locales.contains(where: { $0.identifier == systemEquivalent.identifier }) {
+            await MainActor.run {
+                systemSupportedLocale = systemEquivalent
+                outputSelection = systemEquivalent
+            }
+        } else {
+            await MainActor.run {
+                systemSupportedLocale = nil
+                outputSelection = locales.first
+            }
+        }
     }
 }

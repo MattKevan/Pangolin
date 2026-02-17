@@ -159,7 +159,6 @@ struct MainView: View {
                     }
                 }
             }
-            // Removed auto-transcribe on selection change. Transcription must be user-initiated.
     }
     
     
@@ -280,6 +279,7 @@ private struct RootEventsModifier: ViewModifier {
             .navigationTitle(folderStore.selectedVideo?.title ?? libraryManager.currentLibrary?.name ?? "Pangolin")
             .onAppear {
                 StoragePolicyManager.shared.setProtectedSelectedVideoID(folderStore.selectedVideo?.id)
+                handleAutoTranscribe()
             }
             .onChange(of: folderStore.selectedVideo?.id) { _, newVideoID in
                 StoragePolicyManager.shared.setProtectedSelectedVideoID(newVideoID)
