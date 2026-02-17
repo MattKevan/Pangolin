@@ -969,6 +969,51 @@ class FolderNavigationStore: ObservableObject {
                     }
                 }
             }
+
+            // Delete transcript artifacts
+            if let transcriptURL = libraryManager.transcriptURL(for: video) {
+                do {
+                    if FileManager.default.fileExists(atPath: transcriptURL.path) {
+                        try FileManager.default.removeItem(at: transcriptURL)
+                        print("🗑️ DELETION: Deleted transcript: \(transcriptURL.lastPathComponent)")
+                    }
+                } catch {
+                    print("⚠️ DELETION: Failed to delete transcript \(transcriptURL.lastPathComponent): \(error)")
+                }
+            }
+
+            if let timedTranscriptURL = libraryManager.timedTranscriptURL(for: video) {
+                do {
+                    if FileManager.default.fileExists(atPath: timedTranscriptURL.path) {
+                        try FileManager.default.removeItem(at: timedTranscriptURL)
+                        print("🗑️ DELETION: Deleted timed transcript: \(timedTranscriptURL.lastPathComponent)")
+                    }
+                } catch {
+                    print("⚠️ DELETION: Failed to delete timed transcript \(timedTranscriptURL.lastPathComponent): \(error)")
+                }
+            }
+
+            if let summaryURL = libraryManager.summaryURL(for: video) {
+                do {
+                    if FileManager.default.fileExists(atPath: summaryURL.path) {
+                        try FileManager.default.removeItem(at: summaryURL)
+                        print("🗑️ DELETION: Deleted summary: \(summaryURL.lastPathComponent)")
+                    }
+                } catch {
+                    print("⚠️ DELETION: Failed to delete summary \(summaryURL.lastPathComponent): \(error)")
+                }
+            }
+
+            for translationURL in libraryManager.translationURLs(for: video) {
+                do {
+                    if FileManager.default.fileExists(atPath: translationURL.path) {
+                        try FileManager.default.removeItem(at: translationURL)
+                        print("🗑️ DELETION: Deleted translation: \(translationURL.lastPathComponent)")
+                    }
+                } catch {
+                    print("⚠️ DELETION: Failed to delete translation \(translationURL.lastPathComponent): \(error)")
+                }
+            }
         }
         
         // Clean up empty directories

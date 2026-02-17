@@ -45,6 +45,7 @@ struct InspectorContentView: View {
     @EnvironmentObject private var libraryManager: LibraryManager
     @EnvironmentObject private var transcriptionService: SpeechTranscriptionService
     let video: Video?
+    let playerViewModel: VideoPlayerViewModel
     @Binding var selectedTab: InspectorTab
     
     var body: some View {
@@ -81,7 +82,7 @@ struct InspectorContentView: View {
         if let selected = video {
             switch selectedTab {
             case .transcript:
-                TranscriptionView(video: selected)
+                TranscriptionView(video: selected, playerViewModel: playerViewModel)
                     .environmentObject(libraryManager)
                     .environmentObject(transcriptionService)
                     .background(.clear)

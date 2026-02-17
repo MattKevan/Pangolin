@@ -28,7 +28,7 @@ class LibraryManager: ObservableObject {
     
     // MARK: - Constants
     private let libraryExtension = "pangolin"
-    private let currentVersion = "1.0.0"
+    private let currentVersion = "1.1.0"
     private let storageSystemVersion = 2
     private let cloudContainerIdentifier = "iCloud.com.newindustries.pangolin"
     private let recentLibrariesKey = "RecentLibraries"
@@ -656,8 +656,62 @@ class LibraryManager: ObservableObject {
     }
     
     private func migrateLibrary(_ library: Library, from oldVersion: String, to newVersion: String) async throws {
-        // Implement migration logic here
+        guard let context = library.managedObjectContext else {
+            throw LibraryError.corruptedDatabase
+        }
+
+        if isVersion(oldVersion, lessThan: "1.1.0") {
+            try wipeLegacyTextArtifactsAndFields(for: library, in: context)
+        }
+
         library.version = newVersion
+        try context.save()
+    }
+
+    private func isVersion(_ lhs: String, lessThan rhs: String) -> Bool {
+        let lhsComponents = lhs.split(separator: ".").compactMap { Int($0) }
+        let rhsComponents = rhs.split(separator: ".").compactMap { Int($0) }
+        let maxCount = max(lhsComponents.count, rhsComponents.count)
+
+        for index in 0..<maxCount {
+            let lhsValue = index < lhsComponents.count ? lhsComponents[index] : 0
+            let rhsValue = index < rhsComponents.count ? rhsComponents[index] : 0
+            if lhsValue != rhsValue {
+                return lhsValue < rhsValue
+            }
+        }
+        return false
+    }
+
+    private func wipeLegacyTextArtifactsAndFields(for library: Library, in context: NSManagedObjectContext) throws {
+        let request = Video.fetchRequest()
+        request.predicate = NSPredicate(format: "library == %@", library)
+        let videos = try context.fetch(request)
+
+        for video in videos {
+            video.transcriptText = nil
+            video.transcriptLanguage = nil
+            video.transcriptDateGenerated = nil
+            video.translatedText = nil
+            video.translatedLanguage = nil
+            video.translationDateGenerated = nil
+            video.transcriptSummary = nil
+            video.summaryDateGenerated = nil
+        }
+
+        guard let base = library.url else { return }
+        let directories = [
+            base.appendingPathComponent("Transcripts", isDirectory: true),
+            base.appendingPathComponent("Translations", isDirectory: true),
+            base.appendingPathComponent("Summaries", isDirectory: true),
+        ]
+
+        for directory in directories {
+            if fileManager.fileExists(atPath: directory.path) {
+                try fileManager.removeItem(at: directory)
+            }
+        }
+        try ensureTextArtifactDirectories(for: library)
     }
 
     private func normalizeStorageSettings(for library: Library) {
@@ -818,36 +872,71 @@ enum LibraryError: LocalizedError {
 // MARK: - Text Artifact Directories & I/O
 
 extension LibraryManager {
-    private var textArtifactsDirectories: (transcripts: URL, translations: URL, summaries: URL)? {
-        guard let base = currentLibrary?.url else { return nil }
-        return (base.appendingPathComponent("Transcripts"),
-                base.appendingPathComponent("Translations"),
-                base.appendingPathComponent("Summaries"))
+    private func textArtifactsDirectories(for library: Library? = nil) -> (transcripts: URL, translations: URL, summaries: URL)? {
+        let target = library ?? currentLibrary
+        guard let base = target?.url else { return nil }
+        return (base.appendingPathComponent("Transcripts", isDirectory: true),
+                base.appendingPathComponent("Translations", isDirectory: true),
+                base.appendingPathComponent("Summaries", isDirectory: true))
     }
     
-    func ensureTextArtifactDirectories() throws {
-        guard let dirs = textArtifactsDirectories else { return }
+    func ensureTextArtifactDirectories(for library: Library? = nil) throws {
+        guard let dirs = textArtifactsDirectories(for: library) else { return }
         try FileManager.default.createDirectory(at: dirs.transcripts, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: dirs.translations, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: dirs.summaries, withIntermediateDirectories: true)
     }
     
     func transcriptURL(for video: Video) -> URL? {
-        guard let id = video.id, let dirs = textArtifactsDirectories else { return nil }
+        guard let id = video.id, let dirs = textArtifactsDirectories(for: video.library) else { return nil }
         return dirs.transcripts.appendingPathComponent("\(id.uuidString).txt")
     }
     
+    func timedTranscriptURL(for video: Video) -> URL? {
+        guard let id = video.id, let dirs = textArtifactsDirectories(for: video.library) else { return nil }
+        return dirs.transcripts.appendingPathComponent("\(id.uuidString).timed.json")
+    }
+
     func translationURL(for video: Video, languageCode: String) -> URL? {
-        guard let id = video.id, let dirs = textArtifactsDirectories else { return nil }
+        guard let id = video.id, let dirs = textArtifactsDirectories(for: video.library) else { return nil }
         let safeLang = languageCode.replacingOccurrences(of: "/", with: "-")
         return dirs.translations.appendingPathComponent("\(id.uuidString)_\(safeLang).txt")
     }
+
+    func translationURLs(for video: Video) -> [URL] {
+        guard let id = video.id, let dirs = textArtifactsDirectories(for: video.library) else { return [] }
+        let prefix = id.uuidString + "_"
+        let urls = (try? FileManager.default.contentsOfDirectory(at: dirs.translations, includingPropertiesForKeys: nil)) ?? []
+        return urls.filter { $0.lastPathComponent.hasPrefix(prefix) }
+    }
     
     func summaryURL(for video: Video) -> URL? {
-        guard let id = video.id, let dirs = textArtifactsDirectories else { return nil }
+        guard let id = video.id, let dirs = textArtifactsDirectories(for: video.library) else { return nil }
         return dirs.summaries.appendingPathComponent("\(id.uuidString).md")
     }
     
+    func writeTimedTranscriptAtomically(_ transcript: TimedTranscript, to url: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(transcript)
+        let fm = FileManager.default
+        let dir = url.deletingLastPathComponent()
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let tmp = dir.appendingPathComponent(UUID().uuidString)
+        try data.write(to: tmp, options: .atomic)
+        if fm.fileExists(atPath: url.path) {
+            try fm.removeItem(at: url)
+        }
+        try fm.moveItem(at: tmp, to: url)
+    }
+
+    func readTimedTranscript(from url: URL) throws -> TimedTranscript {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(TimedTranscript.self, from: Data(contentsOf: url))
+    }
+
     func writeTextAtomically(_ text: String, to url: URL) throws {
         let fm = FileManager.default
         let dir = url.deletingLastPathComponent()

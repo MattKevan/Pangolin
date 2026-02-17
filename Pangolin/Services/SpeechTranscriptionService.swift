@@ -74,6 +74,11 @@ enum TranscriptionError: LocalizedError {
     }
 }
 
+struct TranscriptionOutput: Sendable {
+    let plainText: String
+    let timedTranscript: TimedTranscript
+}
+
 class SpeechTranscriptionService: ObservableObject {
     @Published var isTranscribing = false
     @Published var isSummarizing = false
@@ -217,15 +222,20 @@ class SpeechTranscriptionService: ObservableObject {
             
             await setStatus("Transcribing main audio...")
             try Task.checkCancellation()
-            let transcriptText = try await performTranscription(
+            guard let videoID = await MainActor.run(body: { video.id }) else {
+                throw TranscriptionError.analysisFailed("Video ID missing for timed transcript generation.")
+            }
+
+            let transcriptionOutput = try await performTranscription(
                 fullAudioURL: videoURL,
-                locale: usedLocale
+                locale: usedLocale,
+                videoID: videoID
             )
             await setProgress(0.9)
             
             await setStatus("Saving transcript...")
             await MainActor.run {
-                video.transcriptText = transcriptText
+                video.transcriptText = transcriptionOutput.plainText
                 video.transcriptLanguage = usedLocale.identifier
                 video.transcriptDateGenerated = Date()
             }
@@ -234,8 +244,11 @@ class SpeechTranscriptionService: ObservableObject {
             do {
                 try await MainActor.run {
                     try libraryManager.ensureTextArtifactDirectories()
-                    if let url = libraryManager.transcriptURL(for: video) {
-                        try libraryManager.writeTextAtomically(transcriptText, to: url)
+                    if let transcriptURL = libraryManager.transcriptURL(for: video) {
+                        try libraryManager.writeTextAtomically(transcriptionOutput.plainText, to: transcriptURL)
+                    }
+                    if let timedURL = libraryManager.timedTranscriptURL(for: video) {
+                        try libraryManager.writeTimedTranscriptAtomically(transcriptionOutput.timedTranscript, to: timedURL)
                     }
                 }
             } catch {
@@ -512,7 +525,12 @@ class SpeechTranscriptionService: ObservableObject {
     }
     
     private func transcriber(for locale: Locale) -> SpeechTranscriber {
-        SpeechTranscriber(locale: locale, preset: .transcription)
+        SpeechTranscriber(
+            locale: locale,
+            transcriptionOptions: [],
+            reportingOptions: [],
+            attributeOptions: [.audioTimeRange, .transcriptionConfidence]
+        )
     }
 
     private func getShouldPreferAssetPipelineTranscode() -> Bool {
@@ -848,9 +866,13 @@ class SpeechTranscriptionService: ObservableObject {
         
         // Preliminary transcription for detection
         do {
-            let preliminaryTranscript = try await performTranscription(fullAudioURL: sampleAudioURL, locale: supportedSystemLocale)
+            let preliminaryOutput = try await performTranscription(
+                fullAudioURL: sampleAudioURL,
+                locale: supportedSystemLocale,
+                videoID: UUID()
+            )
             let languageRecognizer = NLLanguageRecognizer()
-            languageRecognizer.processString(preliminaryTranscript)
+            languageRecognizer.processString(preliminaryOutput.plainText)
             guard let languageCode = languageRecognizer.dominantLanguage?.rawValue else {
                 return supportedSystemLocale
             }
@@ -864,11 +886,9 @@ class SpeechTranscriptionService: ObservableObject {
         }
     }
 
-    private func performTranscription(fullAudioURL: URL, locale: Locale) async throws -> String {
+    private func performTranscription(fullAudioURL: URL, locale: Locale, videoID: UUID) async throws -> TranscriptionOutput {
         // Ensure model is prepared (fast if already installed or prepared this session)
         try await prepareModelIfNeeded(for: locale)
-
-        let preset: SpeechTranscriber.Preset = .transcription
 
         // If video, extract audio; if audio already, use directly
         let fileExtension = fullAudioURL.pathExtension.lowercased()
@@ -891,7 +911,7 @@ class SpeechTranscriptionService: ObservableObject {
            let size = attrs[FileAttributeKey.size] as? NSNumber {
             print("🧪 Source audio size (bytes): \(size)")
         }
-        let formatTranscriber = SpeechTranscriber(locale: locale, preset: preset)
+        let formatTranscriber = transcriber(for: locale)
         guard let targetFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [formatTranscriber]) else {
             throw TranscriptionError.analysisFailed("No compatible audio format available for the speech analyzer.")
         }
@@ -961,7 +981,7 @@ class SpeechTranscriptionService: ObservableObject {
         for attempt in 0...1 {
             try Task.checkCancellation()
             let audioFile = try AVAudioFile(forReading: workingAudioURL)
-            let transcriber = SpeechTranscriber(locale: locale, preset: preset)
+            let transcriber = transcriber(for: locale)
             let audioFormat = audioFile.processingFormat
             print("🧪 Analyzer input format for attempt \(attempt + 1): \(audioFormat)")
 
@@ -975,8 +995,8 @@ class SpeechTranscriptionService: ObservableObject {
             try await analyzer.prepareToAnalyze(in: audioFormat)
             print("⏱️ prepareToAnalyze: \(Date().timeIntervalSince(prepareStart))s")
 
-            let resultsTask = Task { () -> [String] in
-                try await collectFinalResults(from: transcriber)
+            let resultsTask = Task { () -> TranscriptionOutput in
+                try await collectFinalResults(from: transcriber, videoID: videoID, locale: locale)
             }
 
             do {
@@ -994,15 +1014,14 @@ class SpeechTranscriptionService: ObservableObject {
                 print("⏱️ finalizeAndFinish: \(Date().timeIntervalSince(finalizeStart))s")
 
                 let resultsStart = Date()
-                let parts = try await awaitResultsWithTimeout(resultsTask, timeoutSeconds: max(30, analysisTimeout / 2), analyzer: analyzer)
+                let output = try await awaitResultsWithTimeout(resultsTask, timeoutSeconds: max(30, analysisTimeout / 2), analyzer: analyzer)
                 print("⏱️ resultsTask completion: \(Date().timeIntervalSince(resultsStart))s")
 
-                let combined = parts.joined(separator: " ")
-                if combined.isEmpty { throw TranscriptionError.noSpeechDetected }
+                if output.plainText.isEmpty { throw TranscriptionError.noSpeechDetected }
                 if !audioExtensions.contains(fileExtension) {
                     try? FileManager.default.removeItem(at: audioURLToTranscribe)
                 }
-                return combined
+                return output
             } catch {
                 lastError = error
                 resultsTask.cancel()
@@ -1026,21 +1045,120 @@ class SpeechTranscriptionService: ObservableObject {
         throw lastError ?? TranscriptionError.analysisFailed("Transcription failed unexpectedly.")
     }
 
-    private func collectFinalResults(from transcriber: SpeechTranscriber) async throws -> [String] {
-        var transcriptParts: [String] = []
+    private func collectFinalResults(from transcriber: SpeechTranscriber, videoID: UUID, locale: Locale) async throws -> TranscriptionOutput {
+        var segments: [TimedSegment] = []
         for try await result in transcriber.results {
             if Task.isCancelled {
                 throw TranscriptionError.analysisFailed("Transcription cancelled.")
             }
             if result.isFinal {
-                transcriptParts.append(String(result.text.characters))
+                let segmentText = String(result.text.characters).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !segmentText.isEmpty else { continue }
+
+                let segmentStart = seconds(from: result.range.start)
+                let segmentEnd = max(segmentStart, seconds(from: CMTimeRangeGetEnd(result.range)))
+                let runWords = timedWords(from: result.text)
+                let words = runWords.isEmpty
+                    ? Self.proportionalWordTimingTokens(
+                        text: segmentText,
+                        startSeconds: segmentStart,
+                        endSeconds: segmentEnd
+                    )
+                    : runWords
+
+                segments.append(
+                    TimedSegment(
+                        startSeconds: segmentStart,
+                        endSeconds: segmentEnd,
+                        text: segmentText,
+                        words: words
+                    )
+                )
             }
         }
-        return transcriptParts
+        let plainText = segments.map(\.text).joined(separator: " ")
+        let timedTranscript = TimedTranscript(
+            videoID: videoID,
+            localeIdentifier: locale.identifier,
+            generatedAt: Date(),
+            segments: segments
+        )
+        return TranscriptionOutput(plainText: plainText, timedTranscript: timedTranscript)
     }
 
-    private func awaitResultsWithTimeout(_ task: Task<[String], Error>, timeoutSeconds: TimeInterval, analyzer: SpeechAnalyzer) async throws -> [String] {
-        try await withThrowingTaskGroup(of: [String].self) { group in
+    private func timedWords(from text: AttributedString) -> [TimedWord] {
+        var words: [TimedWord] = []
+        for run in text.runs {
+            guard let runTimeRange = run.attributes[AttributeScopes.SpeechAttributes.TimeRangeAttribute.self] else {
+                continue
+            }
+
+            let runText = String(text[run.range].characters).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !runText.isEmpty else { continue }
+
+            let start = seconds(from: runTimeRange.start)
+            let end = max(start, seconds(from: CMTimeRangeGetEnd(runTimeRange)))
+            words.append(contentsOf: Self.proportionalWordTimingTokens(text: runText, startSeconds: start, endSeconds: end))
+        }
+        return words.sorted { lhs, rhs in
+            if lhs.startSeconds == rhs.startSeconds {
+                return lhs.endSeconds < rhs.endSeconds
+            }
+            return lhs.startSeconds < rhs.startSeconds
+        }
+    }
+
+    private func seconds(from time: CMTime) -> TimeInterval {
+        let value = CMTimeGetSeconds(time)
+        guard value.isFinite else { return 0 }
+        return max(0, value)
+    }
+
+    static func proportionalWordTimingTokens(
+        text: String,
+        startSeconds: TimeInterval,
+        endSeconds: TimeInterval
+    ) -> [TimedWord] {
+        let tokens = text.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard !tokens.isEmpty else { return [] }
+
+        let start = max(0, startSeconds)
+        let end = max(start, endSeconds)
+        let duration = end - start
+        if duration == 0 {
+            return tokens.map { TimedWord(startSeconds: start, endSeconds: end, text: $0) }
+        }
+
+        let weights = tokens.map { max(1, $0.count) }
+        let totalWeight = max(1, weights.reduce(0, +))
+        var cursor = start
+        var words: [TimedWord] = []
+        words.reserveCapacity(tokens.count)
+
+        for index in tokens.indices {
+            let tokenEnd: TimeInterval
+            if index == tokens.indices.last {
+                tokenEnd = end
+            } else {
+                let fraction = Double(weights[index]) / Double(totalWeight)
+                tokenEnd = min(end, max(cursor, cursor + (duration * fraction)))
+            }
+
+            words.append(
+                TimedWord(
+                    startSeconds: cursor,
+                    endSeconds: tokenEnd,
+                    text: tokens[index]
+                )
+            )
+            cursor = tokenEnd
+        }
+
+        return words
+    }
+
+    private func awaitResultsWithTimeout(_ task: Task<TranscriptionOutput, Error>, timeoutSeconds: TimeInterval, analyzer: SpeechAnalyzer) async throws -> TranscriptionOutput {
+        try await withThrowingTaskGroup(of: TranscriptionOutput.self) { group in
             group.addTask {
                 return try await task.value
             }

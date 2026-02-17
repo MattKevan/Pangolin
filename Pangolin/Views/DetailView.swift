@@ -73,7 +73,7 @@ struct DetailView: View {
                 }
                 
                 // Bottom: Inline Inspector (fills remaining space)
-                InspectorContentView(video: effectiveSelectedVideo, selectedTab: $selectedInspectorTab)
+                InspectorContentView(video: effectiveSelectedVideo, playerViewModel: playerViewModel, selectedTab: $selectedInspectorTab)
                     .environmentObject(libraryManager)
                     .environmentObject(transcriptionService)
                     .frame(maxHeight: .infinity)
