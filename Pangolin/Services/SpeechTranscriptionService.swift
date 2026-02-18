@@ -167,7 +167,7 @@ class SpeechTranscriptionService: ObservableObject {
     // MARK: - Public API
 
     func transcribeVideo(_ video: Video, libraryManager: LibraryManager, preferredLocale: Locale? = nil) async {
-        let videoTitle = await MainActor.run { video.title ?? "Unknown" }
+        let videoTitle = video.title ?? "Unknown"
         print("🟢 Started transcribeVideo for \(videoTitle)")
         // Avoid publishing during the same view update cycle that triggered the call.
         await Task.yield()
@@ -228,7 +228,7 @@ class SpeechTranscriptionService: ObservableObject {
             
             await setStatus("Transcribing main audio...")
             try Task.checkCancellation()
-            guard let videoID = await MainActor.run(body: { video.id }) else {
+            guard let videoID = video.id else {
                 throw TranscriptionError.analysisFailed("Video ID missing for timed transcript generation.")
             }
 
@@ -241,19 +241,21 @@ class SpeechTranscriptionService: ObservableObject {
             
             await setStatus("Saving transcript...")
             await MainActor.run {
-                video.transcriptText = transcriptionOutput.plainText
-                video.transcriptLanguage = usedLocale.identifier
-                video.transcriptDateGenerated = Date()
+                guard let persistedVideo = fetchVideo(with: videoID) else { return }
+                persistedVideo.transcriptText = transcriptionOutput.plainText
+                persistedVideo.transcriptLanguage = usedLocale.identifier
+                persistedVideo.transcriptDateGenerated = Date()
             }
             
             // Persist to disk (best effort)
             do {
                 try await MainActor.run {
+                    guard let persistedVideo = fetchVideo(with: videoID) else { return }
                     try libraryManager.ensureTextArtifactDirectories()
-                    if let transcriptURL = libraryManager.transcriptURL(for: video) {
+                    if let transcriptURL = libraryManager.transcriptURL(for: persistedVideo) {
                         try libraryManager.writeTextAtomically(transcriptionOutput.plainText, to: transcriptURL)
                     }
-                    if let timedURL = libraryManager.timedTranscriptURL(for: video) {
+                    if let timedURL = libraryManager.timedTranscriptURL(for: persistedVideo) {
                         try libraryManager.writeTimedTranscriptAtomically(transcriptionOutput.timedTranscript, to: timedURL)
                     }
                 }
@@ -278,8 +280,15 @@ class SpeechTranscriptionService: ObservableObject {
     }
 
     func translateVideo(_ video: Video, libraryManager: LibraryManager, targetLanguage: Locale.Language? = nil) async {
+        guard let videoID = video.id else {
+            await setErrorMessage("Video metadata is missing. Please re-import this video.")
+            return
+        }
         let initialState = await MainActor.run { () -> (title: String, transcript: String?, transcriptLanguage: String?) in
-            (video.title ?? "Unknown", video.transcriptText, video.transcriptLanguage)
+            guard let persistedVideo = fetchVideo(with: videoID) else {
+                return ("Unknown", nil, nil)
+            }
+            return (persistedVideo.title ?? "Unknown", persistedVideo.transcriptText, persistedVideo.transcriptLanguage)
         }
         print("🟢 Started translateVideo for \(initialState.title)")
         // Avoid publishing during the same view update cycle that triggered the call.
@@ -295,11 +304,12 @@ class SpeechTranscriptionService: ObservableObject {
         
         do {
             let timedTranscript = try await MainActor.run { () throws -> TimedTranscript in
-                guard let url = libraryManager.timedTranscriptURL(for: video),
-                      FileManager.default.fileExists(atPath: url.path) else {
+                guard let persistedVideo = fetchVideo(with: videoID),
+                      let timedTranscriptURL = libraryManager.timedTranscriptURL(for: persistedVideo),
+                      FileManager.default.fileExists(atPath: timedTranscriptURL.path) else {
                     throw TranscriptionError.translationFailed("Timed transcript not found. Please transcribe this video again.")
                 }
-                return try libraryManager.readTimedTranscript(from: url)
+                return try libraryManager.readTimedTranscript(from: timedTranscriptURL)
             }
 
             let computationResult = try await Task.detached(priority: .userInitiated) { [weak self] in
@@ -327,22 +337,24 @@ class SpeechTranscriptionService: ObservableObject {
             await setStatus("Saving translation...")
 
             await MainActor.run {
-                video.translatedText = translatedText
-                video.translatedLanguage = targetCode
-                video.translationDateGenerated = Date()
+                guard let persistedVideo = fetchVideo(with: videoID) else { return }
+                persistedVideo.translatedText = translatedText
+                persistedVideo.translatedLanguage = targetCode
+                persistedVideo.translationDateGenerated = Date()
                 if let resolvedSourceLanguage = computationResult.resolvedSourceLanguageIdentifier {
-                    video.transcriptLanguage = resolvedSourceLanguage
+                    persistedVideo.transcriptLanguage = resolvedSourceLanguage
                 }
             }
             
             // Persist to disk (best effort)
             do {
                 try await MainActor.run {
+                    guard let persistedVideo = fetchVideo(with: videoID) else { return }
                     try libraryManager.ensureTextArtifactDirectories()
-                    if let url = libraryManager.translationURL(for: video, languageCode: targetCode) {
+                    if let url = libraryManager.translationURL(for: persistedVideo, languageCode: targetCode) {
                         try libraryManager.writeTextAtomically(translatedText, to: url)
                     }
-                    if let timedURL = libraryManager.timedTranslationURL(for: video, languageCode: targetCode) {
+                    if let timedURL = libraryManager.timedTranslationURL(for: persistedVideo, languageCode: targetCode) {
                         try libraryManager.writeTimedTranslationAtomically(translationOutput.timedTranslation, to: timedURL)
                     }
                 }
@@ -365,8 +377,15 @@ class SpeechTranscriptionService: ObservableObject {
     // MARK: - Summarization
 
     func summarizeVideo(_ video: Video, libraryManager: LibraryManager, preset: SummaryPreset = .detailed, customPrompt: String? = nil) async {
+        guard let videoID = video.id else {
+            await setErrorMessage("Video metadata is missing. Please re-import this video.")
+            return
+        }
         let initialState = await MainActor.run { () -> (title: String, translated: String?, transcript: String?) in
-            (video.title ?? "Unknown", video.translatedText, video.transcriptText)
+            guard let persistedVideo = fetchVideo(with: videoID) else {
+                return ("Unknown", nil, nil)
+            }
+            return (persistedVideo.title ?? "Unknown", persistedVideo.translatedText, persistedVideo.transcriptText)
         }
         print("🟢 Started summarizeVideo for \(initialState.title)")
         // Avoid publishing during the same view update cycle that triggered the call.
@@ -433,15 +452,17 @@ class SpeechTranscriptionService: ObservableObject {
             await setStatus("Saving summary...")
             await setProgress(0.95)
             await MainActor.run {
-                video.transcriptSummary = finalSummary
-                video.summaryDateGenerated = Date()
+                guard let persistedVideo = fetchVideo(with: videoID) else { return }
+                persistedVideo.transcriptSummary = finalSummary
+                persistedVideo.summaryDateGenerated = Date()
             }
             
             // Persist to disk (best effort)
             do {
                 try await MainActor.run {
+                    guard let persistedVideo = fetchVideo(with: videoID) else { return }
                     try libraryManager.ensureTextArtifactDirectories()
-                    if let url = libraryManager.summaryURL(for: video) {
+                    if let url = libraryManager.summaryURL(for: persistedVideo) {
                         try libraryManager.writeTextAtomically(finalSummary, to: url)
                     }
                 }
@@ -466,6 +487,17 @@ class SpeechTranscriptionService: ObservableObject {
         let targetLanguageIdentifier: String
         let resolvedSourceLanguageIdentifier: String?
         let translationSkipped: Bool
+    }
+
+    @MainActor
+    private func fetchVideo(with id: UUID) -> Video? {
+        guard let context = LibraryManager.shared.viewContext else {
+            return nil
+        }
+        let request = Video.fetchRequest()
+        request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
+        request.fetchLimit = 1
+        return (try? context.fetch(request))?.first
     }
 
     private func computeTranslation(

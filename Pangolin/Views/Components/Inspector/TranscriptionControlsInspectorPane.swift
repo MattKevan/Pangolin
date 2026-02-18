@@ -18,7 +18,7 @@ struct TranscriptionControlsInspectorPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Transcription settings")
+            Text("Transcription")
                 .font(.headline)
 
             VStack(alignment: .leading, spacing: 10) {

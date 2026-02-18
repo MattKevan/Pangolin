@@ -57,7 +57,7 @@ private struct LoadingStateView: View {
 private struct EmptySearchStateView: View {
     var body: some View {
         ContentUnavailableView(
-            "Search Your Videos",
+            "Search your videos",
             systemImage: "magnifyingglass",
             description: Text("Enter search terms to search videos, transcripts, and summaries")
         )
@@ -67,7 +67,7 @@ private struct EmptySearchStateView: View {
 private struct NoResultsStateView: View {
     var body: some View {
         ContentUnavailableView(
-            "No Results",
+            "No results",
             systemImage: "magnifyingglass",
             description: Text("Try different search terms or check your spelling")
         )

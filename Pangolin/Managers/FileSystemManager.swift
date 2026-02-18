@@ -297,7 +297,7 @@ class FileSystemManager {
     
     // MARK: - Thumbnail Generation for Existing Videos
     
-    nonisolated func generateMissingThumbnails(for library: Library, context: NSManagedObjectContext) async {
+    func generateMissingThumbnails(for library: Library, context: NSManagedObjectContext) async {
         guard library.url != nil else { return }
         
         let request = Video.fetchRequest()
@@ -313,22 +313,17 @@ class FileSystemManager {
                 
                 do {
                     let thumbnailPath = try await generateThumbnail(for: videoURL, in: library)
-                    await MainActor.run {
-                        video.thumbnailPath = thumbnailPath
-                    }
+                    video.thumbnailPath = thumbnailPath
                 } catch {
                     print("Failed to generate thumbnail for \(video.fileName ?? "Unknown Video"): \(error)")
                 }
             }
             
-            // Save context on main thread
-            await MainActor.run {
-                do {
-                    try context.save()
-                    print("Successfully saved thumbnails for \(videoCount) videos")
-                } catch {
-                    print("Failed to save thumbnail paths: \(error)")
-                }
+            do {
+                try context.save()
+                print("Successfully saved thumbnails for \(videoCount) videos")
+            } catch {
+                print("Failed to save thumbnail paths: \(error)")
             }
             
         } catch {
@@ -336,7 +331,7 @@ class FileSystemManager {
         }
     }
     
-    nonisolated func rebuildAllThumbnails(for library: Library, context: NSManagedObjectContext) async {
+    func rebuildAllThumbnails(for library: Library, context: NSManagedObjectContext) async {
         guard library.url != nil else { return }
         
         let request = Video.fetchRequest()
@@ -353,22 +348,17 @@ class FileSystemManager {
                 
                 do {
                     let thumbnailPath = try await generateThumbnail(for: videoURL, in: library)
-                    await MainActor.run {
-                        video.thumbnailPath = thumbnailPath
-                    }
+                    video.thumbnailPath = thumbnailPath
                 } catch {
                     print("Failed to rebuild thumbnail for \(video.fileName ?? "Unknown Video"): \(error)")
                 }
             }
             
-            // Save context on main thread
-            await MainActor.run {
-                do {
-                    try context.save()
-                    print("Successfully rebuilt thumbnails for \(videoCount) videos")
-                } catch {
-                    print("Failed to save rebuilt thumbnail paths: \(error)")
-                }
+            do {
+                try context.save()
+                print("Successfully rebuilt thumbnails for \(videoCount) videos")
+            } catch {
+                print("Failed to save rebuilt thumbnail paths: \(error)")
             }
         } catch {
             print("Failed to fetch videos for thumbnail rebuild: \(error)")

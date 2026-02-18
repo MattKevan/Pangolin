@@ -97,7 +97,7 @@ struct SidebarView: View {
         .listStyle(InsetGroupedListStyle())
         #endif
         .contextMenu {
-            Button("New Folder") {
+            Button("New folder") {
                 createTopLevelFolder()
             }
             .disabled(libraryManager.currentLibrary == nil)
@@ -538,8 +538,24 @@ struct SidebarView: View {
         }
         guard !matchingProviders.isEmpty else { return false }
 
-        let lock = NSLock()
-        var itemIDs = Set<UUID>()
+        final class ItemIDStore {
+            private let lock = NSLock()
+            private var value = Set<UUID>()
+
+            func formUnion<S: Sequence>(_ ids: S) where S.Element == UUID {
+                lock.lock()
+                value.formUnion(ids)
+                lock.unlock()
+            }
+
+            func snapshot() -> Set<UUID> {
+                lock.lock()
+                defer { lock.unlock() }
+                return value
+            }
+        }
+
+        let itemIDStore = ItemIDStore()
         let group = DispatchGroup()
 
         for provider in matchingProviders {
@@ -551,13 +567,12 @@ struct SidebarView: View {
                     return
                 }
 
-                lock.lock()
-                itemIDs.formUnion(transfer.itemIDs)
-                lock.unlock()
+                itemIDStore.formUnion(transfer.itemIDs)
             }
         }
 
         group.notify(queue: .main) {
+            let itemIDs = itemIDStore.snapshot()
             guard !itemIDs.isEmpty else { return }
             Task { @MainActor in
                 await store.moveItems(itemIDs, to: nil)
@@ -615,7 +630,7 @@ private struct FolderRowView: View {
     @State private var shouldCommitOnDisappear = false
     
     private var folderDisplayName: String {
-        folder.name ?? "Untitled Folder"
+        folder.name ?? "Untitled folder"
     }
 
     var body: some View {
@@ -624,12 +639,11 @@ private struct FolderRowView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         } icon: {
             Image(systemName: folder.isSmartFolder ? getSmartFolderIcon(folderDisplayName) : "folder")
-                .foregroundColor(folder.isSmartFolder ? .blue : .orange)
         }
         .contentShape(Rectangle())
         .contextMenu {
             if showContextMenu {
-                Button("New Folder") {
+                Button("New folder") {
                     onCreateSubfolder(folder)
                 }
                 Button("Rename") {
@@ -735,9 +749,9 @@ private struct FolderRowView: View {
     
     private func getSmartFolderIcon(_ name: String) -> String {
         switch name {
-        case "All Videos": return "video.fill"
-        case "Recent": return "clock.fill"
-        case "Favorites": return "heart.fill"
+        case "All videos": return "video"
+        case "Recent": return "clock"
+        case "Favorites": return "heart"
         default: return "folder"
         }
     }
@@ -809,7 +823,7 @@ private struct SidebarLibraryOutlineRow: View {
         .draggable(ContentTransfer(itemIDs: dragItemIDs))
         .contextMenu {
             if let folder, !folder.isSmartFolder {
-                Button("New Folder") {
+                Button("New folder") {
                     onCreateSubfolder(folder)
                 }
 
@@ -856,12 +870,10 @@ private struct SidebarLibraryOutlineRow: View {
     @ViewBuilder
     private var rowIcon: some View {
         if folder != nil {
-            Image(systemName: "folder.fill")
-                .foregroundColor(.orange)
+            Image(systemName: "folder")
                 .frame(width: 18, height: 18)
         } else if video != nil {
-            Image(systemName: "video.fill")
-                .foregroundColor(.blue)
+            Image(systemName: "video")
                 .frame(width: 18, height: 18)
         }
     }

@@ -8,7 +8,7 @@
 
 // ViewModels/VideoPlayerViewModel.swift
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 import Combine
 #if os(macOS)
 import AppKit
@@ -543,6 +543,8 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         buildTask?.cancel()
     }
 }
+
+extension VideoPlayerViewModel: @unchecked Sendable {}
 
 #if os(macOS)
 extension VideoPlayerViewModel: NSWindowDelegate {
