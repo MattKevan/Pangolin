@@ -32,6 +32,7 @@ struct MainView: View {
     
     // Popover state for task indicator
     @State private var showTaskPopover = false
+    @FocusState private var isSearchFieldFocused: Bool
     
     init(libraryManager: LibraryManager) {
         self._folderStore = StateObject(wrappedValue: FolderNavigationStore(libraryManager: libraryManager))
@@ -80,7 +81,26 @@ struct MainView: View {
             .environmentObject(transcriptionService)
             .navigationSplitViewColumnWidth(min: 420, ideal: 760)
             .toolbar {
-                if !folderStore.isSearchMode {
+                if folderStore.isSearchMode {
+                    ToolbarItem(placement: .navigation) {
+                        ToggleSidebarButton()
+                    }
+
+                    ToolbarItem(placement: .principal) {
+                        TextField("Search videos, transcripts, and summaries", text: $searchManager.searchText)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(minWidth: 320, idealWidth: 460, maxWidth: 640)
+                            .focused($isSearchFieldFocused)
+                            .onSubmit {
+                                let trimmedQuery = searchManager.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                                guard !trimmedQuery.isEmpty else { return }
+                                if folderStore.selectedSidebarItem != .search {
+                                    folderStore.selectedSidebarItem = .search
+                                }
+                                searchManager.performManualSearch()
+                            }
+                    }
+                } else {
                     // Normal Mode: Standard toolbar items
                     ToolbarItemGroup(placement: .navigation) {
                         Button {
@@ -159,6 +179,15 @@ struct MainView: View {
                     }
                 }
             }
+            .onChange(of: folderStore.isSearchMode) { _, isSearchMode in
+                if isSearchMode {
+                    DispatchQueue.main.async {
+                        isSearchFieldFocused = true
+                    }
+                } else {
+                    isSearchFieldFocused = false
+                }
+            }
     }
     
     
@@ -207,10 +236,6 @@ private struct RootContainerView<Content: View>: View {
                 showingImportPicker: $showingImportPicker,
                 handleVideoImport: handleVideoImport
             ))
-            .modifier(RootSearchModifier(
-                folderStore: folderStore,
-                searchManager: searchManager
-            ))
             .modifier(RootEventsModifier(
                 folderStore: folderStore,
                 searchManager: searchManager,
@@ -238,35 +263,6 @@ private struct RootImportModifier: ViewModifier {
     }
 }
 
-private struct RootSearchModifier: ViewModifier {
-    @ObservedObject var folderStore: FolderNavigationStore
-    @ObservedObject var searchManager: SearchManager
-
-    func body(content: Content) -> some View {
-        content
-            .searchable(
-                text: $searchManager.searchText,
-                isPresented: .constant(folderStore.isSearchMode),
-                placement: .automatic,
-                prompt: "Search videos, transcripts, and summaries"
-            )
-            .onSubmit(of: .search) {
-                let trimmedQuery = searchManager.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmedQuery.isEmpty else { return }
-
-                if folderStore.selectedSidebarItem != .search {
-                    folderStore.selectedSidebarItem = .search
-                }
-                searchManager.performManualSearch()
-            }
-            .searchScopes($searchManager.searchScope) {
-                ForEach(SearchManager.SearchScope.allCases) { scope in
-                    Text(scope.rawValue).tag(scope)
-                }
-            }
-    }
-}
-
 private struct RootEventsModifier: ViewModifier {
     @ObservedObject var folderStore: FolderNavigationStore
     @ObservedObject var searchManager: SearchManager
@@ -276,7 +272,7 @@ private struct RootEventsModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         let configuredContent = content
-            .navigationTitle(folderStore.selectedVideo?.title ?? libraryManager.currentLibrary?.name ?? "Pangolin")
+            .navigationTitle(folderStore.isSearchMode ? "" : (folderStore.selectedVideo?.title ?? libraryManager.currentLibrary?.name ?? "Pangolin"))
             .onAppear {
                 StoragePolicyManager.shared.setProtectedSelectedVideoID(folderStore.selectedVideo?.id)
                 handleAutoTranscribe()

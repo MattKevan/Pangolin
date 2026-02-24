@@ -67,11 +67,13 @@ struct TranslationControlsInspectorPane: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 8)
                     .background(Color.secondary.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .disabled(supportedLocales.isEmpty)
             }
 
@@ -132,18 +134,24 @@ struct TranslationControlsInspectorPane: View {
     @ViewBuilder
     private var translationActionButton: some View {
         if video.translatedText == nil {
-            Button("Translate") {
+            Button {
                 processingQueueManager.enqueueTranslation(for: [video], targetLocale: outputSelection)
+            } label: {
+                Text("Translate")
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
-            .controlSize(.small)
+            .controlSize(.large)
             .disabled(video.transcriptText == nil || outputSelection == nil || supportedLocales.isEmpty || isTranslationActive)
         } else {
-            Button("Regenerate") {
+            Button {
                 processingQueueManager.enqueueTranslation(for: [video], targetLocale: outputSelection, force: true)
+            } label: {
+                Text("Translate")
+                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
             .disabled(video.transcriptText == nil || outputSelection == nil || supportedLocales.isEmpty || isTranslationActive)
         }
     }

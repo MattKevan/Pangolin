@@ -29,6 +29,7 @@ struct TranscriptionControlsInspectorPane: View {
                 Picker("", selection: $inputMode) {
                     Text(autoDetectOptionLabel).tag(InputMode.autoDetect)
                     Text("Select language").tag(InputMode.manual)
+
                 }
                 .pickerStyle(.radioGroup)
                 .labelsHidden()
@@ -125,16 +126,18 @@ struct TranscriptionControlsInspectorPane: View {
 
     @ViewBuilder
     private var transcriptionActionButton: some View {
-        Button("Transcribe") {
+        Button {
             processingQueueManager.enqueueTranscription(
                 for: [video],
                 preferredLocale: selectedPreferredLocale,
                 force: video.transcriptText != nil
             )
+        } label: {
+            Text("Transcribe")
+                .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .disabled(!canStartTranscription)
     }
 

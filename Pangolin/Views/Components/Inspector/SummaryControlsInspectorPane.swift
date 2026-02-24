@@ -5,6 +5,103 @@ import AppKit
 import UIKit
 #endif
 
+#if os(iOS)
+struct LineSpacedTextEditor: UIViewRepresentable {
+    @Binding var text: String
+    var lineSpacing: CGFloat
+
+    func makeUIView(context: Context) -> UITextView {
+        let textView = UITextView()
+        textView.delegate = context.coordinator
+        textView.isScrollEnabled = true
+        textView.textContainerInset = UIEdgeInsets(top: 6, left: 8, bottom: 6, right: 8)
+        textView.font = UIFont.preferredFont(forTextStyle: .body)
+        textView.backgroundColor = .clear
+        return textView
+    }
+
+    func updateUIView(_ uiView: UITextView, context: Context) {
+        let style = NSMutableParagraphStyle()
+        style.lineSpacing = lineSpacing
+        let attributes: [NSAttributedString.Key: Any] = [
+            .paragraphStyle: style,
+            .font: UIFont.preferredFont(forTextStyle: .body),
+            .foregroundColor: UIColor.label
+        ]
+        uiView.attributedText = NSAttributedString(string: text, attributes: attributes)
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    class Coordinator: NSObject, UITextViewDelegate {
+        var parent: LineSpacedTextEditor
+
+        init(_ parent: LineSpacedTextEditor) {
+            self.parent = parent
+        }
+
+        func textViewDidChange(_ textView: UITextView) {
+            parent.text = textView.text
+        }
+    }
+}
+#else
+struct LineSpacedTextEditor: NSViewRepresentable {
+    @Binding var text: String
+    var lineSpacing: CGFloat
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+
+        let textView = NSTextView()
+        textView.delegate = context.coordinator
+        textView.isRichText = false
+        textView.drawsBackground = false
+        textView.font = NSFont.preferredFont(forTextStyle: .body, options: [:])
+        textView.textContainerInset = NSSize(width: 8, height: 6)
+        textView.isVerticallyResizable = true
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+
+        scrollView.documentView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ nsView: NSScrollView, context: Context) {
+        guard let textView = nsView.documentView as? NSTextView else { return }
+        let style = NSMutableParagraphStyle()
+        style.lineSpacing = lineSpacing
+        let attributes: [NSAttributedString.Key: Any] = [
+            .paragraphStyle: style,
+            .font: NSFont.preferredFont(forTextStyle: .body, options: [:]),
+            .foregroundColor: NSColor.labelColor
+        ]
+        textView.textStorage?.setAttributedString(NSAttributedString(string: text, attributes: attributes))
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: LineSpacedTextEditor
+
+        init(_ parent: LineSpacedTextEditor) {
+            self.parent = parent
+        }
+
+        func textDidChange(_ notification: Notification) {
+            if let textView = notification.object as? NSTextView {
+                parent.text = textView.string
+            }
+        }
+    }
+}
+#endif
+
 struct SummaryControlsInspectorPane: View {
     @ObservedObject var video: Video
     @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
@@ -145,12 +242,14 @@ struct SummaryControlsInspectorPane: View {
 
     @ViewBuilder
     private var summaryActionButton: some View {
-        Button("Summarise") {
+        Button {
             runSummarization(force: true)
+        } label: {
+            Text("Summarise")
+                .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .buttonStyle(.borderedProminent)
-        .controlSize(.small)
+        .controlSize(.large)
         .disabled(!canGenerateSummary || isSummarizing)
     }
 
@@ -171,13 +270,13 @@ struct SummaryControlsInspectorPane: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            TextEditor(text: selectedPromptBinding)
+            LineSpacedTextEditor(text: selectedPromptBinding, lineSpacing: 4)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(minHeight: 88)
-                .padding(6)
                 .background(Color.secondary.opacity(0.08))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .disabled(isSummarizing)
+                .padding(2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -304,3 +403,4 @@ struct SummaryControlsInspectorPane: View {
         )
     }
 }
+
