@@ -325,21 +325,30 @@ private struct DetailColumnView: View {
 
     var body: some View {
         Group {
-            if folderStore.isSearchMode {
+            switch folderStore.currentDetailSurface {
+            case .searchResults:
                 SearchResultsView()
                     .environmentObject(searchManager)
                     .environmentObject(folderStore)
                     .environmentObject(libraryManager)
-            } else if isShowingSmartFolderContent {
+            case .smartCollectionTable(_):
                 FolderContentView()
                     .environmentObject(folderStore)
                     .environmentObject(libraryManager)
-            } else if let selectedVideo = folderStore.selectedVideo {
-                DetailView(video: selectedVideo)
-                    .environmentObject(folderStore)
-                    .environmentObject(libraryManager)
-                    .environmentObject(transcriptionService)
-            } else {
+            case .videoDetail:
+                if let selectedVideo = folderStore.selectedVideo {
+                    DetailView(video: selectedVideo)
+                        .environmentObject(folderStore)
+                        .environmentObject(libraryManager)
+                        .environmentObject(transcriptionService)
+                } else {
+                    ContentUnavailableView(
+                        "No video selected",
+                        systemImage: "video",
+                        description: Text("Select a video to view details.")
+                    )
+                }
+            case .empty:
                 ContentUnavailableView(
                     "No video selected",
                     systemImage: "video",
@@ -347,11 +356,6 @@ private struct DetailColumnView: View {
                 )
             }
         }
-    }
-
-    private var isShowingSmartFolderContent: Bool {
-        guard let folder = folderStore.currentFolder else { return false }
-        return folder.isSmartFolder
     }
 }
 

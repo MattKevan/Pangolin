@@ -8,6 +8,7 @@
 import SwiftUI
 import AVKit
 
+@available(*, deprecated, message: "Legacy search preview/detail view. Search now routes through SearchResultsView and revealVideoLocation(_:).")
 struct SearchDetailView: View {
     @EnvironmentObject private var folderStore: FolderNavigationStore
     @EnvironmentObject private var searchManager: SearchManager
@@ -182,9 +183,4 @@ private struct SearchVideoInfoView: View {
     }
 }
 
-#Preview {
-    SearchDetailView(video: Video())
-        .environmentObject(FolderNavigationStore(libraryManager: LibraryManager.shared))
-        .environmentObject(SearchManager())
-        .environmentObject(LibraryManager.shared)
-}
+// Preview intentionally removed while this legacy view is deprecated.

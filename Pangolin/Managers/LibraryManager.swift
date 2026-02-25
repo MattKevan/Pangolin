@@ -791,17 +791,13 @@ class LibraryManager: ObservableObject {
             print("Could not find Folder entity description")
             return
         }
-        
-        let smartFolders = [
-            ("All videos", "video.fill"),
-            ("Recent", "clock.fill"),
-            ("Favorites", "heart.fill")
-        ]
-        
-        for (_, folderInfo) in smartFolders.enumerated() {
+
+        // Legacy compatibility: smart folders remain persisted in Core Data, but the UI now renders
+        // virtual smart collections from SmartCollectionKind and does not depend on these rows.
+        for kind in SmartCollectionKind.allCases {
             let folder = Folder(entity: folderEntityDescription, insertInto: context)
             folder.id = UUID()
-            folder.name = folderInfo.0
+            folder.name = kind.legacyFolderName
             folder.isTopLevel = true
             folder.isSmartFolder = true
             folder.dateCreated = Date()
@@ -811,18 +807,18 @@ class LibraryManager: ObservableObject {
     }
     
     private func ensureSmartFoldersExist(for library: Library, in context: NSManagedObjectContext) async {
-        // Check if smart folders already exist
+        // Legacy compatibility: keep persisted smart folders present for existing libraries,
+        // even though sidebar routing/display now uses virtual destinations.
         let request = Folder.fetchRequest()
         request.predicate = NSPredicate(format: "library == %@ AND isSmartFolder == YES", library)
         
         do {
             let existingSmartFolders = try context.fetch(request)
             let existingNames = Set(existingSmartFolders.map { $0.name })
-            
-            let requiredSmartFolders = ["All videos", "Recent", "Favorites"]
-            
+
             // Create any missing smart folders
-            for folderName in requiredSmartFolders {
+            for kind in SmartCollectionKind.allCases {
+                let folderName = kind.legacyFolderName
                 if !existingNames.contains(folderName) {
                     guard let folderEntityDescription = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Folder"] else {
                         continue

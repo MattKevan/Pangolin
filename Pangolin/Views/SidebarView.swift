@@ -23,7 +23,6 @@ struct SidebarView: View {
     @State private var sidebarSelections = Set<SidebarSelection>()
     @State private var isSyncingSidebarSelections = false
     
-    @State private var systemFolders: [Folder] = []
     @State private var userFolders: [Folder] = []
     @State private var expandedFolderIDs: Set<UUID> = []
     @State private var isDeletingFolder = false
@@ -54,18 +53,11 @@ struct SidebarView: View {
                 Label("Search", systemImage: "magnifyingglass")
                     .contentShape(Rectangle())
                     .tag(SidebarSelection.search)
-                
-                ForEach(systemFolders) { folder in
-                    FolderRowView(
-                        folder: folder,
-                        showContextMenu: false,
-                        renamingFolderID: $renamingFolderID,
-                        focusedField: $focusedField,
-                        onCreateSubfolder: { _ in },
-                        onDelete: {}
-                    )
-                    .contentShape(Rectangle()) // Make the entire row clickable
-                    .tag(SidebarSelection.folder(folder))
+
+                ForEach(SmartCollectionKind.allCases) { smartCollection in
+                    Label(smartCollection.title, systemImage: smartCollection.sidebarIcon)
+                        .contentShape(Rectangle())
+                        .tag(SidebarSelection.smartCollection(smartCollection))
                 }
             }
             
@@ -211,7 +203,6 @@ struct SidebarView: View {
     }
     
     private func refreshFolders() {
-        systemFolders = store.systemFolders()
         userFolders = store.userFolders()
         syncExpandedFoldersForSelection()
     }
@@ -248,24 +239,15 @@ struct SidebarView: View {
     }
 
     private func selectionKeysEqual(lhs: SidebarSelection?, rhs: SidebarSelection?) -> Bool {
-        switch (lhs, rhs) {
-        case (.search, .search):
-            return true
-        case let (.folder(leftFolder), .folder(rightFolder)):
-            return leftFolder.id == rightFolder.id
-        case let (.video(leftVideo), .video(rightVideo)):
-            return leftVideo.id == rightVideo.id
-        case (.none, .none):
-            return true
-        default:
-            return false
-        }
+        lhs?.stableKey == rhs?.stableKey
     }
 
     private func dragItemIDs(for itemID: UUID) -> [UUID] {
         let selectedMovableIDs = Set(sidebarSelections.compactMap { selection -> UUID? in
             switch selection {
             case .search:
+                return nil
+            case .smartCollection:
                 return nil
             case .folder(let folder):
                 guard !folder.isSmartFolder else { return nil }
@@ -355,7 +337,7 @@ struct SidebarView: View {
         case .video(let video):
             guard let folder = video.folder, !folder.isSmartFolder else { return nil }
             return folder.id
-        case .search, .none:
+        case .search, .smartCollection, .none:
             guard let currentFolder = store.currentFolder, !currentFolder.isSmartFolder else { return nil }
             return currentFolder.id
         }
@@ -391,16 +373,7 @@ struct SidebarView: View {
     }
 
     private var sidebarSelectionExpansionKey: String {
-        switch store.selectedSidebarItem {
-        case .search:
-            return "search"
-        case .folder(let folder):
-            return "folder:\(folder.id?.uuidString ?? "nil")"
-        case .video(let video):
-            return "video:\(video.id?.uuidString ?? "nil")"
-        case .none:
-            return "none"
-        }
+        store.selectedSidebarItem?.stableKey ?? "none"
     }
 
     private func sidebarSelection(for item: HierarchicalContentItem) -> SidebarSelection {
@@ -647,7 +620,7 @@ private struct FolderRowView: View {
             nameEditorView
                 .frame(maxWidth: .infinity, alignment: .leading)
         } icon: {
-            Image(systemName: folder.isSmartFolder ? getSmartFolderIcon(folderDisplayName) : "folder")
+            Image(systemName: "folder")
         }
         .contentShape(Rectangle())
         .contextMenu {
@@ -756,14 +729,6 @@ private struct FolderRowView: View {
         focusedField = nil
     }
     
-    private func getSmartFolderIcon(_ name: String) -> String {
-        switch name {
-        case "All videos": return "video"
-        case "Recent": return "clock"
-        case "Favorites": return "heart"
-        default: return "folder"
-        }
-    }
 }
 
 // MARK: - Sidebar Library Outline Row

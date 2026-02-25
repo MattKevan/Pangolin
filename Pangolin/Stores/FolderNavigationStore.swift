@@ -9,19 +9,50 @@ import SwiftUI
 import CoreData
 import Combine
 
-// MARK: - Sidebar Selection Types
-enum SidebarSelection: Hashable, Identifiable {
+// MARK: - Sidebar Routing Types
+enum LibrarySidebarDestination: Hashable, Identifiable {
     case search
+    case smartCollection(SmartCollectionKind)
     case folder(Folder)
     case video(Video)
-    
-    var id: String {
+
+    var id: String { stableKey }
+
+    var stableKey: String {
         switch self {
-        case .search: return "search"
-        case .folder(let folder): return folder.id?.uuidString ?? ""
-        case .video(let video): return video.id?.uuidString ?? ""
+        case .search:
+            return "search"
+        case .smartCollection(let kind):
+            return "smart:\(kind.rawValue)"
+        case .folder(let folder):
+            if let id = folder.id?.uuidString {
+                return "folder:\(id)"
+            }
+            return "folderObject:\(folder.objectID.uriRepresentation().absoluteString)"
+        case .video(let video):
+            if let id = video.id?.uuidString {
+                return "video:\(id)"
+            }
+            return "videoObject:\(video.objectID.uriRepresentation().absoluteString)"
         }
     }
+
+    static func == (lhs: LibrarySidebarDestination, rhs: LibrarySidebarDestination) -> Bool {
+        lhs.stableKey == rhs.stableKey
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(stableKey)
+    }
+}
+
+typealias SidebarSelection = LibrarySidebarDestination
+
+enum LibraryDetailSurface: Equatable {
+    case searchResults
+    case smartCollectionTable(SmartCollectionKind)
+    case videoDetail
+    case empty
 }
 
 @MainActor
@@ -29,7 +60,7 @@ class FolderNavigationStore: ObservableObject {
     // MARK: - Core State
     @Published var navigationPath = NavigationPath()
     @Published var currentFolderID: UUID?
-    @Published var selectedSidebarItem: SidebarSelection? {
+    @Published var selectedSidebarItem: LibrarySidebarDestination? {
         didSet {
             guard selectionKey(oldValue) != selectionKey(selectedSidebarItem) else { return }
             if suppressNextSidebarSelectionChange {
@@ -44,11 +75,44 @@ class FolderNavigationStore: ObservableObject {
     }
     @Published var selectedTopLevelFolder: Folder?
     @Published var selectedVideo: Video?
-    @Published var isSearchMode = false
     
     // Reactive data sources for the UI
     @Published var hierarchicalContent: [HierarchicalContentItem] = []
     @Published var flatContent: [ContentType] = []
+
+    var currentDestination: LibrarySidebarDestination? {
+        selectedSidebarItem
+    }
+
+    var isSearchMode: Bool {
+        if case .search = currentDestination {
+            return true
+        }
+        return false
+    }
+
+    var currentSmartCollection: SmartCollectionKind? {
+        if case .smartCollection(let kind) = currentDestination {
+            return kind
+        }
+        return nil
+    }
+
+    var currentDetailSurface: LibraryDetailSurface {
+        if case .search = currentDestination {
+            return .searchResults
+        }
+
+        if let kind = currentSmartCollection {
+            return .smartCollectionTable(kind)
+        }
+
+        if selectedVideo != nil {
+            return .videoDetail
+        }
+
+        return .empty
+    }
 
     // MARK: - UI State
     @Published var currentSortOption: SortOption = .foldersFirst {
@@ -105,35 +169,22 @@ class FolderNavigationStore: ObservableObject {
     private func handleSidebarSelectionChange() {
         switch selectedSidebarItem {
         case .search:
-            if !isSearchMode {
-                isSearchMode = true
-            }
             // Don't change currentFolderID when in search mode
             // Content will be managed by SearchManager
+            break
+        case .smartCollection(let kind):
+            applySmartCollectionSelection(kind)
         case .folder(let folder):
-            if isSearchMode {
-                isSearchMode = false
-            }
             // When revealing a video's location, revealVideoLocation(_:) sets
             // selectedTopLevelFolder/currentFolderID/navigationPath explicitly.
             // Avoid clobbering that state from this sidebar selection callback.
             if isRevealingVideoLocation {
                 return
             }
-            if folder.isSmartFolder {
-                // Preserve smart-folder behavior (e.g. All videos) and let the smart-folder
-                // table render the collection instead of showing a nested video detail.
-                applyFolderSelection(folder, clearSelectedVideo: false)
-                selectedVideo = nil
-            } else {
-                // Do not auto-select a video when a normal folder is selected from the sidebar.
-                // This avoids unexpectedly opening a nested video's detail view.
-                applyFolderSelection(folder, clearSelectedVideo: true)
-            }
+            // Do not auto-select a video when a normal folder is selected from the sidebar.
+            // This avoids unexpectedly opening a nested video's detail view.
+            applyFolderSelection(folder, clearSelectedVideo: true)
         case .video(let video):
-            if isSearchMode {
-                isSearchMode = false
-            }
             if let folder = video.folder {
                 applyFolderSelection(folder, clearSelectedVideo: false)
             }
@@ -141,11 +192,30 @@ class FolderNavigationStore: ObservableObject {
                 selectedVideo = video
             }
         case .none:
-            if isSearchMode {
-                isSearchMode = false
-            }
             // Keep current state
+            break
         }
+    }
+
+    private func applySmartCollectionSelection(_ kind: SmartCollectionKind) {
+        if !navigationPath.isEmpty {
+            navigationPath = NavigationPath()
+        }
+
+        if selectedTopLevelFolder != nil {
+            selectedTopLevelFolder = nil
+        }
+
+        if currentFolderID != nil {
+            currentFolderID = nil
+        }
+
+        if selectedVideo != nil {
+            selectedVideo = nil
+        }
+
+        // Smart collections are virtual destinations, so refresh content directly.
+        refreshContent()
     }
 
     private func applyFolderSelection(_ folder: Folder, clearSelectedVideo: Bool) {
@@ -175,16 +245,7 @@ class FolderNavigationStore: ObservableObject {
     }
 
     private func selectionKey(_ selection: SidebarSelection?) -> String {
-        switch selection {
-        case .search:
-            return "search"
-        case .folder(let folder):
-            return "folder:\(folder.id?.uuidString ?? "nil")"
-        case .video(let video):
-            return "video:\(video.id?.uuidString ?? "nil")"
-        case .none:
-            return "none"
-        }
+        selection?.stableKey ?? "none"
     }
     
     func activateSearch() {
@@ -192,31 +253,22 @@ class FolderNavigationStore: ObservableObject {
     }
     
     func selectAllVideos() {
-        guard let context = libraryManager.viewContext,
-              let library = libraryManager.currentLibrary else { return }
-        
-        let request = Folder.fetchRequest()
-        request.predicate = NSPredicate(format: "library == %@ AND isTopLevel == YES AND isSmartFolder == YES AND name == %@", library, "All videos")
-        request.fetchLimit = 1
-        
-        do {
-            if let allVideosFolder = try context.fetch(request).first {
-                applySidebarFolderSelectionWithoutCallback(allVideosFolder, clearSelectedVideo: true)
-            }
-        } catch {
-            print("Error selecting All Videos folder: \(error)")
-        }
+        selectedSidebarItem = .smartCollection(.allVideos)
     }
     
     // MARK: - Content Fetching
     private func refreshContent() {
-        if currentFolderID == nil {
+        if currentDestination == nil && currentFolderID == nil {
             ensureInitialSelectionIfNeeded()
         }
 
+        if case .search = currentDestination {
+            // Search results are driven by SearchManager; keep existing folder content state intact.
+            return
+        }
+
         guard let context = libraryManager.viewContext,
-              let library = libraryManager.currentLibrary,
-              let folderID = currentFolderID else {
+              let library = libraryManager.currentLibrary else {
             self.hierarchicalContent = []
             self.flatContent = []
             return
@@ -226,34 +278,18 @@ class FolderNavigationStore: ObservableObject {
         let preservedSelectionID = selectedVideo?.id
         print("🔄 STORE: Refreshing content, preserving selection: \(preservedSelectionID?.uuidString ?? "none")")
         
-        let folderRequest = Folder.fetchRequest()
-        folderRequest.predicate = NSPredicate(format: "library == %@ AND id == %@", library, folderID as CVarArg)
-        
         var newHierarchicalContent: [HierarchicalContentItem] = []
         var newFlatContent: [ContentType] = []
         
         do {
-            if let folder = try context.fetch(folderRequest).first {
-                if folder.isSmartFolder {
-                    let contentItems = getSmartFolderContent(folder: folder, library: library, context: context)
-                    newFlatContent = contentItems
-                    newHierarchicalContent = contentItems.compactMap { item in
-                        if case .video(let video) = item { return HierarchicalContentItem(video: video) }
-                        return nil
-                    }
-                } else {
-                    let childFolders = folder.childFoldersArray
-                    let childVideos = folder.videosArray
-
-                    for childFolder in childFolders {
-                        newHierarchicalContent.append(HierarchicalContentItem(folder: childFolder))
-                        newFlatContent.append(.folder(childFolder))
-                    }
-                    for video in childVideos {
-                        newHierarchicalContent.append(HierarchicalContentItem(video: video))
-                        newFlatContent.append(.video(video))
-                    }
-                }
+            if let smartCollection = currentSmartCollection {
+                let videos = try LibraryContentProvider.loadSmartCollection(smartCollection, library: library, context: context)
+                newFlatContent = videos.map { .video($0) }
+                newHierarchicalContent = videos.map(HierarchicalContentItem.init(video:))
+            } else if let folderID = currentFolderID {
+                let snapshot = try LibraryContentProvider.loadFolderContent(folderID: folderID, library: library, context: context)
+                newHierarchicalContent = snapshot.hierarchical
+                newFlatContent = snapshot.flat
             }
         } catch {
             errorMessage = "Failed to load content: \(error.localizedDescription)"
@@ -327,36 +363,11 @@ class FolderNavigationStore: ObservableObject {
               selectedTopLevelFolder == nil,
               currentFolderID == nil,
               !isSearchMode,
-              let context = libraryManager.viewContext,
-              let library = libraryManager.currentLibrary else {
+              libraryManager.currentLibrary != nil else {
             return
         }
 
-        let allVideosRequest = Folder.fetchRequest()
-        allVideosRequest.predicate = NSPredicate(
-            format: "library == %@ AND isTopLevel == YES AND isSmartFolder == YES AND name == %@",
-            library,
-            "All videos"
-        )
-        allVideosRequest.fetchLimit = 1
-
-        do {
-            if let allVideosFolder = try context.fetch(allVideosRequest).first {
-                applySidebarFolderSelectionWithoutCallback(allVideosFolder, clearSelectedVideo: false)
-                return
-            }
-
-            let fallbackRequest = Folder.fetchRequest()
-            fallbackRequest.predicate = NSPredicate(format: "library == %@ AND isTopLevel == YES", library)
-            fallbackRequest.sortDescriptors = [NSSortDescriptor(keyPath: \Folder.name, ascending: true)]
-            fallbackRequest.fetchLimit = 1
-
-            if let firstTopLevelFolder = try context.fetch(fallbackRequest).first {
-                applySidebarFolderSelectionWithoutCallback(firstTopLevelFolder, clearSelectedVideo: false)
-            }
-        } catch {
-            print("Error setting initial folder selection: \(error)")
-        }
+        selectedSidebarItem = .smartCollection(.allVideos)
     }
 
     private func applySidebarFolderSelectionWithoutCallback(_ folder: Folder, clearSelectedVideo: Bool) {
@@ -365,13 +376,12 @@ class FolderNavigationStore: ObservableObject {
             suppressNextSidebarSelectionChange = true
         }
         selectedSidebarItem = targetSelection
-        if isSearchMode {
-            isSearchMode = false
-        }
         applyFolderSelection(folder, clearSelectedVideo: clearSelectedVideo)
     }
     
     // MARK: - Content Access (for Sidebar)
+    // Legacy persisted smart folders are kept for compatibility, but sidebar UI now renders
+    // virtual smart collections from SmartCollectionKind.
     func systemFolders() -> [Folder] {
         guard let context = libraryManager.viewContext, let library = libraryManager.currentLibrary else { return [] }
         let request = Folder.fetchRequest()
@@ -450,7 +460,6 @@ class FolderNavigationStore: ObservableObject {
             suppressNextSidebarSelectionChange = true
         }
         selectedSidebarItem = targetSidebarSelection
-        isSearchMode = false
         selectedTopLevelFolder = top
         currentFolderID = folder.id
 
@@ -729,44 +738,6 @@ class FolderNavigationStore: ObservableObject {
         } catch {
             return nil
         }
-    }
-    
-    // MARK: - Smart Folder Content
-    private func getSmartFolderContent(folder: Folder, library: Library, context: NSManagedObjectContext) -> [ContentType] {
-        var contentItems: [ContentType] = []
-        let videoRequest = Video.fetchRequest()
-        
-        switch folder.name {
-        case "All videos":
-            videoRequest.predicate = NSPredicate(format: "library == %@", library)
-            videoRequest.sortDescriptors = [NSSortDescriptor(keyPath: \Video.title, ascending: true)]
-        case "Recent":
-            let thirtyDaysAgo = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
-            videoRequest.predicate = NSPredicate(format: "library == %@ AND dateAdded >= %@", library, thirtyDaysAgo as NSDate)
-            videoRequest.sortDescriptors = [NSSortDescriptor(keyPath: \Video.dateAdded, ascending: false)]
-            videoRequest.fetchLimit = 50
-        case "Favorites":
-            videoRequest.predicate = NSPredicate(format: "library == %@ AND isFavorite == YES", library)
-            videoRequest.sortDescriptors = [NSSortDescriptor(keyPath: \Video.title, ascending: true)]
-            print("🧠 STORE: Fetching Favorites smart folder content")
-        default:
-            return []
-        }
-        
-        do {
-            let videos = try context.fetch(videoRequest)
-            if folder.name == "Favorites" {
-                print("🧠 STORE: Found \(videos.count) favorite videos")
-                for video in videos {
-                    print("🧠 STORE: Favorite video: '\(video.title ?? "Unknown")' (isFavorite: \(video.isFavorite))")
-                }
-            }
-            contentItems = videos.map { .video($0) }
-        } catch {
-            errorMessage = "Failed to load smart folder content: \(error.localizedDescription)"
-        }
-        
-        return contentItems
     }
     
     // MARK: - Auto-select first video

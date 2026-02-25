@@ -2,7 +2,7 @@
 //  FolderContentView.swift
 //  Pangolin
 //
-//  Coordinates smart-folder tables and normal folder outline content.
+//  Coordinates smart-collection table content in the detail column.
 //
 
 import SwiftUI
@@ -11,20 +11,8 @@ struct FolderContentView: View {
     @EnvironmentObject private var store: FolderNavigationStore
     @EnvironmentObject private var libraryManager: LibraryManager
 
-    private enum FolderContentMode {
-        case smartFolder(isAllVideos: Bool)
-        case outline
-    }
-
-    private var contentMode: FolderContentMode {
-        guard let folder = store.currentFolder,
-              folder.isSmartFolder,
-              let name = folder.name,
-              ["All videos", "Recent", "Favorites"].contains(name) else {
-            return .outline
-        }
-
-        return .smartFolder(isAllVideos: name == "All videos")
+    private var currentSmartCollection: SmartCollectionKind? {
+        store.currentSmartCollection
     }
 
     private var smartFolderVideos: [Video] {
@@ -38,20 +26,23 @@ struct FolderContentView: View {
 
     var body: some View {
         Group {
-            switch contentMode {
-            case .smartFolder(let isAllVideos):
+            if let kind = currentSmartCollection {
                 SmartFolderTablePane(
-                    title: store.folderName(for: store.currentFolderID),
+                    title: kind.title,
                     videos: smartFolderVideos,
                     selectedVideo: store.selectedVideo,
                     onSelectVideo: handleSmartFolderVideoSelection
                 )
                 .allVideosImportDrop(
-                    isEnabled: isAllVideos,
+                    isEnabled: kind == .allVideos,
                     libraryManager: libraryManager
                 )
-            case .outline:
-                FolderOutlinePane()
+            } else {
+                ContentUnavailableView(
+                    "No video selected",
+                    systemImage: "video",
+                    description: Text("Select a video to view details.")
+                )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
