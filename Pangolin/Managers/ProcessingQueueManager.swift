@@ -12,12 +12,56 @@ class ProcessingQueueManager: ObservableObject {
         var errorDescription: String? { message }
     }
 
+    struct CloudSyncQueueStatus: Equatable {
+        enum Phase: Equatable {
+            case syncing
+            case completed
+            case failed
+        }
+
+        let phase: Phase
+        let detail: String
+        let activeOperationCount: Int
+        let updatedAt: Date
+
+        var isActive: Bool { phase == .syncing }
+
+        var iconName: String {
+            switch phase {
+            case .syncing:
+                return "icloud"
+            case .completed:
+                return "checkmark.icloud"
+            case .failed:
+                return "exclamationmark.icloud"
+            }
+        }
+
+        var tintName: String {
+            switch phase {
+            case .syncing:
+                return "blue"
+            case .completed:
+                return "green"
+            case .failed:
+                return "orange"
+            }
+        }
+    }
+
+    private struct ActiveCloudSyncEvent {
+        let id: UUID
+        let type: NSPersistentCloudKitContainer.EventType
+    }
+
     static let shared = ProcessingQueueManager()
 
     private let processingQueue = ProcessingQueue()
     private var cancellables = Set<AnyCancellable>()
     private var workerTask: Task<Void, Never>?
     private var importFolderMaps: [UUID: [String: Folder]] = [:]
+    private var activeCloudSyncEvents: [UUID: ActiveCloudSyncEvent] = [:]
+    private var cloudSyncHideTask: Task<Void, Never>?
 
     let transcriptionService = SpeechTranscriptionService()
     private let fileSystemManager = FileSystemManager.shared
@@ -32,9 +76,18 @@ class ProcessingQueueManager: ObservableObject {
     @Published var totalTaskCount: Int = 0
     @Published var completedTasks: Int = 0
     @Published var failedTasks: Int = 0
+    @Published private(set) var cloudSyncQueueStatus: CloudSyncQueueStatus?
 
     var totalTasks: Int { totalTaskCount }
     var activeTasks: Int { activeTaskCount }
+    var visibleActiveTaskCount: Int { activeTaskCount + (isCloudSyncActive ? 1 : 0) }
+    var visibleOverallIndicatorProgress: Double {
+        if activeTaskCount > 0 {
+            return overallProgress
+        }
+        return isCloudSyncActive ? 0.2 : 0.0
+    }
+    var isCloudSyncActive: Bool { cloudSyncQueueStatus?.isActive == true }
     var activeVideoIDs: Set<UUID> {
         Set(queue.filter { $0.status.isActive }.compactMap { $0.videoID })
     }
@@ -53,6 +106,53 @@ class ProcessingQueueManager: ObservableObject {
                 self.refreshStats()
             }
             .store(in: &cancellables)
+    }
+
+    func handleCloudKitEvent(_ event: NSPersistentCloudKitContainer.Event) {
+        cloudSyncHideTask?.cancel()
+        let now = Date()
+        let eventID = event.identifier
+
+        if event.endDate == nil {
+            activeCloudSyncEvents[eventID] = ActiveCloudSyncEvent(id: eventID, type: event.type)
+            cloudSyncQueueStatus = CloudSyncQueueStatus(
+                phase: .syncing,
+                detail: cloudSyncActiveDetail(),
+                activeOperationCount: activeCloudSyncEvents.count,
+                updatedAt: now
+            )
+            return
+        }
+
+        activeCloudSyncEvents.removeValue(forKey: eventID)
+
+        if !activeCloudSyncEvents.isEmpty {
+            cloudSyncQueueStatus = CloudSyncQueueStatus(
+                phase: .syncing,
+                detail: cloudSyncActiveDetail(),
+                activeOperationCount: activeCloudSyncEvents.count,
+                updatedAt: now
+            )
+            return
+        }
+
+        if let error = event.error {
+            cloudSyncQueueStatus = CloudSyncQueueStatus(
+                phase: .failed,
+                detail: "Sync failed during \(cloudSyncOperationLabel(for: event.type)): \(error.localizedDescription)",
+                activeOperationCount: 0,
+                updatedAt: now
+            )
+            scheduleCloudSyncStatusHide(after: 12)
+        } else {
+            cloudSyncQueueStatus = CloudSyncQueueStatus(
+                phase: .completed,
+                detail: "iCloud sync complete (\(cloudSyncOperationLabel(for: event.type)))",
+                activeOperationCount: 0,
+                updatedAt: now
+            )
+            scheduleCloudSyncStatusHide(after: 4)
+        }
     }
 
     // MARK: - Queue Controls
@@ -190,7 +290,6 @@ class ProcessingQueueManager: ObservableObject {
     func enqueueSummarization(
         for videos: [Video],
         force: Bool = false,
-        preset: SpeechTranscriptionService.SummaryPreset = .detailed,
         customPrompt: String? = nil
     ) {
         let trimmedPrompt = customPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -199,7 +298,6 @@ class ProcessingQueueManager: ObservableObject {
             for: videos,
             types: [.summarize],
             force: force,
-            summaryPreset: preset,
             summaryCustomPrompt: normalizedPrompt
         )
     }
@@ -222,7 +320,6 @@ class ProcessingQueueManager: ObservableObject {
         force: Bool,
         preferredLocale: Locale? = nil,
         targetLocale: Locale? = nil,
-        summaryPreset: SpeechTranscriptionService.SummaryPreset? = nil,
         summaryCustomPrompt: String? = nil
     ) {
         let videoIDs = videos.compactMap { $0.id }
@@ -247,7 +344,6 @@ class ProcessingQueueManager: ObservableObject {
                     force: force,
                     preferredLocaleIdentifier: preferredLocale?.identifier,
                     targetLocaleIdentifier: targetLocale?.identifier,
-                    summaryPresetRawValue: type == .summarize ? summaryPreset?.rawValue : nil,
                     summaryCustomPrompt: type == .summarize ? summaryCustomPrompt : nil
                 )
                 processingQueue.addTask(task)
@@ -539,7 +635,13 @@ class ProcessingQueueManager: ObservableObject {
         guard let video = fetchVideo(for: task) else {
             throw FileSystemError.fileNotFound
         }
+        task.updateProgress(0.02, message: "Checking local availability...")
+
+        let progressMonitorTask = makeEnsureLocalAvailabilityProgressMonitor(task: task, videoID: video.id)
+        defer { progressMonitorTask?.cancel() }
+
         _ = try await videoFileManager.ensureLocalAvailability(for: video)
+        task.updateProgress(1.0, message: "Available locally")
     }
 
     private func executeThumbnail(_ task: ProcessingTask) async throws {
@@ -593,11 +695,9 @@ class ProcessingQueueManager: ObservableObject {
         guard let video = fetchVideo(for: task) else {
             throw FileSystemError.fileNotFound
         }
-        let preset = task.summaryPresetRawValue.flatMap(SpeechTranscriptionService.SummaryPreset.init(rawValue:)) ?? .detailed
         await transcriptionService.summarizeVideo(
             video,
             libraryManager: LibraryManager.shared,
-            preset: preset,
             customPrompt: task.summaryCustomPrompt
         )
         if let error = transcriptionService.errorMessage {
@@ -638,6 +738,78 @@ class ProcessingQueueManager: ObservableObject {
         failedTasks = tasks.filter { $0.status == .failed }.count
         activeTaskCount = tasks.filter { $0.status.isActive }.count
         overallProgress = processingQueue.overallProgress
+    }
+
+    private func makeEnsureLocalAvailabilityProgressMonitor(task: ProcessingTask, videoID: UUID?) -> Task<Void, Never>? {
+        guard let videoID else { return nil }
+
+        return Task { @MainActor [weak self, weak task] in
+            guard let self else { return }
+
+            while !Task.isCancelled {
+                guard let task else { return }
+
+                if task.status != .processing && task.status != .paused {
+                    return
+                }
+
+                if let snapshot = self.videoFileManager.transferSnapshots[videoID] {
+                    switch snapshot.state {
+                    case .downloading(let progress):
+                        let resolved = progress ?? max(task.progress, 0.02)
+                        task.updateProgress(resolved, message: snapshot.displayName)
+                    case .downloaded:
+                        task.updateProgress(1.0, message: "Available locally")
+                    case .inCloudOnly:
+                        task.updateProgress(max(task.progress, 0.02), message: "Waiting for iCloud download...")
+                    case .queuedForUploading, .uploading:
+                        break
+                    case .error(_, let message, _, _):
+                        task.statusMessage = message
+                    }
+                }
+
+                try? await Task.sleep(nanoseconds: 250_000_000)
+            }
+        }
+    }
+
+    private func cloudSyncActiveDetail() -> String {
+        let labels = Array(Set(activeCloudSyncEvents.values.map { cloudSyncOperationLabel(for: $0.type) })).sorted()
+        if labels.isEmpty {
+            return "Syncing iCloud metadata"
+        }
+        if labels.count == 1 {
+            return "\(labels[0]) in progress"
+        }
+        return "Syncing iCloud metadata (\(activeCloudSyncEvents.count) operations)"
+    }
+
+    private func cloudSyncOperationLabel(for type: NSPersistentCloudKitContainer.EventType) -> String {
+        switch type {
+        case .setup:
+            return "Preparing iCloud sync"
+        case .import:
+            return "Downloading changes from iCloud"
+        case .export:
+            return "Uploading changes to iCloud"
+        @unknown default:
+            return "Syncing iCloud"
+        }
+    }
+
+    private func scheduleCloudSyncStatusHide(after delaySeconds: TimeInterval) {
+        cloudSyncHideTask?.cancel()
+        cloudSyncHideTask = Task { [weak self] in
+            let nanos = UInt64(max(0, delaySeconds) * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: nanos)
+            await MainActor.run {
+                guard let self else { return }
+                if self.activeCloudSyncEvents.isEmpty {
+                    self.cloudSyncQueueStatus = nil
+                }
+            }
+        }
     }
 
     private func fetchVideo(for task: ProcessingTask) -> Video? {

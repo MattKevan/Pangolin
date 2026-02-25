@@ -185,6 +185,10 @@ class CoreDataStack {
                 return
             }
 
+            Task { @MainActor in
+                ProcessingQueueManager.shared.handleCloudKitEvent(event)
+            }
+
             if let error = event.error {
                 print("☁️ STACK: CloudKit event \(event.type) failed: \(error.localizedDescription)")
             } else {

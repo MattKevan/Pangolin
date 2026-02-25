@@ -134,15 +134,15 @@ struct MainView: View {
                     // Trailing actions
                     ToolbarItemGroup(placement: .primaryAction) {
                         // Task Queue Progress Indicator
-                        if processingQueueManager.activeTaskCount > 0 || processingQueueManager.failedTasks > 0 || videoFileManager.failedTransferCount > 0 {
+                        if processingQueueManager.visibleActiveTaskCount > 0 || processingQueueManager.failedTasks > 0 || videoFileManager.failedTransferCount > 0 {
                             Button {
                                 showTaskPopover.toggle()
                             } label: {
-                                let hasActiveTasks = processingQueueManager.activeTaskCount > 0
+                                let hasActiveTasks = processingQueueManager.visibleActiveTaskCount > 0
                                 let failedProcessingCount = processingQueueManager.failedTasks
                                 let transferIssueCount = videoFileManager.failedTransferCount
                                 let nonActiveIssueCount = transferIssueCount + failedProcessingCount
-                                let badgeCount = nonActiveIssueCount > 0 ? nonActiveIssueCount : max(0, processingQueueManager.activeTaskCount - 1)
+                                let badgeCount = nonActiveIssueCount > 0 ? nonActiveIssueCount : max(0, processingQueueManager.visibleActiveTaskCount - 1)
 
                                 ZStack(alignment: .topTrailing) {
                                     if hasActiveTasks {
@@ -152,7 +152,7 @@ struct MainView: View {
                                                 .frame(width: 16, height: 16)
 
                                             Circle()
-                                                .trim(from: 0, to: max(0.02, min(1.0, processingQueueManager.overallProgress)))
+                                                .trim(from: 0, to: max(0.02, min(1.0, processingQueueManager.visibleOverallIndicatorProgress)))
                                                 .stroke(
                                                     Color.accentColor,
                                                     style: StrokeStyle(lineWidth: 2, lineCap: .round)
@@ -182,7 +182,7 @@ struct MainView: View {
                                 .frame(minWidth: 24, minHeight: 22, alignment: .center)
                                 .contentShape(Rectangle())
                                 .accessibilityLabel("Background tasks")
-                                .accessibilityValue("\(processingQueueManager.activeTaskCount) active tasks, \(processingQueueManager.failedTasks) failed tasks, \(videoFileManager.failedTransferCount) transfer issues")
+                                .accessibilityValue("\(processingQueueManager.visibleActiveTaskCount) active tasks, \(processingQueueManager.failedTasks) failed tasks, \(videoFileManager.failedTransferCount) transfer issues")
                             }
                             .buttonStyle(.plain)
                             .popover(isPresented: $showTaskPopover, arrowEdge: .top) {

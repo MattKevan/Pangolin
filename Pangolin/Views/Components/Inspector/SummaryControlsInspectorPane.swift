@@ -376,31 +376,25 @@ struct SummaryControlsInspectorPane: View {
             .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
     }
 
-    private var resolvedSummaryRequest: (preset: SpeechTranscriptionService.SummaryPreset, customPrompt: String?) {
+    private var resolvedSummaryPrompt: String? {
         switch selectedStyle {
         case .shortBullets:
             let trimmed = shortBulletsPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-            let prompt = trimmed.isEmpty ? Self.defaultShortBulletsPrompt : trimmed
-            return (.custom, prompt)
+            return trimmed.isEmpty ? Self.defaultShortBulletsPrompt : trimmed
         case .articleRewrite:
             let trimmed = articleRewritePrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-            let prompt = trimmed.isEmpty ? Self.defaultArticleRewritePrompt : trimmed
-            return (.custom, prompt)
+            return trimmed.isEmpty ? Self.defaultArticleRewritePrompt : trimmed
         case .customPrompt:
             let trimmedCustom = customPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-            let optionalCustom = trimmedCustom.isEmpty ? nil : trimmedCustom
-            return (.custom, optionalCustom)
+            return trimmedCustom.isEmpty ? nil : trimmedCustom
         }
     }
 
     private func runSummarization(force: Bool) {
-        let request = resolvedSummaryRequest
         processingQueueManager.enqueueSummarization(
             for: [video],
             force: force,
-            preset: request.preset,
-            customPrompt: request.customPrompt
+            customPrompt: resolvedSummaryPrompt
         )
     }
 }
-

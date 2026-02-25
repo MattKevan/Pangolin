@@ -24,28 +24,27 @@ struct ProcessingPopoverView: View {
         videoFileManager.failedTransferSnapshots
     }
 
+    private var cloudSyncStatus: ProcessingQueueManager.CloudSyncQueueStatus? {
+        processingManager.cloudSyncQueueStatus
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Processing Queue")
-                    .font(.headline)
-                    .fontWeight(.semibold)
 
-                Spacer()
-
-                Button("View All") {
-                    onViewAllTapped()
-                }
-                .buttonStyle(.borderless)
-                .font(.caption)
-            }
-
-            if activeTasks.isEmpty && failedTasks.isEmpty && transferIssues.isEmpty {
+            if activeTasks.isEmpty && failedTasks.isEmpty && transferIssues.isEmpty && cloudSyncStatus == nil {
                 Text("No active tasks")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .padding(.vertical, 8)
             } else {
+                if let cloudSyncStatus {
+                    CloudSyncStatusRow(status: cloudSyncStatus)
+
+                    if !activeTasks.isEmpty || !transferIssues.isEmpty || !failedTasks.isEmpty {
+                        Divider()
+                    }
+                }
+
                 if !activeTasks.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(Array(activeTasks.prefix(5)), id: \.id) { task in
@@ -66,7 +65,7 @@ struct ProcessingPopoverView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Transfer Issues")
+                        Text("Transfer issues")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -95,7 +94,7 @@ struct ProcessingPopoverView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Failed Tasks")
+                        Text("Failed tasks")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -111,13 +110,7 @@ struct ProcessingPopoverView: View {
                     }
                 }
 
-                Divider()
-
-                HStack {
-                    StatPill(title: "Active", count: processingManager.activeTasks, color: .blue)
-                    StatPill(title: "Failed", count: processingManager.failedTasks, color: .red)
-                    StatPill(title: "Issues", count: transferIssues.count, color: .orange)
-                }
+                
 
                 HStack {
                     if processingManager.isPaused {
@@ -136,7 +129,7 @@ struct ProcessingPopoverView: View {
 
                     if transferIssues.count > 0,
                        let library = libraryManager.currentLibrary {
-                        Button("Retry Issues") {
+                        Button("Retry issues") {
                             Task {
                                 await videoFileManager.retryAllFailedTransfers(in: library)
                             }
@@ -146,7 +139,7 @@ struct ProcessingPopoverView: View {
                     }
 
                     if !failedTasks.isEmpty {
-                        Button("Retry Failed") {
+                        Button("Retry failed") {
                             for task in failedTasks {
                                 processingManager.retryTask(task)
                             }
@@ -159,6 +152,53 @@ struct ProcessingPopoverView: View {
         }
         .padding()
         .frame(minWidth: 300, maxWidth: 360)
+    }
+}
+
+private struct CloudSyncStatusRow: View {
+    let status: ProcessingQueueManager.CloudSyncQueueStatus
+
+    private var tintColor: Color {
+        switch status.phase {
+        case .syncing:
+            return .blue
+        case .completed:
+            return .green
+        case .failed:
+            return .orange
+        }
+    }
+
+    private var titleText: String {
+        status.phase == .syncing ? "iCloud sync" : "iCloud sync status"
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text(titleText)
+                        .font(.caption)
+                        .fontWeight(.medium)
+
+                    Spacer()
+
+                    if status.isActive {
+                        ProgressView()
+                            .controlSize(.small)
+                            .scaleEffect(0.7)
+                    }
+                }
+
+                Text(status.detail)
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(.vertical, 2)
     }
 }
 
@@ -200,27 +240,23 @@ struct CompactTaskRowView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: task.type.systemImage)
-                .foregroundColor(taskTypeColor)
-                .frame(width: 16)
+            
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
-                    Text(task.type.displayName)
+                    Text(primaryTitleText)
                         .font(.caption)
                         .fontWeight(.medium)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
 
                     Spacer()
 
-                    Image(systemName: task.status.systemImage)
-                        .foregroundColor(statusColor)
-                        .font(.system(size: 10))
+                    
                 }
 
                 if task.status == .processing || task.status == .paused || task.status == .completed {
-                    ProgressView(value: task.progress)
-                        .progressViewStyle(LinearProgressViewStyle())
-                        .scaleEffect(y: 0.5)
+                    progressIndicator
                 } else {
                     Text(task.statusMessage)
                         .font(.system(size: 9))
@@ -230,6 +266,110 @@ struct CompactTaskRowView: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private var progressIndicator: some View {
+        switch progressPresentation {
+        case .determinate(let value):
+            ProgressView(value: value)
+                .progressViewStyle(LinearProgressViewStyle())
+                .scaleEffect(y: 0.5)
+        case .indeterminate:
+            VStack(alignment: .leading, spacing: 2) {
+                ProgressView()
+                    .progressViewStyle(LinearProgressViewStyle())
+                    .scaleEffect(y: 0.5)
+
+                if let detail = indeterminateDetailText {
+                    Text(detail)
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+            }
+        }
+    }
+
+    private enum ProgressPresentation {
+        case determinate(Double)
+        case indeterminate
+    }
+
+    private var progressPresentation: ProgressPresentation {
+        if task.status == .completed {
+            return .determinate(1.0)
+        }
+
+        if usesDeterminateProgress {
+            return .determinate(task.progress)
+        }
+
+        return .indeterminate
+    }
+
+    private var usesDeterminateProgress: Bool {
+        switch task.type {
+        case .downloadRemoteVideo:
+            return true
+        case .ensureLocalAvailability:
+            return true
+        case .transcribe, .translate, .summarize, .generateThumbnail, .importVideo, .fileOperation:
+            return false
+        }
+    }
+
+    private var primaryTitleText: String {
+        guard task.status.isActive,
+              let itemName = sanitizedItemName else {
+            return task.type.displayName
+        }
+
+        let verb: String
+        switch task.type {
+        case .downloadRemoteVideo:
+            verb = "Downloading"
+        case .importVideo:
+            verb = "Importing"
+        case .generateThumbnail:
+            verb = "Generating thumbnail for"
+        case .transcribe:
+            verb = "Transcribing"
+        case .translate:
+            verb = "Translating"
+        case .summarize:
+            verb = "Summarising"
+        case .ensureLocalAvailability:
+            verb = "Downloading from iCloud"
+        case .fileOperation:
+            verb = "Processing"
+        }
+
+        if task.status == .paused {
+            return "\(verb) \(itemName) (Paused)"
+        }
+        return "\(verb) \(itemName)"
+    }
+
+    private var indeterminateDetailText: String? {
+        if task.status == .paused {
+            return task.statusMessage
+        }
+
+        // For active tasks, the title already includes the action + item name.
+        if task.status == .processing || task.status == .waitingForDependencies || task.status == .pending {
+            return nil
+        }
+
+        return task.statusMessage
+    }
+
+    private var sanitizedItemName: String? {
+        guard let itemName = task.itemName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !itemName.isEmpty else {
+            return nil
+        }
+        return itemName
     }
 
     private var taskTypeColor: Color {

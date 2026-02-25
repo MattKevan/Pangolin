@@ -33,6 +33,7 @@ class VideoFileManager: ObservableObject {
         let isDownloading: Bool
         let isUploading: Bool
         let isUploaded: Bool?
+        let percentDownloaded: Double?
     }
 
     private var transferFailures: [UUID: TransferFailureRecord] = [:]
@@ -395,8 +396,9 @@ class VideoFileManager: ObservableObject {
             }
 
             downloadingVideos.insert(videoID)
+            downloadProgress[videoID] = 0.0
             video.fileAvailabilityState = VideoFileStatus.downloading.rawValue
-            setTransferState(.downloading(progress: nil), for: video)
+            setTransferState(.downloading(progress: 0.0), for: video)
 
             do {
                 try fileManager.startDownloadingUbiquitousItem(at: url)
@@ -414,6 +416,12 @@ class VideoFileManager: ObservableObject {
             while Date().timeIntervalSince(start) < timeout {
                 let refreshedMetadata = ubiquityMetadata(for: url)
                 if let refreshedMetadata {
+                    if let percentDownloaded = refreshedMetadata.percentDownloaded {
+                        let normalizedProgress = clampProgress(percentDownloaded) ?? 0.0
+                        downloadProgress[videoID] = normalizedProgress
+                        setTransferState(.downloading(progress: normalizedProgress), for: video)
+                    }
+
                     let isDownloaded = refreshedMetadata.downloadingStatus == .current || refreshedMetadata.downloadingStatus == .downloaded
                     if isDownloaded {
                         downloadingVideos.remove(videoID)
@@ -426,7 +434,9 @@ class VideoFileManager: ObservableObject {
                     }
                 }
 
-                setTransferState(.downloading(progress: nil), for: video)
+                if downloadProgress[videoID] == nil {
+                    setTransferState(.downloading(progress: nil), for: video)
+                }
                 try await Task.sleep(nanoseconds: 500_000_000)
             }
 
@@ -719,12 +729,14 @@ class VideoFileManager: ObservableObject {
     }
 
     private func ubiquityMetadata(for url: URL) -> UbiquityMetadata? {
+        let percentDownloadedKey = URLResourceKey(rawValue: "NSURLUbiquitousItemPercentDownloadedKey")
         let keys: Set<URLResourceKey> = [
             .isUbiquitousItemKey,
             .ubiquitousItemDownloadingStatusKey,
             .ubiquitousItemIsDownloadingKey,
             .ubiquitousItemIsUploadingKey,
-            .ubiquitousItemIsUploadedKey
+            .ubiquitousItemIsUploadedKey,
+            percentDownloadedKey
         ]
 
         guard let values = try? url.resourceValues(forKeys: keys) else {
@@ -738,13 +750,35 @@ class VideoFileManager: ObservableObject {
             downloadingStatus: allValues[.ubiquitousItemDownloadingStatusKey] as? URLUbiquitousItemDownloadingStatus,
             isDownloading: (allValues[.ubiquitousItemIsDownloadingKey] as? Bool) ?? false,
             isUploading: (allValues[.ubiquitousItemIsUploadingKey] as? Bool) ?? false,
-            isUploaded: allValues[.ubiquitousItemIsUploadedKey] as? Bool
+            isUploaded: allValues[.ubiquitousItemIsUploadedKey] as? Bool,
+            percentDownloaded: normalizedPercentDownloaded(allValues[percentDownloadedKey])
         )
     }
 
     private func clampProgress(_ value: Double?) -> Double? {
         guard let value else { return nil }
         return min(max(value, 0), 1)
+    }
+
+    private func normalizedPercentDownloaded(_ rawValue: Any?) -> Double? {
+        let numericValue: Double? = {
+            if let number = rawValue as? NSNumber {
+                return number.doubleValue
+            }
+            if let value = rawValue as? Double {
+                return value
+            }
+            if let value = rawValue as? Float {
+                return Double(value)
+            }
+            return nil
+        }()
+
+        guard let numericValue else { return nil }
+        if numericValue > 1.0 {
+            return min(max(numericValue / 100.0, 0.0), 1.0)
+        }
+        return min(max(numericValue, 0.0), 1.0)
     }
 
     private func notifyStorageChange(videoID: UUID) {

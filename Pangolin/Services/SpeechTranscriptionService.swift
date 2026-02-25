@@ -70,7 +70,7 @@ enum TranscriptionError: LocalizedError {
         case .translationModelsNotInstalled:
             return "Go to System Settings → General → Language & Region → Translation Languages to download the required translation models, then try again."
         case .summarizationFailed:
-            return "Ensure Apple Intelligence is enabled in System Settings and try again. Summarization requires Apple Intelligence to be active."
+            return "Ensure Apple Intelligence is enabled in System Settings and try again. Summarisation requires Apple Intelligence to be active."
         }
     }
 }
@@ -104,65 +104,6 @@ class SpeechTranscriptionService: ObservableObject {
     // Session cache: locales we’ve verified/installed during this app run
     private var preparedLocales = Set<String>()
     private let preparedLocalesLock = NSLock()
-
-    // MARK: - Summary Presets
-    enum SummaryPreset: String, CaseIterable, Identifiable {
-        case executive
-        case detailed
-        case actionItems
-        case studyNotes
-        case custom
-        
-        var id: String { rawValue }
-        
-        var displayName: String {
-            switch self {
-            case .executive: return "Executive Summary"
-            case .detailed: return "Detailed Overview"
-            case .actionItems: return "Action Items"
-            case .studyNotes: return "Study Notes"
-            case .custom: return "Custom"
-            }
-        }
-        
-        var baseInstructions: String {
-            switch self {
-            case .executive:
-                return """
-                Create a concise executive summary focused on key insights, decisions, and outcomes. \
-                Use clear headings and bullet points. Keep it brief and high-signal.
-                """
-            case .detailed:
-                return """
-                Produce a comprehensive, well-structured summary with headings and bullet points. \
-                Maintain logical flow, highlight key arguments, tradeoffs, and conclusions.
-                """
-            case .actionItems:
-                return """
-                Extract clear, actionable tasks with owners (if mentioned), due dates (if provided), and status. \
-                Include a brief context section, then list actions as bullet points.
-                """
-            case .studyNotes:
-                return """
-                Create study notes: definitions, key concepts, examples, and takeaways. \
-                Use headings, bullet points, and emphasis for clarity.
-                """
-            case .custom:
-                return ""
-            }
-        }
-        
-        func combinedInstructions(with customPrompt: String?) -> String {
-            let custom = (customPrompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            if self == .custom {
-                return custom.isEmpty ? "Summarize the content clearly with headings and bullet points." : custom
-            }
-            if custom.isEmpty {
-                return baseInstructions
-            }
-            return baseInstructions + "\n\nAdditional guidance:\n" + custom
-        }
-    }
 
     // MARK: - Public API
 
@@ -376,7 +317,7 @@ class SpeechTranscriptionService: ObservableObject {
 
     // MARK: - Summarization
 
-    func summarizeVideo(_ video: Video, libraryManager: LibraryManager, preset: SummaryPreset = .detailed, customPrompt: String? = nil) async {
+    func summarizeVideo(_ video: Video, libraryManager: LibraryManager, customPrompt: String? = nil) async {
         guard let videoID = video.id else {
             await setErrorMessage("Video metadata is missing. Please re-import this video.")
             return
@@ -440,13 +381,13 @@ class SpeechTranscriptionService: ObservableObject {
                     await setStatus("Summarizing chunk \(index + 1) of \(chunks.count)...")
                     await setProgress(0.1 + (0.6 * Double(index) / Double(max(1, chunks.count))))
 
-                    let chunkSummary = try await self.summarizeChunk(chunk, preset: preset, customPrompt: customPrompt)
+                    let chunkSummary = try await self.summarizeChunk(chunk, customPrompt: customPrompt)
                     chunkSummaries.append(chunkSummary)
                 }
 
                 await setStatus("Combining summaries...")
                 await setProgress(0.8)
-                return try await self.reduceSummaries(chunkSummaries, preset: preset, customPrompt: customPrompt)
+                return try await self.reduceSummaries(chunkSummaries, customPrompt: customPrompt)
             }.value
 
             await setStatus("Saving summary...")
@@ -1581,8 +1522,8 @@ class SpeechTranscriptionService: ObservableObject {
         return sentences
     }
     
-    private func summarizeChunk(_ chunk: String, preset: SummaryPreset, customPrompt: String?) async throws -> String {
-        let instructionsText = preset.combinedInstructions(with: customPrompt)
+    private func summarizeChunk(_ chunk: String, customPrompt: String?) async throws -> String {
+        let instructionsText = summaryInstructions(from: customPrompt)
         let instructions = Instructions("""
         You are an expert summarizer. Follow these rules:
         - Output Markdown only (no plain text outside markdown, no code fences)
@@ -1604,8 +1545,8 @@ class SpeechTranscriptionService: ObservableObject {
         return response.content
     }
     
-    private func reduceSummaries(_ summaries: [String], preset: SummaryPreset, customPrompt: String?) async throws -> String {
-        let instructionsText = preset.combinedInstructions(with: customPrompt)
+    private func reduceSummaries(_ summaries: [String], customPrompt: String?) async throws -> String {
+        let instructionsText = summaryInstructions(from: customPrompt)
         let instructions = Instructions("""
         You are an expert at synthesizing multiple summaries into a cohesive, non-redundant final summary.
         - Output Markdown only (no plain text outside markdown, no code fences)
@@ -1625,6 +1566,14 @@ class SpeechTranscriptionService: ObservableObject {
         """
         let response = try await session.respond(to: prompt)
         return response.content
+    }
+
+    private func summaryInstructions(from customPrompt: String?) -> String {
+        let trimmed = (customPrompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return "Summarize the content clearly with headings and bullet points."
+        }
+        return trimmed
     }
 
     // MARK: - Main-thread UI helpers
