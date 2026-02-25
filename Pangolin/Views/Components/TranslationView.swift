@@ -36,8 +36,10 @@ struct TranslationView: View {
     }
 
     private static let chunkListLayoutThreshold = 900
-    private static let chunkParagraphWordTarget = 96
-    private static let chunkParagraphMaxChunks = 12
+    private static let chunkParagraphSoftWordTarget = 36
+    private static let chunkParagraphHardWordLimit = 56
+    private static let chunkParagraphMaxChunks = 6
+    private static let chunkParagraphMaxSentences = 2
     private static let paragraphSentenceTerminators: Set<Character> = [".", "?", "!", ";", ":"]
 
     var body: some View {
@@ -320,6 +322,7 @@ struct TranslationView: View {
         var paragraphIDByChunkID: [String: String] = [:]
         var currentEntries: [TimedTranslation.ChunkIndex.Entry] = []
         var currentWordCount = 0
+        var currentSentenceCount = 0
 
         func flushParagraph() {
             guard let first = currentEntries.first else { return }
@@ -332,6 +335,7 @@ struct TranslationView: View {
             guard !text.isEmpty else {
                 currentEntries.removeAll(keepingCapacity: true)
                 currentWordCount = 0
+                currentSentenceCount = 0
                 return
             }
 
@@ -349,6 +353,7 @@ struct TranslationView: View {
             )
             currentEntries.removeAll(keepingCapacity: true)
             currentWordCount = 0
+            currentSentenceCount = 0
         }
 
         for entry in entries {
@@ -356,10 +361,16 @@ struct TranslationView: View {
             currentWordCount += entry.text.split(whereSeparator: \.isWhitespace).count
 
             let endsSentence = entry.text.last.map { Self.paragraphSentenceTerminators.contains($0) } ?? false
-            let reachedWordTarget = currentWordCount >= Self.chunkParagraphWordTarget
+            if endsSentence {
+                currentSentenceCount += 1
+            }
+            let reachedSoftWordTargetAtSentenceBoundary =
+                currentWordCount >= Self.chunkParagraphSoftWordTarget && endsSentence
+            let reachedHardWordLimit = currentWordCount >= Self.chunkParagraphHardWordLimit
             let reachedChunkLimit = currentEntries.count >= Self.chunkParagraphMaxChunks
+            let reachedSentenceLimit = currentSentenceCount >= Self.chunkParagraphMaxSentences
 
-            if reachedChunkLimit || (reachedWordTarget && endsSentence) {
+            if reachedSentenceLimit || reachedChunkLimit || reachedHardWordLimit || reachedSoftWordTargetAtSentenceBoundary {
                 flushParagraph()
             }
         }
