@@ -487,6 +487,8 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Pangolin/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Pangolin;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Pangolin uses speech recognition to generate transcripts of your video content, making it searchable and accessible.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
