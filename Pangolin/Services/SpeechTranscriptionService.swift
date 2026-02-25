@@ -597,7 +597,11 @@ class SpeechTranscriptionService: ObservableObject {
             self.translationSession = session
         }
 
-        try await session.prepareTranslation()
+        do {
+            try await session.prepareTranslation()
+        } catch {
+            throw mapTranslationError(error, sourceLanguage: sourceLanguage, targetLanguage: targetLanguage)
+        }
         await setStatus("Translating \(sourceChunks.count) chunks...")
 
         let requests = sourceChunks.map {

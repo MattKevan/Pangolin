@@ -6,6 +6,9 @@
 //
 
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 struct TranslationView: View {
     @EnvironmentObject private var libraryManager: LibraryManager
@@ -14,6 +17,10 @@ struct TranslationView: View {
     @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
 
     @State private var chunkIndex: TimedTranslation.ChunkIndex?
+    @State private var inlineTokens: [InlineToken] = []
+    @State private var chunkParagraphs: [ChunkParagraph] = []
+    @State private var paragraphIDByChunkID: [String: String] = [:]
+    @State private var useChunkListLayout = false
     @State private var activeChunkID: String?
     @State private var loadError: String?
 
@@ -23,6 +30,20 @@ struct TranslationView: View {
         let seekSeconds: TimeInterval
         let text: String
     }
+
+    private struct ChunkParagraph: Identifiable {
+        let id: String
+        let chunkIDs: [String]
+        let startSeconds: TimeInterval
+        let text: String
+    }
+
+    private static let chunkListLayoutThreshold = 900
+    private static let chunkParagraphSoftWordTarget = 36
+    private static let chunkParagraphHardWordLimit = 56
+    private static let chunkParagraphMaxChunks = 6
+    private static let chunkParagraphMaxSentences = 2
+    private static let paragraphSentenceTerminators: Set<Character> = [".", "?", "!", ";", ":"]
 
     var body: some View {
         ScrollView {
@@ -79,34 +100,40 @@ struct TranslationView: View {
             }
             .frame(maxWidth: .infinity, minHeight: 320)
         } else if let errorMessage = translationErrorMessage {
+            let parsedError = parseTranslationError(from: errorMessage)
+            let isModelSetupRequired = isTranslationModelSetupRequired(parsedError)
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Image(systemName: "exclamationmark.triangle")
-                        .foregroundColor(.orange)
-                    Text("Translation error")
+                    Image(systemName: isModelSetupRequired ? "gearshape.2" : "exclamationmark.triangle")
+                        .foregroundColor(isModelSetupRequired ? .blue : .orange)
+                    Text(isModelSetupRequired ? "Translation setup required" : "Translation error")
                         .font(.headline)
                 }
 
-                Text(errorMessage)
+                Text(
+                    isModelSetupRequired
+                    ? "Install the required language in System Settings -> General -> Language & Region -> Translation Languages, then return here and click Retry."
+                    : errorMessage
+                )
                     .font(.body)
                     .foregroundColor(.primary)
 
-                if let error = parseTranslationError(from: errorMessage),
-                   let suggestion = error.recoverySuggestion {
-                    Divider()
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Suggestion:")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                            .foregroundColor(.blue)
-                        Text(suggestion)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                HStack(spacing: 8) {
+                    if isModelSetupRequired {
+                        Button("Open Settings") {
+                            openTranslationSettings()
+                        }
+                        .buttonStyle(.bordered)
                     }
+
+                    Button("Retry") {
+                        retryTranslation()
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
             }
             .padding()
-            .background(Color.orange.opacity(0.1))
+            .background((isModelSetupRequired ? Color.blue : Color.orange).opacity(0.1))
             .cornerRadius(8)
         } else if let chunkIndex {
             syncedTranslationContent(chunkIndex: chunkIndex)
@@ -154,34 +181,64 @@ struct TranslationView: View {
     @ViewBuilder
     private func syncedTranslationContent(chunkIndex: TimedTranslation.ChunkIndex) -> some View {
         ScrollViewReader { proxy in
-            let inlineTokens = makeInlineTokens(from: chunkIndex.allEntries)
             ScrollView {
-                TranscriptWordWrapLayout(horizontalSpacing: 0, verticalSpacing: 8) {
-                    ForEach(inlineTokens) { token in
-                        Text(token.text)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .foregroundStyle(Color.primary)
-                            .padding(.horizontal, 0)
-                            .padding(.vertical, 2)
-                            .background(activeChunkID == token.chunkID ? Color.accentColor.opacity(0.2) : Color.clear)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                playerViewModel.seek(to: token.seekSeconds, in: video)
-                            }
-                            .id(token.id)
+                if useChunkListLayout {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        ForEach(chunkParagraphs) { paragraph in
+                            Text(paragraph.text)
+                                .foregroundStyle(Color.primary)
+                                .padding(.horizontal, 0)
+                                .padding(.vertical, 4)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(
+                                    (activeChunkID.map { paragraph.chunkIDs.contains($0) } ?? false)
+                                    ? Color.accentColor.opacity(0.2)
+                                    : Color.clear
+                                )
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    playerViewModel.seek(to: paragraph.startSeconds, in: video)
+                                }
+                                .id(paragraph.id)
+                        }
                     }
+                    .font(.system(size: 17))
+                    .lineSpacing(8)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: 720, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.horizontal, 12)
+                } else {
+                    TranscriptWordWrapLayout(horizontalSpacing: 0, verticalSpacing: 8) {
+                        ForEach(inlineTokens) { token in
+                            Text(token.text)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .foregroundStyle(Color.primary)
+                                .padding(.horizontal, 0)
+                                .padding(.vertical, 2)
+                                .background(activeChunkID == token.chunkID ? Color.accentColor.opacity(0.2) : Color.clear)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    playerViewModel.seek(to: token.seekSeconds, in: video)
+                                }
+                                .id(token.id)
+                        }
+                    }
+                    .font(.system(size: 17))
+                    .lineSpacing(8)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: 720, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.horizontal, 12)
                 }
-                .font(.system(size: 17))
-                .lineSpacing(8)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: 720, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.horizontal, 12)
             }
             .onChange(of: activeChunkID) { _, chunkID in
                 guard let chunkID else { return }
+                let targetID = useChunkListLayout
+                    ? (paragraphIDByChunkID[chunkID] ?? chunkID)
+                    : chunkID
                 withAnimation(.easeInOut(duration: 0.12)) {
-                    proxy.scrollTo(chunkID, anchor: .center)
+                    proxy.scrollTo(targetID, anchor: .center)
                 }
             }
         }
@@ -193,6 +250,10 @@ struct TranslationView: View {
               let url = libraryManager.timedTranslationURL(for: video, languageCode: languageCode),
               FileManager.default.fileExists(atPath: url.path) else {
             chunkIndex = nil
+            inlineTokens = []
+            chunkParagraphs = []
+            paragraphIDByChunkID = [:]
+            useChunkListLayout = false
             loadError = nil
             activeChunkID = nil
             return
@@ -200,18 +261,38 @@ struct TranslationView: View {
 
         do {
             let translation = try libraryManager.readTimedTranslation(from: url)
-            chunkIndex = translation.makeChunkIndex()
+            let loadedChunkIndex = translation.makeChunkIndex()
+            let entries = loadedChunkIndex.allEntries
+            let shouldUseChunkList = entries.count > Self.chunkListLayoutThreshold
+
+            chunkIndex = loadedChunkIndex
+            useChunkListLayout = shouldUseChunkList
+            inlineTokens = shouldUseChunkList ? [] : makeInlineTokens(from: entries)
+            if shouldUseChunkList {
+                let paragraphResult = makeChunkParagraphs(from: entries)
+                chunkParagraphs = paragraphResult.paragraphs
+                paragraphIDByChunkID = paragraphResult.paragraphIDByChunkID
+            } else {
+                chunkParagraphs = []
+                paragraphIDByChunkID = [:]
+            }
             loadError = nil
             updateActiveChunk(for: playerViewModel.currentTime)
         } catch {
             chunkIndex = nil
+            inlineTokens = []
+            chunkParagraphs = []
+            paragraphIDByChunkID = [:]
+            useChunkListLayout = false
             loadError = "Failed to load timed translation: \(error.localizedDescription)"
             activeChunkID = nil
         }
     }
 
     private func updateActiveChunk(for time: TimeInterval) {
-        activeChunkID = chunkIndex?.activeChunk(at: time)?.id
+        let nextActiveChunkID = chunkIndex?.activeChunk(at: time)?.id
+        guard nextActiveChunkID != activeChunkID else { return }
+        activeChunkID = nextActiveChunkID
     }
 
     private func makeInlineTokens(from entries: [TimedTranslation.ChunkIndex.Entry]) -> [InlineToken] {
@@ -242,8 +323,75 @@ struct TranslationView: View {
         return tokens
     }
 
+    private func makeChunkParagraphs(from entries: [TimedTranslation.ChunkIndex.Entry]) -> (
+        paragraphs: [ChunkParagraph],
+        paragraphIDByChunkID: [String: String]
+    ) {
+        var paragraphs: [ChunkParagraph] = []
+        var paragraphIDByChunkID: [String: String] = [:]
+        var currentEntries: [TimedTranslation.ChunkIndex.Entry] = []
+        var currentWordCount = 0
+        var currentSentenceCount = 0
+
+        func flushParagraph() {
+            guard let first = currentEntries.first else { return }
+            let id = first.id
+            let chunkIDs = currentEntries.map(\.id)
+            let text = currentEntries
+                .map(\.text)
+                .joined(separator: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else {
+                currentEntries.removeAll(keepingCapacity: true)
+                currentWordCount = 0
+                currentSentenceCount = 0
+                return
+            }
+
+            for chunkID in chunkIDs {
+                paragraphIDByChunkID[chunkID] = id
+            }
+
+            paragraphs.append(
+                ChunkParagraph(
+                    id: id,
+                    chunkIDs: chunkIDs,
+                    startSeconds: first.startSeconds,
+                    text: text
+                )
+            )
+            currentEntries.removeAll(keepingCapacity: true)
+            currentWordCount = 0
+            currentSentenceCount = 0
+        }
+
+        for entry in entries {
+            currentEntries.append(entry)
+            currentWordCount += entry.text.split(whereSeparator: \.isWhitespace).count
+
+            let endsSentence = entry.text.last.map { Self.paragraphSentenceTerminators.contains($0) } ?? false
+            if endsSentence {
+                currentSentenceCount += 1
+            }
+            let reachedSoftWordTargetAtSentenceBoundary =
+                currentWordCount >= Self.chunkParagraphSoftWordTarget && endsSentence
+            let reachedHardWordLimit = currentWordCount >= Self.chunkParagraphHardWordLimit
+            let reachedChunkLimit = currentEntries.count >= Self.chunkParagraphMaxChunks
+            let reachedSentenceLimit = currentSentenceCount >= Self.chunkParagraphMaxSentences
+
+            if reachedSentenceLimit || reachedChunkLimit || reachedHardWordLimit || reachedSoftWordTargetAtSentenceBoundary {
+                flushParagraph()
+            }
+        }
+
+        flushParagraph()
+        return (paragraphs, paragraphIDByChunkID)
+    }
+
     private func parseTranslationError(from message: String) -> TranscriptionError? {
-        if message.contains("Translation models") && message.contains("not installed") {
+        if (message.contains("Translation models") && message.contains("not installed"))
+            || message.contains("notInstalled")
+            || message.contains("Code=16") {
             return .translationModelsNotInstalled("", "")
         } else if message.contains("language") && message.contains("not supported") {
             return .languageNotSupported(Locale.current)
@@ -253,6 +401,38 @@ struct TranslationView: View {
 
     private var translationTask: ProcessingTask? {
         processingQueueManager.task(for: video, type: .translate)
+    }
+
+    private func isTranslationModelSetupRequired(_ error: TranscriptionError?) -> Bool {
+        guard let error else { return false }
+        if case .translationModelsNotInstalled = error {
+            return true
+        }
+        return false
+    }
+
+    private func retryTranslation() {
+        processingQueueManager.enqueueTranslation(for: [video], targetLocale: retryTargetLocale, force: true)
+    }
+
+    private var retryTargetLocale: Locale? {
+        if let targetID = translationTask?.targetLocaleIdentifier, !targetID.isEmpty {
+            return Locale(identifier: targetID)
+        }
+        if let targetID = video.translatedLanguage, !targetID.isEmpty {
+            return Locale(identifier: targetID)
+        }
+        return nil
+    }
+
+    private func openTranslationSettings() {
+        #if os(macOS)
+        if let settingsURL = URL(string: "x-apple.systempreferences:com.apple.Localization-Settings.extension") {
+            NSWorkspace.shared.open(settingsURL)
+        } else {
+            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
+        }
+        #endif
     }
 
     private var isTranslationActive: Bool {

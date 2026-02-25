@@ -23,19 +23,19 @@ struct VideoResultsTableView: View {
             TableColumn("Title", value: \.titleSort) { row in
                 VideoResultTitleCell(video: row.video)
             }
-            .width(min: 220, ideal: 380)
+            .width(min: 220, ideal: 440)
 
             TableColumn("Duration", value: \.durationSort) { row in
                 Text(row.video.formattedDuration)
                     .font(.system(.body, design: .monospaced))
                     .foregroundColor(.secondary)
             }
-            .width(min: 80, ideal: 90, max: 110)
+            .width(min: 80, ideal: 90, max: 90)
 
-            TableColumn("Watch Status", value: \.watchSort) { row in
+            TableColumn("Watched", value: \.watchSort) { row in
                 VideoWatchStatusCell(status: row.video.watchStatus)
             }
-            .width(min: 130, ideal: 150, max: 180)
+            .width(min: 50, ideal: 60, max: 70)
 
             TableColumn("Favorite", value: \.favoriteSort) { row in
                 Button {
@@ -47,12 +47,12 @@ struct VideoResultsTableView: View {
                 .buttonStyle(.plain)
                 .help(row.video.isFavorite ? "Remove from Favorites" : "Add to Favorites")
             }
-            .width(min: 70, ideal: 80, max: 90)
+            .width(min: 50, ideal: 60, max: 70)
 
-            TableColumn("iCloud", value: \.cloudSort) { row in
+            TableColumn("Status", value: \.cloudSort) { row in
                 VideoICloudStatusCell(video: row.video)
             }
-            .width(min: 180, ideal: 230, max: 300)
+            .width(min: 50, ideal: 60, max: 70)
         }
         #if os(macOS)
         .alternatingRowBackgrounds(.enabled)
@@ -145,8 +145,7 @@ private struct VideoWatchStatusCell: View {
         HStack(spacing: 6) {
             Image(systemName: status.systemImage)
                 .foregroundColor(statusColor)
-            Text(status.displayName)
-                .foregroundColor(.secondary)
+            
         }
         .font(.caption)
         .help(status.displayName)
@@ -199,8 +198,7 @@ struct VideoICloudStatusCell: View {
                 .buttonStyle(.plain)
                 .help("In cloud only. Download")
 
-                Text("In cloud only")
-                    .foregroundColor(.secondary)
+                
 
             case .downloading(let progress):
                 if let progress {
@@ -210,8 +208,7 @@ struct VideoICloudStatusCell: View {
                 } else {
                     ProgressView()
                         .controlSize(.small)
-                    Text("Downloading")
-                        .foregroundColor(.secondary)
+                    
                 }
 
                 if video.id != nil {
@@ -222,14 +219,13 @@ struct VideoICloudStatusCell: View {
                             .foregroundColor(.secondary)
                     }
                     .buttonStyle(.plain)
-                    .help("Cancel Download")
+                    .help("Cancel download")
                 }
 
             case .downloaded:
                 Image(systemName: "checkmark.icloud")
                     .foregroundColor(.green)
-                Text("Downloaded")
-                    .foregroundColor(.secondary)
+                
 
             case .error(let operation, let message, _, _):
                 Image(systemName: "exclamationmark.triangle.fill")

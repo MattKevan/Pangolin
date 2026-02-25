@@ -12,6 +12,7 @@ extension Notification.Name {
     static let triggerRename = Notification.Name("com.pangolin.triggerRename")
     static let triggerCreateFolder = Notification.Name("com.pangolin.triggerCreateFolder")
     static let triggerImportVideos = Notification.Name("com.pangolin.triggerImportVideos")
+    static let triggerImportFromURL = Notification.Name("com.pangolin.triggerImportFromURL")
 
     /// Notification posted when the content of a folder or library has been updated (e.g., after an import).
     static let contentUpdated = Notification.Name("com.pangolin.contentUpdated")

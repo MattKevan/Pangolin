@@ -51,6 +51,12 @@ struct PangolinApp: App {
                 }
                 .keyboardShortcut("I", modifiers: .command)
                 .disabled(!libraryManager.isLibraryOpen)
+
+                Button("Import from URL...") {
+                    triggerImportFromURL()
+                }
+                .keyboardShortcut("I", modifiers: [.command, .shift])
+                .disabled(!libraryManager.isLibraryOpen)
             }
 
             CommandGroup(after: .undoRedo) {
@@ -147,6 +153,10 @@ struct PangolinApp: App {
     
     private func triggerImportVideos() {
         NotificationCenter.default.post(name: .triggerImportVideos, object: nil)
+    }
+
+    private func triggerImportFromURL() {
+        NotificationCenter.default.post(name: .triggerImportFromURL, object: nil)
     }
 }
 
