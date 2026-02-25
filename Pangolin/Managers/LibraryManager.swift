@@ -274,6 +274,13 @@ class LibraryManager: ObservableObject {
         normalizeStorageSettings(for: library)
         
         // Update library
+        // Keep the persisted library path in sync with the actual opened URL.
+        // This fixes moved libraries / username changes (e.g. /Users/mattkevan -> /Users/matt)
+        // so text artifacts (Transcripts/Translations/Summaries) are written to the correct location.
+        if library.libraryPath != url.path {
+            print("🔧 LIBRARY: Updating stored libraryPath from \(library.libraryPath ?? "nil") to \(url.path)")
+            library.libraryPath = url.path
+        }
         library.lastOpenedDate = Date()
         try context.save()
         
