@@ -108,6 +108,8 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
     let sourceURLPath: String?
     let remoteURLString: String?
     let remoteProviderRawValue: String?
+    let originalRemoteURLString: String?
+    let remoteVideoIdentifier: String?
     let destinationFolderID: UUID?
     let libraryID: UUID?
     let type: ProcessingTaskType
@@ -142,6 +144,8 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         self.sourceURLPath = nil
         self.remoteURLString = nil
         self.remoteProviderRawValue = nil
+        self.originalRemoteURLString = nil
+        self.remoteVideoIdentifier = nil
         self.destinationFolderID = nil
         self.libraryID = nil
         self.type = type
@@ -168,13 +172,17 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         itemName: String? = nil,
         force: Bool = false,
         followUpTypes: [ProcessingTaskType] = [],
-        destinationFolderID: UUID? = nil
+        destinationFolderID: UUID? = nil,
+        originalRemoteURLString: String? = nil,
+        remoteVideoIdentifier: String? = nil
     ) {
         self.id = UUID()
         self.videoID = nil
         self.sourceURLPath = sourceURL.path
         self.remoteURLString = nil
         self.remoteProviderRawValue = nil
+        self.originalRemoteURLString = originalRemoteURLString
+        self.remoteVideoIdentifier = remoteVideoIdentifier
         self.destinationFolderID = destinationFolderID
         self.libraryID = libraryID
         self.type = type
@@ -208,6 +216,8 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         self.sourceURLPath = nil
         self.remoteURLString = remoteURL.absoluteString
         self.remoteProviderRawValue = provider.rawValue
+        self.originalRemoteURLString = nil
+        self.remoteVideoIdentifier = nil
         self.destinationFolderID = destinationFolderID
         self.libraryID = libraryID
         self.type = .downloadRemoteVideo
@@ -230,7 +240,7 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
     // MARK: - Codable Implementation
     
     enum CodingKeys: String, CodingKey {
-        case id, videoID, sourceURLPath, remoteURLString, remoteProviderRawValue, destinationFolderID, libraryID, type, itemName, force, followUpTypes, preferredLocaleIdentifier, targetLocaleIdentifier, summaryPresetRawValue, summaryCustomPrompt, status, progress, errorMessage, statusMessage
+        case id, videoID, sourceURLPath, remoteURLString, remoteProviderRawValue, originalRemoteURLString, remoteVideoIdentifier, destinationFolderID, libraryID, type, itemName, force, followUpTypes, preferredLocaleIdentifier, targetLocaleIdentifier, summaryPresetRawValue, summaryCustomPrompt, status, progress, errorMessage, statusMessage
         case createdAt, startedAt, completedAt
     }
     
@@ -242,6 +252,8 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         sourceURLPath = try container.decodeIfPresent(String.self, forKey: .sourceURLPath)
         remoteURLString = try container.decodeIfPresent(String.self, forKey: .remoteURLString)
         remoteProviderRawValue = try container.decodeIfPresent(String.self, forKey: .remoteProviderRawValue)
+        originalRemoteURLString = try container.decodeIfPresent(String.self, forKey: .originalRemoteURLString)
+        remoteVideoIdentifier = try container.decodeIfPresent(String.self, forKey: .remoteVideoIdentifier)
         destinationFolderID = try container.decodeIfPresent(UUID.self, forKey: .destinationFolderID)
         libraryID = try container.decodeIfPresent(UUID.self, forKey: .libraryID)
         type = try container.decode(ProcessingTaskType.self, forKey: .type)
@@ -269,6 +281,8 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         try container.encodeIfPresent(sourceURLPath, forKey: .sourceURLPath)
         try container.encodeIfPresent(remoteURLString, forKey: .remoteURLString)
         try container.encodeIfPresent(remoteProviderRawValue, forKey: .remoteProviderRawValue)
+        try container.encodeIfPresent(originalRemoteURLString, forKey: .originalRemoteURLString)
+        try container.encodeIfPresent(remoteVideoIdentifier, forKey: .remoteVideoIdentifier)
         try container.encodeIfPresent(destinationFolderID, forKey: .destinationFolderID)
         try container.encodeIfPresent(libraryID, forKey: .libraryID)
         try container.encode(type, forKey: .type)

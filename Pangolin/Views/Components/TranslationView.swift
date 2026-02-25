@@ -6,6 +6,9 @@
 //
 
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 struct TranslationView: View {
     @EnvironmentObject private var libraryManager: LibraryManager
@@ -97,34 +100,40 @@ struct TranslationView: View {
             }
             .frame(maxWidth: .infinity, minHeight: 320)
         } else if let errorMessage = translationErrorMessage {
+            let parsedError = parseTranslationError(from: errorMessage)
+            let isModelSetupRequired = isTranslationModelSetupRequired(parsedError)
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Image(systemName: "exclamationmark.triangle")
-                        .foregroundColor(.orange)
-                    Text("Translation error")
+                    Image(systemName: isModelSetupRequired ? "gearshape.2" : "exclamationmark.triangle")
+                        .foregroundColor(isModelSetupRequired ? .blue : .orange)
+                    Text(isModelSetupRequired ? "Translation setup required" : "Translation error")
                         .font(.headline)
                 }
 
-                Text(errorMessage)
+                Text(
+                    isModelSetupRequired
+                    ? "Install the required language in System Settings -> General -> Language & Region -> Translation Languages, then return here and click Retry."
+                    : errorMessage
+                )
                     .font(.body)
                     .foregroundColor(.primary)
 
-                if let error = parseTranslationError(from: errorMessage),
-                   let suggestion = error.recoverySuggestion {
-                    Divider()
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Suggestion:")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                            .foregroundColor(.blue)
-                        Text(suggestion)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                HStack(spacing: 8) {
+                    if isModelSetupRequired {
+                        Button("Open Settings") {
+                            openTranslationSettings()
+                        }
+                        .buttonStyle(.bordered)
                     }
+
+                    Button("Retry") {
+                        retryTranslation()
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
             }
             .padding()
-            .background(Color.orange.opacity(0.1))
+            .background((isModelSetupRequired ? Color.blue : Color.orange).opacity(0.1))
             .cornerRadius(8)
         } else if let chunkIndex {
             syncedTranslationContent(chunkIndex: chunkIndex)
@@ -380,7 +389,9 @@ struct TranslationView: View {
     }
 
     private func parseTranslationError(from message: String) -> TranscriptionError? {
-        if message.contains("Translation models") && message.contains("not installed") {
+        if (message.contains("Translation models") && message.contains("not installed"))
+            || message.contains("notInstalled")
+            || message.contains("Code=16") {
             return .translationModelsNotInstalled("", "")
         } else if message.contains("language") && message.contains("not supported") {
             return .languageNotSupported(Locale.current)
@@ -390,6 +401,38 @@ struct TranslationView: View {
 
     private var translationTask: ProcessingTask? {
         processingQueueManager.task(for: video, type: .translate)
+    }
+
+    private func isTranslationModelSetupRequired(_ error: TranscriptionError?) -> Bool {
+        guard let error else { return false }
+        if case .translationModelsNotInstalled = error {
+            return true
+        }
+        return false
+    }
+
+    private func retryTranslation() {
+        processingQueueManager.enqueueTranslation(for: [video], targetLocale: retryTargetLocale, force: true)
+    }
+
+    private var retryTargetLocale: Locale? {
+        if let targetID = translationTask?.targetLocaleIdentifier, !targetID.isEmpty {
+            return Locale(identifier: targetID)
+        }
+        if let targetID = video.translatedLanguage, !targetID.isEmpty {
+            return Locale(identifier: targetID)
+        }
+        return nil
+    }
+
+    private func openTranslationSettings() {
+        #if os(macOS)
+        if let settingsURL = URL(string: "x-apple.systempreferences:com.apple.Localization-Settings.extension") {
+            NSWorkspace.shared.open(settingsURL)
+        } else {
+            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
+        }
+        #endif
     }
 
     private var isTranslationActive: Bool {

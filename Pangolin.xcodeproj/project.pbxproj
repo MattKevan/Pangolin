@@ -288,7 +288,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -eu\n\nSRC_TOOLS=\"$SRCROOT/.vendor/downloader-runtime\"\nDST_TOOLS=\"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Resources/Tools\"\n\nif [ ! -d \"$SRC_TOOLS\" ]; then\n  echo \"No vendored downloader runtime at $SRC_TOOLS (skipping)\"\n  exit 0\nfi\n\nmkdir -p \"$DST_TOOLS\"\n\n# Remove previous contents, but don't remove the Tools directory itself\nfind \"$DST_TOOLS\" -mindepth 1 -maxdepth 1 -exec rm -rf {} \\; 2>/dev/null || true\n\n# Prefer ditto on macOS to preserve tree structure reliably\nditto \"$SRC_TOOLS\" \"$DST_TOOLS\"\n\nchmod 755 \"$DST_TOOLS/ffmpeg\" 2>/dev/null || true\nchmod 755 \"$DST_TOOLS/ffprobe\" 2>/dev/null || true\nfind \"$DST_TOOLS\" -type f -path \"*/python/bin/*\" -exec chmod 755 {} \\; 2>/dev/null || true\n\ntouch \"$DST_TOOLS/.copy-complete\"\n";
+			shellScript = "set -eu\n\nSRC_TOOLS=\"$SRCROOT/.vendor/downloader-runtime\"\nDST_TOOLS=\"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Resources/Tools\"\n\nif [ ! -d \"$SRC_TOOLS\" ]; then\n  echo \"No vendored downloader runtime at $SRC_TOOLS (skipping)\"\n  exit 0\nfi\n\nmkdir -p \"$DST_TOOLS\"\n\n# Remove previous contents, but don't remove the Tools directory itself\nfind \"$DST_TOOLS\" -mindepth 1 -maxdepth 1 -exec rm -rf {} \\; 2>/dev/null || true\n\n# Prefer ditto on macOS to preserve tree structure reliably\nditto \"$SRC_TOOLS\" \"$DST_TOOLS\"\n\nchmod 755 \"$DST_TOOLS/ffmpeg\" 2>/dev/null || true\nchmod 755 \"$DST_TOOLS/ffprobe\" 2>/dev/null || true\nfind \"$DST_TOOLS\" -type f \\( -path \"*/python/bin/python*\" -o -path \"*/python/bin/python*-config\" \\) -exec chmod 755 {} \\; 2>/dev/null || true\n# The app runs yt-dlp via `python -m yt_dlp`; the console script does not need to be executable.\nchmod 644 \"$DST_TOOLS/site-packages/bin/yt-dlp\" 2>/dev/null || true\n\ntouch \"$DST_TOOLS/.copy-complete\"\n";
 		};
 		C996D48E2F4F13B400908F5E /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -307,7 +307,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -eu\n\nTOOLS=\"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Resources/Tools\"\nif [ ! -d \"$TOOLS\" ]; then\n  exit 0\nfi\n\nxattr -dr com.apple.quarantine \"$TOOLS\" 2>/dev/null || true\n\nif [ \"${CODE_SIGNING_ALLOWED:-NO}\" = \"YES\" ] && [ -n \"${EXPANDED_CODE_SIGN_IDENTITY:-}\" ]; then\n  find \"$TOOLS\" -type f | while IFS= read -r f; do\n    if /usr/bin/file -b \"$f\" | /usr/bin/grep -q \"Mach-O\"; then\n      /usr/bin/codesign --force --sign \"$EXPANDED_CODE_SIGN_IDENTITY\" --timestamp=none \"$f\"\n    fi\n  done\nfi\n\ntouch \"$TOOLS/.sign-complete\"\n";
+			shellScript = "set -eu\n\nRESOURCES=\"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Resources\"\nTOOLS=\"$RESOURCES/Tools\"\nif [ ! -d \"$RESOURCES\" ]; then\n  exit 0\nfi\n\nxattr -dr com.apple.quarantine \"$RESOURCES\" 2>/dev/null || true\n# Keep the console wrapper non-executable so App Store Connect doesn't treat it as a nested executable.\nchmod 644 \"$TOOLS/site-packages/bin/yt-dlp\" 2>/dev/null || true\n\nif [ \"${CODE_SIGNING_ALLOWED:-NO}\" = \"YES\" ] && [ -n \"${EXPANDED_CODE_SIGN_IDENTITY:-}\" ]; then\n  find \"$RESOURCES\" -type f | while IFS= read -r f; do\n    if /usr/bin/file -b \"$f\" | /usr/bin/grep -q \"Mach-O\"; then\n      /usr/bin/codesign --force --sign \"$EXPANDED_CODE_SIGN_IDENTITY\" --options runtime --timestamp=none \"$f\"\n    fi\n  done\nfi\n\ntouch \"$TOOLS/.sign-complete\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -475,9 +475,10 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = Pangolin;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				AUTOMATION_APPLE_EVENTS = NO;
 				CODE_SIGN_ENTITLEMENTS = Pangolin/Pangolin.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = N7J3BYZ94H;
 				ENABLE_APP_SANDBOX = YES;
@@ -493,11 +494,14 @@
 				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
 				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
 				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = NO;
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Pangolin/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Pangolin video manager";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Pangolin uses speech recognition to generate transcripts of your video content, making it searchable and accessible.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -512,10 +516,16 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.0.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.newindustries.pangolin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
+				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
+				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
+				RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = NO;
+				RUNTIME_EXCEPTION_DEBUGGING_TOOL = NO;
+				RUNTIME_EXCEPTION_DISABLE_EXECUTABLE_PAGE_PROTECTION = NO;
+				RUNTIME_EXCEPTION_DISABLE_LIBRARY_VALIDATION = NO;
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -530,9 +540,10 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = Pangolin;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				AUTOMATION_APPLE_EVENTS = NO;
 				CODE_SIGN_ENTITLEMENTS = Pangolin/Pangolin.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = N7J3BYZ94H;
 				ENABLE_APP_SANDBOX = YES;
@@ -548,11 +559,14 @@
 				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
 				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
 				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = NO;
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Pangolin/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Pangolin video manager";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Pangolin uses speech recognition to generate transcripts of your video content, making it searchable and accessible.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -567,10 +581,16 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.0.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.newindustries.pangolin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
+				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
+				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
+				RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = NO;
+				RUNTIME_EXCEPTION_DEBUGGING_TOOL = NO;
+				RUNTIME_EXCEPTION_DISABLE_EXECUTABLE_PAGE_PROTECTION = NO;
+				RUNTIME_EXCEPTION_DISABLE_LIBRARY_VALIDATION = NO;
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;

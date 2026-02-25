@@ -51,12 +51,15 @@ enum RemoteVideoDownloadError: LocalizedError {
 struct RemoteVideoProbeResult {
     let provider: RemoteVideoProvider
     let title: String?
+    let videoIdentifier: String?
 }
 
 struct RemoteVideoDownloadResult {
     let provider: RemoteVideoProvider
     let localFileURL: URL
     let title: String?
+    let originalURL: URL
+    let videoIdentifier: String?
 }
 
 final class RemoteVideoDownloadService {
@@ -96,6 +99,7 @@ final class RemoteVideoDownloadService {
                 "--no-playlist",
                 "--no-warnings",
                 "--print", "TITLE:%(title)s",
+                "--print", "VIDEO_ID:%(id)s",
                 url.absoluteString
             ],
             environment: downloader.environment,
@@ -112,7 +116,8 @@ final class RemoteVideoDownloadService {
         }
 
         let title = extractTaggedLine(prefix: "TITLE:", from: output.stdout)
-        return RemoteVideoProbeResult(provider: provider, title: title)
+        let videoIdentifier = extractTaggedLine(prefix: "VIDEO_ID:", from: output.stdout)
+        return RemoteVideoProbeResult(provider: provider, title: title, videoIdentifier: videoIdentifier)
     }
 
     func downloadVideo(
@@ -125,7 +130,7 @@ final class RemoteVideoDownloadService {
         let ffmpegURL = resolveFFmpeg()
         let stagingDirectory = try makeTaskStagingDirectory()
 
-        let outputTemplate = "%(title).200B [%(id)s].%(ext)s"
+        let outputTemplate = "%(title).200B.%(ext)s"
         let output = try await runProcess(
             executableURL: downloader.executableURL,
             arguments: downloader.baseArguments + [
@@ -176,7 +181,9 @@ final class RemoteVideoDownloadService {
         return RemoteVideoDownloadResult(
             provider: probeResult.provider,
             localFileURL: localFileURL,
-            title: probeResult.title
+            title: probeResult.title,
+            originalURL: url,
+            videoIdentifier: probeResult.videoIdentifier
         )
     }
 

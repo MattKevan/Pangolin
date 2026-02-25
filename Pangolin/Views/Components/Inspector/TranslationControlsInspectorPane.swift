@@ -1,8 +1,5 @@
 import SwiftUI
 import Speech
-#if os(macOS)
-import AppKit
-#endif
 
 struct TranslationControlsInspectorPane: View {
     @ObservedObject var video: Video
@@ -87,37 +84,6 @@ struct TranslationControlsInspectorPane: View {
                 }
             }
 
-            if let errorMessage = translationErrorMessage {
-                VStack(alignment: .leading, spacing: 8) {
-                    Label("Last error", systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                    Text(errorMessage)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    HStack(spacing: 8) {
-                        if let error = parseTranslationError(from: errorMessage),
-                           case .translationModelsNotInstalled = error {
-                            Button("Open Settings") {
-                                openTranslationSettings()
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                        }
-
-                        Button("Retry") {
-                            processingQueueManager.enqueueTranslation(for: [video], targetLocale: outputSelection, force: true)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                    }
-                }
-                .padding(10)
-                .background(Color.orange.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-            }
-
             translationActionButton
         }
         .task(id: video.id) {
@@ -180,25 +146,6 @@ struct TranslationControlsInspectorPane: View {
         return "—"
     }
 
-    private func openTranslationSettings() {
-        #if os(macOS)
-        if let settingsURL = URL(string: "x-apple.systempreferences:com.apple.Localization-Settings.extension") {
-            NSWorkspace.shared.open(settingsURL)
-        } else {
-            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
-        }
-        #endif
-    }
-
-    private func parseTranslationError(from message: String) -> TranscriptionError? {
-        if message.contains("Translation models") && message.contains("not installed") {
-            return .translationModelsNotInstalled("", "")
-        } else if message.contains("language") && message.contains("not supported") {
-            return .languageNotSupported(Locale.current)
-        }
-        return nil
-    }
-
     private var translationTask: ProcessingTask? {
         processingQueueManager.task(for: video, type: .translate)
     }
@@ -209,10 +156,6 @@ struct TranslationControlsInspectorPane: View {
 
     private var translationProgress: Double {
         translationTask?.progress ?? 0.0
-    }
-
-    private var translationErrorMessage: String? {
-        translationTask?.errorMessage
     }
 
     private func refreshTranslationControls() async {

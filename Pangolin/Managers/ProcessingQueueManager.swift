@@ -473,7 +473,9 @@ class ProcessingQueueManager: ObservableObject {
             type: .importVideo,
             itemName: result.title ?? result.localFileURL.lastPathComponent,
             followUpTypes: task.followUpTypes,
-            destinationFolderID: task.destinationFolderID
+            destinationFolderID: task.destinationFolderID,
+            originalRemoteURLString: result.originalURL.absoluteString,
+            remoteVideoIdentifier: result.videoIdentifier
         )
         processingQueue.addTask(importTask)
         print("🌐 DOWNLOAD: Completed to staging file \(result.localFileURL.path)")
@@ -499,6 +501,13 @@ class ProcessingQueueManager: ObservableObject {
         task.updateProgress(0.1, message: task.statusMessage)
 
         let video = try await importer.importSingleFile(fileURL, library: library, context: context, createdFolders: folderMap)
+
+        if let originalRemoteURLString = task.originalRemoteURLString, !originalRemoteURLString.isEmpty {
+            video.originalURL = originalRemoteURLString
+        }
+        if let remoteVideoIdentifier = task.remoteVideoIdentifier, !remoteVideoIdentifier.isEmpty {
+            video.remoteVideoID = remoteVideoIdentifier
+        }
 
         if let destinationFolderID = task.destinationFolderID {
             assignImportedVideo(video, toFolderID: destinationFolderID, in: context, library: library)
