@@ -7,6 +7,10 @@ struct TranscriptionView: View {
     @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
 
     @State private var chunkIndex: TimedTranscript.ChunkIndex?
+    @State private var inlineTokens: [InlineToken] = []
+    @State private var chunkParagraphs: [ChunkParagraph] = []
+    @State private var paragraphIDByChunkID: [UUID: String] = [:]
+    @State private var useChunkListLayout = false
     @State private var activeChunkID: UUID?
     @State private var loadError: String?
 
@@ -16,6 +20,18 @@ struct TranscriptionView: View {
         let seekSeconds: TimeInterval
         let text: String
     }
+
+    private struct ChunkParagraph: Identifiable {
+        let id: String
+        let chunkIDs: [UUID]
+        let startSeconds: TimeInterval
+        let text: String
+    }
+
+    private static let chunkListLayoutThreshold = 900
+    private static let chunkParagraphWordTarget = 96
+    private static let chunkParagraphMaxChunks = 12
+    private static let paragraphSentenceTerminators: Set<Character> = [".", "?", "!", ";", ":"]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -65,35 +81,65 @@ struct TranscriptionView: View {
     private var content: some View {
         if let chunkIndex {
             ScrollViewReader { proxy in
-                let inlineTokens = makeInlineTokens(from: chunkIndex.allEntries)
                 ScrollView {
-                    TranscriptWordWrapLayout(horizontalSpacing: 0, verticalSpacing: 8) {
-                        ForEach(inlineTokens) { token in
-                            Text(token.text)
-                                .fixedSize(horizontal: true, vertical: false)
-                                .foregroundStyle(Color.primary)
-                                .padding(.horizontal, 0)
-                                .padding(.vertical, 2)
-                                .background(activeChunkID == token.chunkID ? Color.accentColor.opacity(0.2) : Color.clear)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    playerViewModel.seek(to: token.seekSeconds, in: video)
-                                }
-                                .id(token.id)
+                    if useChunkListLayout {
+                        LazyVStack(alignment: .leading, spacing: 8) {
+                            ForEach(chunkParagraphs) { paragraph in
+                                Text(paragraph.text)
+                                    .foregroundStyle(Color.primary)
+                                    .padding(.horizontal, 0)
+                                    .padding(.vertical, 4)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(
+                                        (activeChunkID.map { paragraph.chunkIDs.contains($0) } ?? false)
+                                        ? Color.accentColor.opacity(0.2)
+                                        : Color.clear
+                                    )
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        playerViewModel.seek(to: paragraph.startSeconds, in: video)
+                                    }
+                                    .id(paragraph.id)
+                            }
                         }
+                        .font(.system(size: 17))
+                        .lineSpacing(8)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: 720, alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.horizontal, 12)
+                    } else {
+                        TranscriptWordWrapLayout(horizontalSpacing: 0, verticalSpacing: 8) {
+                            ForEach(inlineTokens) { token in
+                                Text(token.text)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                    .foregroundStyle(Color.primary)
+                                    .padding(.horizontal, 0)
+                                    .padding(.vertical, 2)
+                                    .background(activeChunkID == token.chunkID ? Color.accentColor.opacity(0.2) : Color.clear)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        playerViewModel.seek(to: token.seekSeconds, in: video)
+                                    }
+                                    .id(token.id)
+                            }
+                        }
+                        .font(.system(size: 17))
+                        .lineSpacing(8)
+                        //.textSelection(.enabled)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: 720, alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.horizontal, 12)
                     }
-                    .font(.system(size: 17))
-                    .lineSpacing(8)
-                    //.textSelection(.enabled)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: 720, alignment: .leading)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.horizontal, 12)
                 }
                 .onChange(of: activeChunkID) { _, chunkID in
                     guard let chunkID else { return }
+                    let targetID = useChunkListLayout
+                        ? (paragraphIDByChunkID[chunkID] ?? chunkID.uuidString)
+                        : chunkID.uuidString
                     withAnimation(.easeInOut(duration: 0.12)) {
-                        proxy.scrollTo(chunkID.uuidString, anchor: .center)
+                        proxy.scrollTo(targetID, anchor: .center)
                     }
                 }
             }
@@ -108,7 +154,7 @@ struct TranscriptionView: View {
             .frame(maxWidth: .infinity, minHeight: 320)
         } else if let loadError {
             ContentUnavailableView(
-                "Timed transcript unavailable",
+                "Transcript unavailable",
                 systemImage: "exclamationmark.bubble",
                 description: Text(loadError)
             )
@@ -126,6 +172,10 @@ struct TranscriptionView: View {
     private func loadTimedTranscript() {
         guard let url = libraryManager.timedTranscriptURL(for: video) else {
             chunkIndex = nil
+            inlineTokens = []
+            chunkParagraphs = []
+            paragraphIDByChunkID = [:]
+            useChunkListLayout = false
             loadError = nil
             activeChunkID = nil
             return
@@ -133,18 +183,38 @@ struct TranscriptionView: View {
 
         do {
             let transcript = try libraryManager.readTimedTranscript(from: url)
-            chunkIndex = transcript.makeChunkIndex()
+            let loadedChunkIndex = transcript.makeChunkIndex()
+            let entries = loadedChunkIndex.allEntries
+            let shouldUseChunkList = entries.count > Self.chunkListLayoutThreshold
+
+            chunkIndex = loadedChunkIndex
+            useChunkListLayout = shouldUseChunkList
+            inlineTokens = shouldUseChunkList ? [] : makeInlineTokens(from: entries)
+            if shouldUseChunkList {
+                let paragraphResult = makeChunkParagraphs(from: entries)
+                chunkParagraphs = paragraphResult.paragraphs
+                paragraphIDByChunkID = paragraphResult.paragraphIDByChunkID
+            } else {
+                chunkParagraphs = []
+                paragraphIDByChunkID = [:]
+            }
             loadError = nil
             updateActiveChunk(for: playerViewModel.currentTime)
         } catch {
             chunkIndex = nil
+            inlineTokens = []
+            chunkParagraphs = []
+            paragraphIDByChunkID = [:]
+            useChunkListLayout = false
             loadError = "Failed to load timed transcript: \(error.localizedDescription)"
             activeChunkID = nil
         }
     }
 
     private func updateActiveChunk(for time: TimeInterval) {
-        activeChunkID = chunkIndex?.activeChunk(at: time)?.id
+        let nextActiveChunkID = chunkIndex?.activeChunk(at: time)?.id
+        guard nextActiveChunkID != activeChunkID else { return }
+        activeChunkID = nextActiveChunkID
     }
 
     private func makeInlineTokens(from entries: [TimedTranscript.ChunkIndex.Entry]) -> [InlineToken] {
@@ -173,6 +243,62 @@ struct TranscriptionView: View {
         }
 
         return tokens
+    }
+
+    private func makeChunkParagraphs(from entries: [TimedTranscript.ChunkIndex.Entry]) -> (
+        paragraphs: [ChunkParagraph],
+        paragraphIDByChunkID: [UUID: String]
+    ) {
+        var paragraphs: [ChunkParagraph] = []
+        var paragraphIDByChunkID: [UUID: String] = [:]
+        var currentEntries: [TimedTranscript.ChunkIndex.Entry] = []
+        var currentWordCount = 0
+
+        func flushParagraph() {
+            guard let first = currentEntries.first else { return }
+            let id = first.id.uuidString
+            let chunkIDs = currentEntries.map(\.id)
+            let text = currentEntries
+                .map(\.text)
+                .joined(separator: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else {
+                currentEntries.removeAll(keepingCapacity: true)
+                currentWordCount = 0
+                return
+            }
+
+            for chunkID in chunkIDs {
+                paragraphIDByChunkID[chunkID] = id
+            }
+
+            paragraphs.append(
+                ChunkParagraph(
+                    id: id,
+                    chunkIDs: chunkIDs,
+                    startSeconds: first.startSeconds,
+                    text: text
+                )
+            )
+            currentEntries.removeAll(keepingCapacity: true)
+            currentWordCount = 0
+        }
+
+        for entry in entries {
+            currentEntries.append(entry)
+            currentWordCount += entry.text.split(whereSeparator: \.isWhitespace).count
+
+            let endsSentence = entry.text.last.map { Self.paragraphSentenceTerminators.contains($0) } ?? false
+            let reachedWordTarget = currentWordCount >= Self.chunkParagraphWordTarget
+            let reachedChunkLimit = currentEntries.count >= Self.chunkParagraphMaxChunks
+
+            if reachedChunkLimit || (reachedWordTarget && endsSentence) {
+                flushParagraph()
+            }
+        }
+
+        flushParagraph()
+        return (paragraphs, paragraphIDByChunkID)
     }
 
     private var transcriptionTask: ProcessingTask? {

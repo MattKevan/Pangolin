@@ -16,6 +16,10 @@ struct ProcessingPopoverView: View {
         processingManager.queue.filter { $0.status.isActive }
     }
 
+    private var failedTasks: [ProcessingTask] {
+        processingManager.queue.filter { $0.status == .failed || $0.status == .cancelled }
+    }
+
     private var transferIssues: [VideoCloudTransferSnapshot] {
         videoFileManager.failedTransferSnapshots
     }
@@ -36,7 +40,7 @@ struct ProcessingPopoverView: View {
                 .font(.caption)
             }
 
-            if activeTasks.isEmpty && transferIssues.isEmpty {
+            if activeTasks.isEmpty && failedTasks.isEmpty && transferIssues.isEmpty {
                 Text("No active tasks")
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -85,10 +89,33 @@ struct ProcessingPopoverView: View {
                     }
                 }
 
+                if !failedTasks.isEmpty {
+                    if !activeTasks.isEmpty || !transferIssues.isEmpty {
+                        Divider()
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Failed Tasks")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        ForEach(Array(failedTasks.prefix(3)), id: \.id) { task in
+                            CompactTaskRowView(task: task)
+                        }
+
+                        if failedTasks.count > 3 {
+                            Text("... and \(failedTasks.count - 3) more")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+
                 Divider()
 
                 HStack {
                     StatPill(title: "Active", count: processingManager.activeTasks, color: .blue)
+                    StatPill(title: "Failed", count: processingManager.failedTasks, color: .red)
                     StatPill(title: "Issues", count: transferIssues.count, color: .orange)
                 }
 
@@ -112,6 +139,16 @@ struct ProcessingPopoverView: View {
                         Button("Retry Issues") {
                             Task {
                                 await videoFileManager.retryAllFailedTransfers(in: library)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+
+                    if !failedTasks.isEmpty {
+                        Button("Retry Failed") {
+                            for task in failedTasks {
+                                processingManager.retryTask(task)
                             }
                         }
                         .buttonStyle(.bordered)
@@ -180,7 +217,7 @@ struct CompactTaskRowView: View {
                         .font(.system(size: 10))
                 }
 
-                if task.status == .processing || task.status == .completed {
+                if task.status == .processing || task.status == .paused || task.status == .completed {
                     ProgressView(value: task.progress)
                         .progressViewStyle(LinearProgressViewStyle())
                         .scaleEffect(y: 0.5)
@@ -197,6 +234,7 @@ struct CompactTaskRowView: View {
 
     private var taskTypeColor: Color {
         switch task.type {
+        case .downloadRemoteVideo: return .indigo
         case .importVideo: return .orange
         case .generateThumbnail: return .pink
         case .transcribe: return .blue
@@ -212,6 +250,7 @@ struct CompactTaskRowView: View {
         case .completed: return .green
         case .failed, .cancelled: return .red
         case .processing: return .blue
+        case .paused: return .yellow
         case .pending, .waitingForDependencies: return .orange
         }
     }

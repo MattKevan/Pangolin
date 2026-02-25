@@ -29,6 +29,7 @@ struct MainView: View {
     @StateObject private var processingQueueManager = ProcessingQueueManager.shared
     
     @State private var showingImportPicker = false
+    @State private var showingURLImportSheet = false
     
     // Popover state for task indicator
     @State private var showTaskPopover = false
@@ -51,8 +52,10 @@ struct MainView: View {
             searchManager: searchManager,
             libraryManager: libraryManager,
             showingImportPicker: $showingImportPicker,
+            showingURLImportSheet: $showingURLImportSheet,
             handleAutoTranscribe: handleAutoTranscribe,
-            handleVideoImport: handleVideoImport
+            handleVideoImport: handleVideoImport,
+            handleURLImport: handleURLImport
         )
     }
 
@@ -112,6 +115,14 @@ struct MainView: View {
                         .disabled(libraryManager.currentLibrary == nil)
 
                         Button {
+                            showingURLImportSheet = true
+                        } label: {
+                            Image(systemName: "link.badge.plus")
+                        }
+                        .help("Import from URL")
+                        .disabled(libraryManager.currentLibrary == nil)
+
+                        Button {
                             NotificationCenter.default.post(name: .triggerCreateFolder, object: nil)
                         } label: {
                             Image(systemName: "folder.badge.plus")
@@ -123,13 +134,15 @@ struct MainView: View {
                     // Trailing actions
                     ToolbarItemGroup(placement: .primaryAction) {
                         // Task Queue Progress Indicator
-                        if processingQueueManager.activeTaskCount > 0 || videoFileManager.failedTransferCount > 0 {
+                        if processingQueueManager.activeTaskCount > 0 || processingQueueManager.failedTasks > 0 || videoFileManager.failedTransferCount > 0 {
                             Button {
                                 showTaskPopover.toggle()
                             } label: {
                                 let hasActiveTasks = processingQueueManager.activeTaskCount > 0
+                                let failedProcessingCount = processingQueueManager.failedTasks
                                 let transferIssueCount = videoFileManager.failedTransferCount
-                                let badgeCount = transferIssueCount > 0 ? transferIssueCount : max(0, processingQueueManager.activeTaskCount - 1)
+                                let nonActiveIssueCount = transferIssueCount + failedProcessingCount
+                                let badgeCount = nonActiveIssueCount > 0 ? nonActiveIssueCount : max(0, processingQueueManager.activeTaskCount - 1)
 
                                 ZStack(alignment: .topTrailing) {
                                     if hasActiveTasks {
@@ -169,7 +182,7 @@ struct MainView: View {
                                 .frame(minWidth: 24, minHeight: 22, alignment: .center)
                                 .contentShape(Rectangle())
                                 .accessibilityLabel("Background tasks")
-                                .accessibilityValue("\(processingQueueManager.activeTaskCount) active tasks, \(videoFileManager.failedTransferCount) transfer issues")
+                                .accessibilityValue("\(processingQueueManager.activeTaskCount) active tasks, \(processingQueueManager.failedTasks) failed tasks, \(videoFileManager.failedTransferCount) transfer issues")
                             }
                             .buttonStyle(.plain)
                             .popover(isPresented: $showTaskPopover, arrowEdge: .top) {
@@ -219,6 +232,13 @@ struct MainView: View {
         guard libraryManager.currentLibrary != nil else { return }
         processingQueueManager.enqueueTranscription(for: [video])
     }
+
+    private func handleURLImport(_ url: URL) async throws {
+        guard let library = libraryManager.currentLibrary, let context = libraryManager.viewContext else {
+            throw FileSystemError.invalidLibraryPath
+        }
+        try await processingQueueManager.enqueueRemoteImport(url: url, library: library, context: context)
+    }
 }
 
 private struct RootContainerView<Content: View>: View {
@@ -227,20 +247,25 @@ private struct RootContainerView<Content: View>: View {
     @ObservedObject var searchManager: SearchManager
     @ObservedObject var libraryManager: LibraryManager
     @Binding var showingImportPicker: Bool
+    @Binding var showingURLImportSheet: Bool
     let handleAutoTranscribe: () -> Void
     let handleVideoImport: (Result<[URL], Error>) -> Void
+    let handleURLImport: (URL) async throws -> Void
     
     var body: some View {
         content
             .modifier(RootImportModifier(
                 showingImportPicker: $showingImportPicker,
-                handleVideoImport: handleVideoImport
+                showingURLImportSheet: $showingURLImportSheet,
+                handleVideoImport: handleVideoImport,
+                handleURLImport: handleURLImport
             ))
             .modifier(RootEventsModifier(
                 folderStore: folderStore,
                 searchManager: searchManager,
                 libraryManager: libraryManager,
                 showingImportPicker: $showingImportPicker,
+                showingURLImportSheet: $showingURLImportSheet,
                 handleAutoTranscribe: handleAutoTranscribe
             ))
             .modifier(RootAlertModifier(libraryManager: libraryManager))
@@ -249,7 +274,9 @@ private struct RootContainerView<Content: View>: View {
 
 private struct RootImportModifier: ViewModifier {
     @Binding var showingImportPicker: Bool
+    @Binding var showingURLImportSheet: Bool
     let handleVideoImport: (Result<[URL], Error>) -> Void
+    let handleURLImport: (URL) async throws -> Void
 
     func body(content: Content) -> some View {
         content
@@ -260,6 +287,9 @@ private struct RootImportModifier: ViewModifier {
             ) { result in
                 handleVideoImport(result)
             }
+            .sheet(isPresented: $showingURLImportSheet) {
+                ImportFromURLSheet(onImport: handleURLImport)
+            }
     }
 }
 
@@ -268,6 +298,7 @@ private struct RootEventsModifier: ViewModifier {
     @ObservedObject var searchManager: SearchManager
     @ObservedObject var libraryManager: LibraryManager
     @Binding var showingImportPicker: Bool
+    @Binding var showingURLImportSheet: Bool
     let handleAutoTranscribe: () -> Void
 
     func body(content: Content) -> some View {
@@ -295,6 +326,9 @@ private struct RootEventsModifier: ViewModifier {
             }
             .onReceive(NotificationCenter.default.publisher(for: .triggerImportVideos)) { _ in
                 showingImportPicker = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .triggerImportFromURL)) { _ in
+                showingURLImportSheet = true
             }
     }
 }

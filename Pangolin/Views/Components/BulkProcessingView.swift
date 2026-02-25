@@ -271,7 +271,7 @@ struct TaskRowView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 
-                if task.status == .processing || task.status == .completed {
+                if task.status == .processing || task.status == .paused || task.status == .completed {
                     ProgressView(value: task.progress)
                         .progressViewStyle(LinearProgressViewStyle())
                 }
@@ -294,7 +294,27 @@ struct TaskRowView: View {
                     .controlSize(.small)
                 }
                 
-                if task.status.isActive {
+                if task.type == .downloadRemoteVideo && (task.status == .processing || task.status == .paused) {
+                    if task.status == .processing {
+                        Button("Pause") {
+                            processingManager.pauseDownloadTask(task)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    } else if task.status == .paused {
+                        Button("Resume") {
+                            processingManager.resumeDownloadTask(task)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    }
+
+                    Button("Stop") {
+                        processingManager.stopDownloadTask(task)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                } else if task.status.isActive {
                     Button("Cancel") {
                         processingManager.cancelTask(task)
                     }
@@ -320,6 +340,8 @@ struct TaskRowView: View {
             return .red
         case .processing:
             return .blue
+        case .paused:
+            return .yellow
         case .pending, .waitingForDependencies:
             return .orange
         }
@@ -327,6 +349,7 @@ struct TaskRowView: View {
 
     private var taskTypeColor: Color {
         switch task.type {
+        case .downloadRemoteVideo: return .indigo
         case .importVideo: return .orange
         case .generateThumbnail: return .pink
         case .transcribe: return .blue

@@ -1,6 +1,7 @@
 import Foundation
 
 enum ProcessingTaskType: String, CaseIterable, Codable {
+    case downloadRemoteVideo = "download_remote_video"
     case importVideo = "import_video"
     case generateThumbnail = "generate_thumbnail"
     case transcribe = "transcribe"
@@ -11,6 +12,7 @@ enum ProcessingTaskType: String, CaseIterable, Codable {
     
     var displayName: String {
         switch self {
+        case .downloadRemoteVideo: return "Download"
         case .importVideo: return "Import"
         case .generateThumbnail: return "Thumbnail"
         case .transcribe: return "Transcription"
@@ -23,6 +25,7 @@ enum ProcessingTaskType: String, CaseIterable, Codable {
     
     var systemImage: String {
         switch self {
+        case .downloadRemoteVideo: return "link.badge.plus"
         case .importVideo: return "square.and.arrow.down"
         case .generateThumbnail: return "photo"
         case .transcribe: return "waveform"
@@ -35,6 +38,8 @@ enum ProcessingTaskType: String, CaseIterable, Codable {
     
     var dependencies: [ProcessingTaskType] {
         switch self {
+        case .downloadRemoteVideo:
+            return []
         case .importVideo:
             return []
         case .generateThumbnail:
@@ -57,6 +62,7 @@ enum ProcessingTaskStatus: String, Codable {
     case pending = "pending"
     case waitingForDependencies = "waiting"
     case processing = "processing"
+    case paused = "paused"
     case completed = "completed"
     case failed = "failed"
     case cancelled = "cancelled"
@@ -66,6 +72,7 @@ enum ProcessingTaskStatus: String, Codable {
         case .pending: return "Pending"
         case .waitingForDependencies: return "Waiting"
         case .processing: return "Processing"
+        case .paused: return "Paused"
         case .completed: return "Completed"
         case .failed: return "Failed"
         case .cancelled: return "Cancelled"
@@ -77,6 +84,7 @@ enum ProcessingTaskStatus: String, Codable {
         case .pending: return "clock"
         case .waitingForDependencies: return "clock.badge.exclamationmark"
         case .processing: return "gearshape.2"
+        case .paused: return "pause.circle.fill"
         case .completed: return "checkmark.circle.fill"
         case .failed: return "exclamationmark.triangle.fill"
         case .cancelled: return "xmark.circle.fill"
@@ -85,7 +93,7 @@ enum ProcessingTaskStatus: String, Codable {
     
     var isActive: Bool {
         switch self {
-        case .pending, .waitingForDependencies, .processing:
+        case .pending, .waitingForDependencies, .processing, .paused:
             return true
         case .completed, .failed, .cancelled:
             return false
@@ -98,6 +106,9 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
     let id: UUID
     let videoID: UUID?
     let sourceURLPath: String?
+    let remoteURLString: String?
+    let remoteProviderRawValue: String?
+    let destinationFolderID: UUID?
     let libraryID: UUID?
     let type: ProcessingTaskType
     let itemName: String?
@@ -129,6 +140,9 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         self.id = UUID()
         self.videoID = videoID
         self.sourceURLPath = nil
+        self.remoteURLString = nil
+        self.remoteProviderRawValue = nil
+        self.destinationFolderID = nil
         self.libraryID = nil
         self.type = type
         self.itemName = itemName
@@ -147,12 +161,56 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         self.completedAt = nil
     }
 
-    init(sourceURL: URL, libraryID: UUID?, type: ProcessingTaskType, itemName: String? = nil, force: Bool = false, followUpTypes: [ProcessingTaskType] = []) {
+    init(
+        sourceURL: URL,
+        libraryID: UUID?,
+        type: ProcessingTaskType,
+        itemName: String? = nil,
+        force: Bool = false,
+        followUpTypes: [ProcessingTaskType] = [],
+        destinationFolderID: UUID? = nil
+    ) {
         self.id = UUID()
         self.videoID = nil
         self.sourceURLPath = sourceURL.path
+        self.remoteURLString = nil
+        self.remoteProviderRawValue = nil
+        self.destinationFolderID = destinationFolderID
         self.libraryID = libraryID
         self.type = type
+        self.itemName = itemName
+        self.force = force
+        self.followUpTypes = followUpTypes
+        self.preferredLocaleIdentifier = nil
+        self.targetLocaleIdentifier = nil
+        self.summaryPresetRawValue = nil
+        self.summaryCustomPrompt = nil
+        self.status = .pending
+        self.progress = 0.0
+        self.errorMessage = nil
+        self.statusMessage = "Waiting to start..."
+        self.createdAt = Date()
+        self.startedAt = nil
+        self.completedAt = nil
+    }
+
+    init(
+        remoteURL: URL,
+        provider: RemoteVideoProvider,
+        libraryID: UUID?,
+        destinationFolderID: UUID?,
+        itemName: String? = nil,
+        force: Bool = false,
+        followUpTypes: [ProcessingTaskType] = []
+    ) {
+        self.id = UUID()
+        self.videoID = nil
+        self.sourceURLPath = nil
+        self.remoteURLString = remoteURL.absoluteString
+        self.remoteProviderRawValue = provider.rawValue
+        self.destinationFolderID = destinationFolderID
+        self.libraryID = libraryID
+        self.type = .downloadRemoteVideo
         self.itemName = itemName
         self.force = force
         self.followUpTypes = followUpTypes
@@ -172,7 +230,7 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
     // MARK: - Codable Implementation
     
     enum CodingKeys: String, CodingKey {
-        case id, videoID, sourceURLPath, libraryID, type, itemName, force, followUpTypes, preferredLocaleIdentifier, targetLocaleIdentifier, summaryPresetRawValue, summaryCustomPrompt, status, progress, errorMessage, statusMessage
+        case id, videoID, sourceURLPath, remoteURLString, remoteProviderRawValue, destinationFolderID, libraryID, type, itemName, force, followUpTypes, preferredLocaleIdentifier, targetLocaleIdentifier, summaryPresetRawValue, summaryCustomPrompt, status, progress, errorMessage, statusMessage
         case createdAt, startedAt, completedAt
     }
     
@@ -182,6 +240,9 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         id = try container.decode(UUID.self, forKey: .id)
         videoID = try container.decodeIfPresent(UUID.self, forKey: .videoID)
         sourceURLPath = try container.decodeIfPresent(String.self, forKey: .sourceURLPath)
+        remoteURLString = try container.decodeIfPresent(String.self, forKey: .remoteURLString)
+        remoteProviderRawValue = try container.decodeIfPresent(String.self, forKey: .remoteProviderRawValue)
+        destinationFolderID = try container.decodeIfPresent(UUID.self, forKey: .destinationFolderID)
         libraryID = try container.decodeIfPresent(UUID.self, forKey: .libraryID)
         type = try container.decode(ProcessingTaskType.self, forKey: .type)
         itemName = try container.decodeIfPresent(String.self, forKey: .itemName)
@@ -206,6 +267,9 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         try container.encode(id, forKey: .id)
         try container.encodeIfPresent(videoID, forKey: .videoID)
         try container.encodeIfPresent(sourceURLPath, forKey: .sourceURLPath)
+        try container.encodeIfPresent(remoteURLString, forKey: .remoteURLString)
+        try container.encodeIfPresent(remoteProviderRawValue, forKey: .remoteProviderRawValue)
+        try container.encodeIfPresent(destinationFolderID, forKey: .destinationFolderID)
         try container.encodeIfPresent(libraryID, forKey: .libraryID)
         try container.encode(type, forKey: .type)
         try container.encodeIfPresent(itemName, forKey: .itemName)
@@ -259,6 +323,16 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         statusMessage = "\(type.displayName) cancelled"
         errorMessage = nil
     }
+
+    func markAsPaused(message: String? = nil) {
+        status = .paused
+        statusMessage = message ?? "\(type.displayName) paused"
+    }
+
+    func markAsResumed(message: String? = nil) {
+        status = .processing
+        statusMessage = message ?? "\(type.displayName) resumed"
+    }
     
     func reset() {
         status = .pending
@@ -271,6 +345,7 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
     
     var estimatedDuration: TimeInterval {
         switch type {
+        case .downloadRemoteVideo: return 60.0
         case .importVideo: return 20.0
         case .generateThumbnail: return 5.0
         case .transcribe: return 30.0 // Depends on video length
@@ -294,6 +369,9 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         }
         if let sourceURLPath {
             return "source:\(sourceURLPath):\(type.rawValue)"
+        }
+        if let remoteURLString {
+            return "remote:\(remoteURLString):\(type.rawValue)"
         }
         return "task:\(id.uuidString):\(type.rawValue)"
     }
