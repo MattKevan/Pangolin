@@ -793,12 +793,11 @@ class LibraryManager: ObservableObject {
         }
         
         let smartFolders = [
-            ("All Videos", "video.fill"),
+            ("All videos", "video.fill"),
             ("Recent", "clock.fill"),
             ("Favorites", "heart.fill")
         ]
         
-        // CORRECTED: The unused 'index' variable is replaced with '_'
         for (_, folderInfo) in smartFolders.enumerated() {
             let folder = Folder(entity: folderEntityDescription, insertInto: context)
             folder.id = UUID()
@@ -820,7 +819,7 @@ class LibraryManager: ObservableObject {
             let existingSmartFolders = try context.fetch(request)
             let existingNames = Set(existingSmartFolders.map { $0.name })
             
-            let requiredSmartFolders = ["All Videos", "Recent", "Favorites"]
+            let requiredSmartFolders = ["All videos", "Recent", "Favorites"]
             
             // Create any missing smart folders
             for folderName in requiredSmartFolders {

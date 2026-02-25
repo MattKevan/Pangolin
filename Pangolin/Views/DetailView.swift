@@ -108,8 +108,17 @@ struct DetailView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .toolbar {
-                if canShowControlsInspector {
-                    ToolbarItem(placement: .primaryAction) {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    if let selectedVideo = effectiveSelectedVideo {
+                        Button {
+                            toggleFavorite(video: selectedVideo)
+                        } label: {
+                            Image(systemName: selectedVideo.isFavorite ? "heart.fill" : "heart")
+                        }
+                        .help(selectedVideo.isFavorite ? "Remove from Favorites" : "Add to Favorites")
+                    }
+
+                    if canShowControlsInspector {
                         Button {
                             isControlsInspectorPresented.toggle()
                         } label: {
@@ -152,5 +161,18 @@ struct DetailView: View {
 
     private func syncControlsInspectorVisibility() {
         isControlsInspectorPresented = canShowControlsInspector
+    }
+
+    private func toggleFavorite(video: Video) {
+        guard let context = libraryManager.viewContext else { return }
+
+        video.isFavorite.toggle()
+
+        do {
+            try context.save()
+        } catch {
+            print("❌ FAVORITE: Failed to save favorite status from detail toolbar: \(error)")
+            video.isFavorite.toggle()
+        }
     }
 }

@@ -20,11 +20,11 @@ struct FolderContentView: View {
         guard let folder = store.currentFolder,
               folder.isSmartFolder,
               let name = folder.name,
-              ["All Videos", "Recent", "Favorites"].contains(name) else {
+              ["All videos", "Recent", "Favorites"].contains(name) else {
             return .outline
         }
 
-        return .smartFolder(isAllVideos: name == "All Videos")
+        return .smartFolder(isAllVideos: name == "All videos")
     }
 
     private var smartFolderVideos: [Video] {

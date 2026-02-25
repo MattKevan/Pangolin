@@ -102,8 +102,17 @@ struct SidebarView: View {
             }
             .disabled(libraryManager.currentLibrary == nil)
         }
-        // Removed Sidebar toolbar to avoid duplicates and overflow.
-        // Add-folder is now owned by MainView's toolbar.
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    createFolderFromCurrentSelection()
+                } label: {
+                    Image(systemName: "folder.badge.plus")
+                }
+                .help("Add Folder")
+                .disabled(libraryManager.currentLibrary == nil)
+            }
+        }
         .alert(
             sidebarDeletionAlertContent.title,
             isPresented: Binding(

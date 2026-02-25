@@ -120,12 +120,15 @@ class FolderNavigationStore: ObservableObject {
             if isRevealingVideoLocation {
                 return
             }
-            applyFolderSelection(folder, clearSelectedVideo: false)
-
             if folder.isSmartFolder {
+                // Preserve smart-folder behavior (e.g. All videos) and let the smart-folder
+                // table render the collection instead of showing a nested video detail.
+                applyFolderSelection(folder, clearSelectedVideo: false)
                 selectedVideo = nil
             } else {
-                selectedVideo = firstVideo(in: folder)
+                // Do not auto-select a video when a normal folder is selected from the sidebar.
+                // This avoids unexpectedly opening a nested video's detail view.
+                applyFolderSelection(folder, clearSelectedVideo: true)
             }
         case .video(let video):
             if isSearchMode {
@@ -171,16 +174,6 @@ class FolderNavigationStore: ObservableObject {
         return top
     }
 
-    private func firstVideo(in folder: Folder) -> Video? {
-        for childFolder in folder.childFoldersArray {
-            if let nestedMatch = firstVideo(in: childFolder) {
-                return nestedMatch
-            }
-        }
-
-        return folder.videosArray.first
-    }
-
     private func selectionKey(_ selection: SidebarSelection?) -> String {
         switch selection {
         case .search:
@@ -203,7 +196,7 @@ class FolderNavigationStore: ObservableObject {
               let library = libraryManager.currentLibrary else { return }
         
         let request = Folder.fetchRequest()
-        request.predicate = NSPredicate(format: "library == %@ AND isTopLevel == YES AND isSmartFolder == YES AND name == %@", library, "All Videos")
+        request.predicate = NSPredicate(format: "library == %@ AND isTopLevel == YES AND isSmartFolder == YES AND name == %@", library, "All videos")
         request.fetchLimit = 1
         
         do {
@@ -343,7 +336,7 @@ class FolderNavigationStore: ObservableObject {
         allVideosRequest.predicate = NSPredicate(
             format: "library == %@ AND isTopLevel == YES AND isSmartFolder == YES AND name == %@",
             library,
-            "All Videos"
+            "All videos"
         )
         allVideosRequest.fetchLimit = 1
 
@@ -744,7 +737,7 @@ class FolderNavigationStore: ObservableObject {
         let videoRequest = Video.fetchRequest()
         
         switch folder.name {
-        case "All Videos":
+        case "All videos":
             videoRequest.predicate = NSPredicate(format: "library == %@", library)
             videoRequest.sortDescriptors = [NSSortDescriptor(keyPath: \Video.title, ascending: true)]
         case "Recent":

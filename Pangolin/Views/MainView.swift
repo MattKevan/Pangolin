@@ -3,24 +3,6 @@
 import SwiftUI
 import CoreData
 
-#if os(macOS)
-import AppKit
-#endif
-
-private struct ToggleSidebarButton: View {
-    var body: some View {
-        Button {
-            #if os(macOS)
-            // Toggles the sidebar in the current window
-            NSApp.keyWindow?.firstResponder?.tryToPerform(#selector(NSSplitViewController.toggleSidebar(_:)), with: nil)
-            #endif
-        } label: {
-            Image(systemName: "sidebar.leading")
-        }
-        .help("Toggle Sidebar")
-    }
-}
-
 struct MainView: View {
     @EnvironmentObject var libraryManager: LibraryManager
     @EnvironmentObject var videoFileManager: VideoFileManager
@@ -85,10 +67,6 @@ struct MainView: View {
             .navigationSplitViewColumnWidth(min: 420, ideal: 760)
             .toolbar {
                 if folderStore.isSearchMode {
-                    ToolbarItem(placement: .navigation) {
-                        ToggleSidebarButton()
-                    }
-
                     ToolbarItem(placement: .principal) {
                         TextField("Search videos, transcripts, and summaries", text: $searchManager.searchText)
                             .textFieldStyle(.roundedBorder)
@@ -109,9 +87,9 @@ struct MainView: View {
                         Button {
                             showingImportPicker = true
                         } label: {
-                            Image(systemName: "square.and.arrow.down")
+                            Image(systemName: "video.badge.plus")
                         }
-                        .help("Import Videos")
+                        .help("Import videos")
                         .disabled(libraryManager.currentLibrary == nil)
 
                         Button {
@@ -120,14 +98,6 @@ struct MainView: View {
                             Image(systemName: "link.badge.plus")
                         }
                         .help("Import from URL")
-                        .disabled(libraryManager.currentLibrary == nil)
-
-                        Button {
-                            NotificationCenter.default.post(name: .triggerCreateFolder, object: nil)
-                        } label: {
-                            Image(systemName: "folder.badge.plus")
-                        }
-                        .help("Add Folder")
                         .disabled(libraryManager.currentLibrary == nil)
                     }
 
