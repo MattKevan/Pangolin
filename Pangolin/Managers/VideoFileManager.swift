@@ -316,7 +316,15 @@ class VideoFileManager: ObservableObject {
 
     func clearTransferFailure(for video: Video) {
         guard let videoID = video.id else { return }
-        clearFailure(for: videoID)
+        dismissTransferIssue(for: videoID)
+    }
+
+    func clearAllTransferIssues() {
+        for videoID in Array(transferFailures.keys) {
+            clearFailure(for: videoID)
+        }
+
+        transferSnapshots = transferSnapshots.filter { !$0.value.isError }
     }
 
     func isUploadConfirmed(for video: Video) async -> Bool {
@@ -610,6 +618,11 @@ class VideoFileManager: ObservableObject {
     private func clearFailure(for videoID: UUID) {
         transferFailures.removeValue(forKey: videoID)
         cancelRetryTask(for: videoID)
+    }
+
+    private func dismissTransferIssue(for videoID: UUID) {
+        clearFailure(for: videoID)
+        transferSnapshots.removeValue(forKey: videoID)
     }
 
     private func cancelRetryTask(for videoID: UUID) {

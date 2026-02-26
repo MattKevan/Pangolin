@@ -116,20 +116,9 @@ struct MainView: View {
 
                                 ZStack(alignment: .topTrailing) {
                                     if hasActiveTasks {
-                                        ZStack {
-                                            Circle()
-                                                .stroke(Color.secondary.opacity(0.25), lineWidth: 2)
-                                                .frame(width: 16, height: 16)
-
-                                            Circle()
-                                                .trim(from: 0, to: max(0.02, min(1.0, processingQueueManager.visibleOverallIndicatorProgress)))
-                                                .stroke(
-                                                    Color.accentColor,
-                                                    style: StrokeStyle(lineWidth: 2, lineCap: .round)
-                                                )
-                                                .rotationEffect(.degrees(-90))
-                                                .frame(width: 16, height: 16)
-                                        }
+                                        ProgressView()
+                                            .controlSize(.small)
+                                            .frame(width: 16, height: 16)
                                         .padding(.horizontal, 4)
                                         .padding(.vertical, 3)
                                     } else {

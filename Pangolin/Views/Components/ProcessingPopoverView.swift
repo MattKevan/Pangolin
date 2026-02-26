@@ -147,6 +147,15 @@ struct ProcessingPopoverView: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                     }
+
+                    if !failedTasks.isEmpty || !transferIssues.isEmpty {
+                        Button("Clear issues") {
+                            processingManager.clearFailed()
+                            videoFileManager.clearAllTransferIssues()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
                 }
             }
         }
