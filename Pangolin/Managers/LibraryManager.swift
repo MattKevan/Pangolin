@@ -304,6 +304,7 @@ class LibraryManager: ObservableObject {
         
         // Ensure smart folders exist
         await ensureSmartFoldersExist(for: library, in: context)
+        cleanupLegacyDownloadsFolderIfNeeded(for: library, in: context)
 
         normalizeStorageSettings(for: library)
         
@@ -839,6 +840,44 @@ class LibraryManager: ObservableObject {
         } catch {
             print("Failed to ensure smart folders exist: \(error)")
         }
+    }
+
+    private func cleanupLegacyDownloadsFolderIfNeeded(for library: Library, in context: NSManagedObjectContext) {
+        let request = Folder.fetchRequest()
+        request.predicate = NSPredicate(
+            format: "library == %@ AND isSmartFolder == NO AND isTopLevel == YES AND name == %@",
+            library,
+            "Downloads"
+        )
+
+        do {
+            let legacyDownloadsFolders = try context.fetch(request)
+            guard !legacyDownloadsFolders.isEmpty else { return }
+
+            for folder in legacyDownloadsFolders {
+                let hasChildFolders = !folder.childFoldersArray.isEmpty
+                let directVideos = folder.videosArray
+                guard !hasChildFolders, !directVideos.isEmpty else { continue }
+
+                let allVideosAreLegacyRemoteImports = directVideos.allSatisfy(isLegacyRemoteImportVideo(_:))
+                guard allVideosAreLegacyRemoteImports else { continue }
+
+                for video in directVideos {
+                    video.folder = nil
+                }
+
+                context.delete(folder)
+                print("🧹 LIBRARY: Migrated legacy Downloads folder to Downloads smart collection")
+            }
+        } catch {
+            print("Failed to clean up legacy Downloads folder: \(error)")
+        }
+    }
+
+    private func isLegacyRemoteImportVideo(_ video: Video) -> Bool {
+        let hasOriginalURL = !(video.originalURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        let hasRemoteVideoID = !(video.remoteVideoID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        return hasOriginalURL || hasRemoteVideoID
     }
 }
 

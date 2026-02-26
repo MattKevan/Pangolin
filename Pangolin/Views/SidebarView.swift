@@ -19,7 +19,7 @@ struct SidebarView: View {
     
     @State private var renamingFolderID: UUID? = nil
     @FocusState private var focusedField: UUID?
-    @State private var folderToDelete: DeletionItem?
+    @State private var itemToDelete: DeletionItem?
     @State private var sidebarSelections = Set<SidebarSelection>()
     @State private var isSyncingSidebarSelections = false
     
@@ -48,40 +48,8 @@ struct SidebarView: View {
     
     var body: some View {
         List(selection: $sidebarSelections) {
-            // Search item
-            Section("Pangolin") {
-                Label("Search", systemImage: "magnifyingglass")
-                    .contentShape(Rectangle())
-                    .tag(SidebarSelection.search)
-
-                ForEach(SmartCollectionKind.allCases) { smartCollection in
-                    Label(smartCollection.title, systemImage: smartCollection.sidebarIcon)
-                        .contentShape(Rectangle())
-                        .tag(SidebarSelection.smartCollection(smartCollection))
-                }
-            }
-            
-            // Library hierarchy (folders + videos)
-            Section("Library") {
-                ForEach(visibleLibraryItems) { visibleItem in
-                    SidebarLibraryOutlineRow(
-                        item: visibleItem.item,
-                        depth: visibleItem.depth,
-                        isExpanded: expandedFolderIDs.contains(visibleItem.item.id),
-                        dragItemIDs: dragItemIDs(for: visibleItem.item.id),
-                        renamingFolderID: $renamingFolderID,
-                        focusedField: $focusedField,
-                        onToggleExpansion: {
-                            toggleFolderExpansion(for: visibleItem.item)
-                        },
-                        onCreateSubfolder: createChildFolder,
-                        onDeleteFolder: deleteFolder
-                    )
-                    .contentShape(Rectangle())
-                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 8))
-                    .tag(sidebarSelection(for: visibleItem.item))
-                }
-            }
+            sidebarShortcutsSection
+            libraryTreeSection
         }
         #if os(macOS)
         .listStyle(SidebarListStyle())
@@ -106,9 +74,9 @@ struct SidebarView: View {
             }
         }
         .alert(
-            sidebarDeletionAlertContent.title,
+            sidebarDeletionAlertTitle,
             isPresented: Binding(
-                get: { folderToDelete != nil },
+                get: { itemToDelete != nil },
                 set: { isPresented in
                     if !isPresented {
                         cancelDeletion()
@@ -119,17 +87,47 @@ struct SidebarView: View {
             Button("Cancel", role: .cancel) {
                 cancelDeletion()
             }
-            Button("Delete", role: .destructive) {
-                guard let deletionItem = folderToDelete else {
-                    cancelDeletion()
-                    return
+            if itemToDelete?.isFolder == true {
+                Button("Keep Videos in Library") {
+                    guard let deletionItem = itemToDelete else {
+                        cancelDeletion()
+                        return
+                    }
+                    Task {
+                        await confirmFolderDeletion(deletionItem, mode: .keepVideosInLibrary)
+                    }
                 }
-                Task {
-                    await confirmDeletion(deletionItem)
+                Button("Delete Folder and Videos", role: .destructive) {
+                    guard let deletionItem = itemToDelete else {
+                        cancelDeletion()
+                        return
+                    }
+                    Task {
+                        await confirmFolderDeletion(deletionItem, mode: .deleteAllVideos)
+                    }
+                }
+            } else {
+                Button("Remove From Folder") {
+                    guard let deletionItem = itemToDelete else {
+                        cancelDeletion()
+                        return
+                    }
+                    Task {
+                        await removeVideoFromFolder(deletionItem)
+                    }
+                }
+                Button("Delete Video", role: .destructive) {
+                    guard let deletionItem = itemToDelete else {
+                        cancelDeletion()
+                        return
+                    }
+                    Task {
+                        await deleteVideoEntirely(deletionItem)
+                    }
                 }
             }
         } message: {
-            Text(sidebarDeletionAlertContent.message)
+            Text(sidebarDeletionAlertMessage)
         }
         .onKeyPress { keyPress in
             // When an inline editor is active, let the TextField handle Return/Delete.
@@ -146,10 +144,22 @@ struct SidebarView: View {
                     focusedField = selected.id
                 }
                 return .handled
+            } else if keyPress.key == .return,
+                      case .video(let selectedVideo) = store.selectedSidebarItem {
+                renamingFolderID = selectedVideo.id
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    focusedField = selectedVideo.id
+                }
+                return .handled
             } else if (keyPress.key == .delete || keyPress.key == .deleteForward),
                       case .folder(let selected) = store.selectedSidebarItem,
                       !selected.isSmartFolder { // Only allow deletion for user folders
                 deleteFolder(selected)
+                return .handled
+            } else if (keyPress.key == .delete || keyPress.key == .deleteForward),
+                      case .video(let selectedVideo) = store.selectedSidebarItem {
+                deleteVideo(selectedVideo)
                 return .handled
             }
             return .ignored
@@ -201,6 +211,68 @@ struct SidebarView: View {
             }
         }
     }
+
+    @ViewBuilder
+    private var sidebarShortcutsSection: some View {
+        Section("Pangolin") {
+            sidebarShortcutRow(
+                title: "Search",
+                systemImage: "magnifyingglass",
+                destination: .search
+            )
+
+            ForEach(SmartCollectionKind.allCases) { smartCollection in
+                sidebarShortcutRow(
+                    title: smartCollection.title,
+                    systemImage: smartCollection.sidebarIcon,
+                    destination: .smartCollection(smartCollection)
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var libraryTreeSection: some View {
+        Section("Library") {
+            ForEach(visibleLibraryItems) { visibleItem in
+                SidebarLibraryOutlineRow(
+                    item: visibleItem.item,
+                    depth: visibleItem.depth,
+                    isExpanded: expandedFolderIDs.contains(visibleItem.item.id),
+                    dragItemIDs: dragItemIDs(for: visibleItem.item.id),
+                    renamingFolderID: $renamingFolderID,
+                    focusedField: $focusedField,
+                    onToggleExpansion: {
+                        toggleFolderExpansion(for: visibleItem.item)
+                    },
+                    onCreateSubfolder: createChildFolder,
+                    onDeleteFolder: deleteFolder,
+                    onDeleteVideo: deleteVideo
+                )
+                .contentShape(Rectangle())
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 8))
+                .tag(sidebarSelection(for: visibleItem.item))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func sidebarShortcutRow(
+        title: String,
+        systemImage: String,
+        destination: SidebarSelection
+    ) -> some View {
+        Button {
+            selectVirtualDestination(destination)
+        } label: {
+            Label(title, systemImage: systemImage)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(top: 0, leading: 2, bottom: 0, trailing: 8))
+        .tag(destination)
+    }
     
     private func refreshFolders() {
         userFolders = store.userFolders()
@@ -210,13 +282,27 @@ struct SidebarView: View {
     private func syncStoreSelection(oldSelection: Set<SidebarSelection>, newSelection: Set<SidebarSelection>) {
         guard !isSyncingSidebarSelections else { return }
 
+        guard oldSelection != newSelection else { return }
+
+        let oldTreeSelection = treeSelections(from: oldSelection)
+        let newTreeSelection = treeSelections(from: newSelection)
+
         let nextSelection: SidebarSelection?
         if newSelection.isEmpty {
+            // Clearing selection should not clear a virtual route that owns the current destination.
+            if case .search = store.selectedSidebarItem {
+                return
+            }
+            if case .smartCollection = store.selectedSidebarItem {
+                return
+            }
             nextSelection = nil
         } else if let currentSelection = store.selectedSidebarItem, newSelection.contains(currentSelection) {
             nextSelection = currentSelection
         } else if let newlyAdded = newSelection.subtracting(oldSelection).first {
             nextSelection = newlyAdded
+        } else if let treeSelection = newTreeSelection.first {
+            nextSelection = treeSelection
         } else {
             nextSelection = newSelection.first
         }
@@ -230,7 +316,15 @@ struct SidebarView: View {
 
     private func syncSidebarSelections(with selection: SidebarSelection?) {
         guard !isSyncingSidebarSelections else { return }
-        let nextSelections = selection.map { Set([$0]) } ?? []
+        let nextSelections: Set<SidebarSelection>
+        switch selection {
+        case .search, .smartCollection:
+            nextSelections = selection.map { Set([$0]) } ?? []
+        case .folder, .video:
+            nextSelections = selection.map { Set([$0]) } ?? []
+        case .none:
+            nextSelections = []
+        }
         guard sidebarSelections != nextSelections else { return }
 
         isSyncingSidebarSelections = true
@@ -240,6 +334,30 @@ struct SidebarView: View {
 
     private func selectionKeysEqual(lhs: SidebarSelection?, rhs: SidebarSelection?) -> Bool {
         lhs?.stableKey == rhs?.stableKey
+    }
+
+    private func treeSelections(from selections: Set<SidebarSelection>) -> Set<SidebarSelection> {
+        Set(selections.filter(isTreeSelection))
+    }
+
+    private func isTreeSelection(_ selection: SidebarSelection) -> Bool {
+        switch selection {
+        case .folder, .video:
+            return true
+        case .search, .smartCollection:
+            return false
+        }
+    }
+
+    private func selectVirtualDestination(_ destination: SidebarSelection) {
+        guard !isSyncingSidebarSelections else { return }
+
+        // Set the route first so any sidebar selection-change echoes preserve the virtual destination.
+        store.selectedSidebarItem = destination
+
+        isSyncingSidebarSelections = true
+        sidebarSelections = [destination]
+        isSyncingSidebarSelections = false
     }
 
     private func dragItemIDs(for itemID: UUID) -> [UUID] {
@@ -264,11 +382,17 @@ struct SidebarView: View {
         return [itemID]
     }
     
-    private var sidebarDeletionAlertContent: DeletionAlertContent {
-        guard let folderToDelete else {
-            return [].deletionAlertContent
+    private var sidebarDeletionAlertTitle: String {
+        guard let itemToDelete else { return "Delete Item?" }
+        let noun = itemToDelete.isFolder ? "Folder" : "Video"
+        return "Delete \(noun) \"\(itemToDelete.name)\"?"
+    }
+
+    private var sidebarDeletionAlertMessage: String {
+        if itemToDelete?.isFolder == true {
+            return "Choose whether to keep videos from this folder (and any subfolders) in the library as unfiled videos, or delete the videos and their files from disk. This action cannot be undone."
         }
-        return [folderToDelete].deletionAlertContent
+        return "Choose whether to remove this video from its folder (it will remain in the library as an unfiled video) or delete it entirely from the library and disk. This action cannot be undone."
     }
     
     private func deleteFolder(_ folder: Folder) {
@@ -276,13 +400,28 @@ struct SidebarView: View {
         isDeletingFolder = true
         // Create a snapshot that won't be affected by Core Data changes
         let deletionItem = DeletionItem(folder: folder)
+
+        // Skip the delete-options dialog when the folder tree contains no videos.
+        if folder.totalVideoCount == 0 {
+            Task {
+                await confirmFolderDeletion(deletionItem, mode: .keepVideosInLibrary)
+            }
+            return
+        }
+
         print("🗑️ SIDEBAR: Created deletion item: \(deletionItem.name)")
-        folderToDelete = deletionItem
-        print("🗑️ SIDEBAR: Set folderToDelete item, this should trigger alert")
+        itemToDelete = deletionItem
+        print("🗑️ SIDEBAR: Set itemToDelete item, this should trigger alert")
     }
     
-    private func confirmDeletion(_ deletionItem: DeletionItem) async {
-        let success = await store.deleteItems([deletionItem.id])
+    private func deleteVideo(_ video: Video) {
+        print("🗑️ SIDEBAR: deleteVideo called for: \(video.title ?? video.fileName ?? "nil") (ID: \(video.id ?? UUID()))")
+        isDeletingFolder = true
+        itemToDelete = DeletionItem(video: video)
+    }
+
+    private func confirmFolderDeletion(_ deletionItem: DeletionItem, mode: FolderDeletionMode) async {
+        let success = await store.deleteItems([deletionItem.id], folderDeletionMode: mode)
         
         await MainActor.run {
             if success {
@@ -297,23 +436,55 @@ struct SidebarView: View {
             cancelDeletion()
         }
     }
+
+    private func removeVideoFromFolder(_ deletionItem: DeletionItem) async {
+        await store.moveItems([deletionItem.id], to: nil)
+
+        await MainActor.run {
+            if case .video(let selectedVideo) = store.selectedSidebarItem,
+               selectedVideo.id == deletionItem.id {
+                store.selectAllVideos()
+            }
+            cancelDeletion()
+        }
+    }
+
+    private func deleteVideoEntirely(_ deletionItem: DeletionItem) async {
+        let success = await store.deleteItems([deletionItem.id])
+
+        await MainActor.run {
+            if success,
+               case .video(let selectedVideo) = store.selectedSidebarItem,
+               selectedVideo.id == deletionItem.id {
+                store.selectAllVideos()
+            }
+            cancelDeletion()
+        }
+    }
     
     private func cancelDeletion() {
-        folderToDelete = nil
+        itemToDelete = nil
         isDeletingFolder = false
         // Refresh folders after deletion process is complete
         refreshFolders()
     }
     
     private func triggerRenameFromMenu() {
-        // Trigger rename on the selected sidebar folder
-        if case .folder(let selected) = store.selectedSidebarItem,
-           !selected.isSmartFolder { // Only allow renaming for user folders
+        switch store.selectedSidebarItem {
+        case .folder(let selected) where !selected.isSmartFolder:
             renamingFolderID = selected.id
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s delay
                 focusedField = selected.id
             }
+        case .video(let selectedVideo):
+            renamingFolderID = selectedVideo.id
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                focusedField = selectedVideo.id
+            }
+        default:
+            break
         }
     }
 
@@ -744,6 +915,7 @@ private struct SidebarLibraryOutlineRow: View {
     let onToggleExpansion: () -> Void
     let onCreateSubfolder: (Folder) -> Void
     let onDeleteFolder: (Folder) -> Void
+    let onDeleteVideo: (Video) -> Void
 
     @State private var isDropTargeted = false
     @State private var editedName = ""
@@ -813,6 +985,19 @@ private struct SidebarLibraryOutlineRow: View {
                 Button("Delete", role: .destructive) {
                     onDeleteFolder(folder)
                 }
+            } else if let video {
+                Button("Rename") {
+                    guard let videoID = video.id else { return }
+                    renamingFolderID = videoID
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 100_000_000)
+                        focusedField = videoID
+                    }
+                }
+
+                Button("Delete", role: .destructive) {
+                    onDeleteVideo(video)
+                }
             }
         }
         .onDrop(of: [.data], isTargeted: $isDropTargeted) { providers in
@@ -857,8 +1042,7 @@ private struct SidebarLibraryOutlineRow: View {
         if let folder {
             folderTitleView(folder: folder)
         } else if let video {
-            Text(video.title ?? video.fileName ?? "Untitled")
-                .lineLimit(1)
+            videoTitleView(video: video)
         }
     }
 
@@ -895,6 +1079,39 @@ private struct SidebarLibraryOutlineRow: View {
         }
     }
 
+    @ViewBuilder
+    private func videoTitleView(video: Video) -> some View {
+        if renamingFolderID == video.id {
+            TextField("Name", text: $editedName)
+                .textFieldStyle(.plain)
+                .focused($focusedField, equals: video.id)
+                .onAppear {
+                    editedName = video.title ?? video.fileName ?? "Untitled"
+                    shouldCommitOnDisappear = true
+                }
+                .onSubmit {
+                    shouldCommitOnDisappear = false
+                    Task { await commitRename(for: video) }
+                }
+                .onKeyPress { keyPress in
+                    if keyPress.key == .escape {
+                        shouldCommitOnDisappear = false
+                        cancelRename()
+                        return .handled
+                    }
+                    return .ignored
+                }
+                .onChange(of: focusedField) { oldValue, newValue in
+                    if oldValue == video.id && newValue != video.id && shouldCommitOnDisappear {
+                        Task { await commitRename(for: video) }
+                    }
+                }
+        } else {
+            Text(video.title ?? video.fileName ?? "Untitled")
+                .lineLimit(1)
+        }
+    }
+
     private func commitRename(for folder: Folder) async {
         shouldCommitOnDisappear = false
 
@@ -910,6 +1127,29 @@ private struct SidebarLibraryOutlineRow: View {
         }
 
         await store.renameItem(id: folderID, to: trimmedName)
+
+        await MainActor.run {
+            renamingFolderID = nil
+            focusedField = nil
+        }
+    }
+
+    private func commitRename(for video: Video) async {
+        shouldCommitOnDisappear = false
+
+        let trimmedName = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let videoID = video.id else {
+            await MainActor.run { cancelRename() }
+            return
+        }
+
+        let currentName = video.title ?? video.fileName ?? ""
+        guard !trimmedName.isEmpty && trimmedName != currentName else {
+            await MainActor.run { cancelRename() }
+            return
+        }
+
+        await store.renameItem(id: videoID, to: trimmedName)
 
         await MainActor.run {
             renamingFolderID = nil

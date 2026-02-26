@@ -99,11 +99,7 @@ struct HierarchicalContentView: View {
             } message: {
                 Text(deletionAlertContent.message)
             }
-            // Create folder sheet
-            .sheet(isPresented: $showingCreateFolder) {
-                CreateFolderView(parentFolderID: store.currentFolderID)
-                    .environmentObject(store)
-            }
+            
             // When content refreshes (store.hierarchicalContent changes), try to restore selection
             .onChange(of: store.hierarchicalContent) { _, _ in
                 restoreSelectionIfPossible()

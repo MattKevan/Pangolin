@@ -238,12 +238,11 @@ class ProcessingQueueManager: ObservableObject {
             }
         }
 
-        let downloadsFolder = await LibraryManager.shared.ensureTopLevelFolder(named: "Downloads")
         let task = ProcessingTask(
             remoteURL: url,
             provider: provider,
             libraryID: library.id,
-            destinationFolderID: downloadsFolder?.id,
+            destinationFolderID: nil,
             itemName: url.host ?? "Remote URL",
             followUpTypes: [.transcribe]
         )

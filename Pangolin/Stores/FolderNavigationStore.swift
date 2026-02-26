@@ -55,6 +55,11 @@ enum LibraryDetailSurface: Equatable {
     case empty
 }
 
+enum FolderDeletionMode {
+    case keepVideosInLibrary
+    case deleteAllVideos
+}
+
 @MainActor
 class FolderNavigationStore: ObservableObject {
     // MARK: - Core State
@@ -171,6 +176,9 @@ class FolderNavigationStore: ObservableObject {
         case .search:
             // Don't change currentFolderID when in search mode
             // Content will be managed by SearchManager
+            if selectedVideo != nil {
+                selectedVideo = nil
+            }
             break
         case .smartCollection(let kind):
             applySmartCollectionSelection(kind)
@@ -300,7 +308,11 @@ class FolderNavigationStore: ObservableObject {
         self.flatContent = applySorting(newFlatContent)
         
         // 🔍 SELECTION PRESERVATION: Restore selection if it still exists in content
-        if let preservedID = preservedSelectionID {
+        if currentSmartCollection != nil {
+            if selectedVideo != nil {
+                selectedVideo = nil
+            }
+        } else if let preservedID = preservedSelectionID {
             let stillExists = containsVideo(withID: preservedID, in: newHierarchicalContent)
             
             if stillExists {
@@ -586,17 +598,7 @@ class FolderNavigationStore: ObservableObject {
                 return !isFolderOrAncestorSelected(parentFolder, selectedFolderIDs: selectedFolderIDs)
             }
 
-            if destinationFolder == nil && !effectiveVideos.isEmpty && effectiveFolders.isEmpty {
-                errorMessage = "Videos must stay inside a folder. Move videos into a folder destination."
-                return
-            }
-
-            let videosForMove: [Video]
-            if destinationFolder == nil {
-                videosForMove = []
-            } else {
-                videosForMove = effectiveVideos
-            }
+            let videosForMove = effectiveVideos
 
             if let destinationFolder {
                 for folder in effectiveFolders {
@@ -806,7 +808,10 @@ class FolderNavigationStore: ObservableObject {
     }
     
     // MARK: - Deletion
-    func deleteItems(_ itemIDs: Set<UUID>) async -> Bool {
+    func deleteItems(
+        _ itemIDs: Set<UUID>,
+        folderDeletionMode: FolderDeletionMode = .deleteAllVideos
+    ) async -> Bool {
         guard let context = libraryManager.viewContext,
               let library = libraryManager.currentLibrary else {
             errorMessage = "Unable to access library context"
@@ -832,22 +837,42 @@ class FolderNavigationStore: ObservableObject {
                 }
             }
             
-            // Delete files from file system first
-            var allVideosToDelete: [Video] = []
-            
             // Collect videos from folders recursively
+            var videosInsideDeletedFolders: [Video] = []
             for folder in foldersToDelete {
-                allVideosToDelete.append(contentsOf: collectAllVideos(from: folder))
+                videosInsideDeletedFolders.append(contentsOf: collectAllVideos(from: folder))
             }
-            
-            // Add directly selected videos
-            allVideosToDelete.append(contentsOf: videosToDelete)
-            
-            // Remove duplicates
-            allVideosToDelete = Array(Set(allVideosToDelete))
-            
-            // Delete files from disk
-            await deleteVideoFiles(allVideosToDelete, library: library)
+
+            videosInsideDeletedFolders = Array(Set(videosInsideDeletedFolders))
+            let directlySelectedVideos = Array(Set(videosToDelete))
+            let directlySelectedVideoObjectIDs = Set(directlySelectedVideos.map(\.objectID))
+
+            var videosDeletedFromLibrary: [Video] = directlySelectedVideos
+
+            switch folderDeletionMode {
+            case .deleteAllVideos:
+                var allVideosToDelete = videosInsideDeletedFolders
+                allVideosToDelete.append(contentsOf: directlySelectedVideos)
+                allVideosToDelete = Array(Set(allVideosToDelete))
+
+                await deleteVideoFiles(allVideosToDelete, library: library)
+                videosDeletedFromLibrary = allVideosToDelete
+
+            case .keepVideosInLibrary:
+                // Keep videos that are only included because their parent folder is being deleted.
+                // Explicitly selected videos (if any) are still deleted.
+                let videosToKeep = videosInsideDeletedFolders.filter { video in
+                    !directlySelectedVideoObjectIDs.contains(video.objectID)
+                }
+
+                for video in videosToKeep where video.folder != nil {
+                    video.folder = nil
+                }
+
+                if !directlySelectedVideos.isEmpty {
+                    await deleteVideoFiles(directlySelectedVideos, library: library)
+                }
+            }
             
             // Delete from Core Data (this will cascade to child folders and videos)
             for folder in foldersToDelete {
@@ -864,9 +889,10 @@ class FolderNavigationStore: ObservableObject {
                 print("🗑️ DELETION: Successfully deleted \(itemIDs.count) items")
                 
                 // Update selected video if it was deleted
+                let deletedVideoIDs = Set(videosDeletedFromLibrary.compactMap(\.id))
                 if let selectedVideo = selectedVideo,
                    let selectedVideoID = selectedVideo.id,
-                   itemIDs.contains(selectedVideoID) {
+                   deletedVideoIDs.contains(selectedVideoID) {
                     self.selectedVideo = nil
                 }
                 

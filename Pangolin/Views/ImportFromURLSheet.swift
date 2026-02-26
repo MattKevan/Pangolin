@@ -22,7 +22,7 @@ struct ImportFromURLSheet: View {
                 .textFieldStyle(.roundedBorder)
                 .disabled(isSubmitting)
 
-            Text("Imported videos are added to the Downloads folder.")
+            Text("Imported videos appear in the Downloads smart folder.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

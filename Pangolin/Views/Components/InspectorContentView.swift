@@ -11,14 +11,12 @@ enum InspectorTab: CaseIterable, Hashable {
     case transcript
     case translation
     case summary
-    case info
     
     var title: String {
         switch self {
         case .transcript: return "Transcript"
         case .translation: return "Translation"
         case .summary: return "Summary"
-        case .info: return "Info"
         }
     }
     
@@ -27,7 +25,6 @@ enum InspectorTab: CaseIterable, Hashable {
         case .transcript: return "doc.text"
         case .translation: return "globe.badge.chevron.backward"
         case .summary: return "doc.text.below.ecg"
-        case .info: return "info.circle"
         }
     }
 
@@ -35,8 +32,7 @@ enum InspectorTab: CaseIterable, Hashable {
         switch self {
         case .transcript, .translation, .summary:
             return true
-        case .info:
-            return false
+        
         }
     }
 }
@@ -96,10 +92,7 @@ struct InspectorContentView: View {
                     .environmentObject(libraryManager)
                     .environmentObject(transcriptionService)
                     .background(.clear)
-            case .info:
-                VideoInfoView(video: selected)
-                    .environmentObject(libraryManager)
-                    .background(.clear)
+            
             }
         } else {
             ContentUnavailableView(

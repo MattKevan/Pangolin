@@ -5,6 +5,7 @@ enum SmartCollectionKind: String, CaseIterable, Identifiable, Hashable {
     case allVideos
     case recent
     case favorites
+    case downloads
 
     var id: String { rawValue }
 
@@ -16,6 +17,8 @@ enum SmartCollectionKind: String, CaseIterable, Identifiable, Hashable {
             return "Recent"
         case .favorites:
             return "Favorites"
+        case .downloads:
+            return "Downloads"
         }
     }
 
@@ -27,6 +30,8 @@ enum SmartCollectionKind: String, CaseIterable, Identifiable, Hashable {
             return "clock"
         case .favorites:
             return "heart"
+        case .downloads:
+            return "arrow.down.circle"
         }
     }
 
@@ -51,6 +56,12 @@ enum SmartCollectionKind: String, CaseIterable, Identifiable, Hashable {
         case .favorites:
             request.predicate = NSPredicate(format: "library == %@ AND isFavorite == YES", library)
             request.sortDescriptors = [NSSortDescriptor(keyPath: \Video.title, ascending: true)]
+        case .downloads:
+            request.predicate = NSPredicate(
+                format: "library == %@ AND ((originalURL != nil AND originalURL != '') OR (remoteVideoID != nil AND remoteVideoID != ''))",
+                library
+            )
+            request.sortDescriptors = [NSSortDescriptor(keyPath: \Video.dateAdded, ascending: false)]
         }
     }
 }
