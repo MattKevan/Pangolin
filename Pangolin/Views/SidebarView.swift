@@ -262,14 +262,9 @@ struct SidebarView: View {
         systemImage: String,
         destination: SidebarSelection
     ) -> some View {
-        Button {
-            selectVirtualDestination(destination)
-        } label: {
-            Label(title, systemImage: systemImage)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+        Label(title, systemImage: systemImage)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         .listRowInsets(EdgeInsets(top: 0, leading: 2, bottom: 0, trailing: 8))
         .tag(destination)
     }
@@ -284,7 +279,6 @@ struct SidebarView: View {
 
         guard oldSelection != newSelection else { return }
 
-        let oldTreeSelection = treeSelections(from: oldSelection)
         let newTreeSelection = treeSelections(from: newSelection)
 
         let nextSelection: SidebarSelection?
@@ -347,17 +341,6 @@ struct SidebarView: View {
         case .search, .smartCollection:
             return false
         }
-    }
-
-    private func selectVirtualDestination(_ destination: SidebarSelection) {
-        guard !isSyncingSidebarSelections else { return }
-
-        // Set the route first so any sidebar selection-change echoes preserve the virtual destination.
-        store.selectedSidebarItem = destination
-
-        isSyncingSidebarSelections = true
-        sidebarSelections = [destination]
-        isSyncingSidebarSelections = false
     }
 
     private func dragItemIDs(for itemID: UUID) -> [UUID] {

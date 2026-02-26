@@ -1,16 +1,17 @@
 import SwiftUI
 
-struct SmartFolderTablePane: View {
+struct SmartCollectionTablePane: View {
     let title: String
     let videos: [Video]
     let selectedVideo: Video?
     let onSelectVideo: (Video) -> Void
 
     @State private var selectedVideoIDs: Set<UUID> = []
+    @State private var suppressedProgrammaticSelection: Set<UUID>?
 
     var body: some View {
         VStack(spacing: 0) {
-            SmartFolderHeader(title: title)
+            SmartCollectionHeader(title: title)
 
             Group {
                 if videos.isEmpty {
@@ -40,6 +41,11 @@ struct SmartFolderTablePane: View {
     }
 
     private func handleSelectionChange(_ selection: Set<UUID>) {
+        if suppressedProgrammaticSelection == selection {
+            suppressedProgrammaticSelection = nil
+            return
+        }
+
         guard selection.count == 1,
               let selectedID = selection.first,
               let selected = videos.first(where: { $0.id == selectedID }) else {
@@ -50,16 +56,29 @@ struct SmartFolderTablePane: View {
     }
 
     private func syncSelectedVideoForTable() {
+        let nextSelection: Set<UUID>
         let availableIDs = Set(videos.compactMap(\.id))
         if let selectedID = selectedVideo?.id, availableIDs.contains(selectedID) {
-            selectedVideoIDs = [selectedID]
+            nextSelection = [selectedID]
         } else {
-            selectedVideoIDs = []
+            nextSelection = []
+        }
+
+        guard selectedVideoIDs != nextSelection else { return }
+
+        suppressedProgrammaticSelection = nextSelection
+        selectedVideoIDs = nextSelection
+
+        // Clear the suppression token if the table does not emit a matching onChange callback.
+        DispatchQueue.main.async {
+            if suppressedProgrammaticSelection == nextSelection {
+                suppressedProgrammaticSelection = nil
+            }
         }
     }
 }
 
-private struct SmartFolderHeader: View {
+private struct SmartCollectionHeader: View {
     let title: String
 
     var body: some View {

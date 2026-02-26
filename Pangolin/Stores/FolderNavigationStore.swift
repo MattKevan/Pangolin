@@ -180,8 +180,8 @@ class FolderNavigationStore: ObservableObject {
                 selectedVideo = nil
             }
             break
-        case .smartCollection(let kind):
-            applySmartCollectionSelection(kind)
+        case .smartCollection:
+            applySmartCollectionSelection()
         case .folder(let folder):
             // When revealing a video's location, revealVideoLocation(_:) sets
             // selectedTopLevelFolder/currentFolderID/navigationPath explicitly.
@@ -205,7 +205,7 @@ class FolderNavigationStore: ObservableObject {
         }
     }
 
-    private func applySmartCollectionSelection(_ kind: SmartCollectionKind) {
+    private func applySmartCollectionSelection() {
         if !navigationPath.isEmpty {
             navigationPath = NavigationPath()
         }
@@ -216,10 +216,6 @@ class FolderNavigationStore: ObservableObject {
 
         if currentFolderID != nil {
             currentFolderID = nil
-        }
-
-        if selectedVideo != nil {
-            selectedVideo = nil
         }
 
         // Smart collections are virtual destinations, so refresh content directly.
@@ -288,10 +284,12 @@ class FolderNavigationStore: ObservableObject {
         
         var newHierarchicalContent: [HierarchicalContentItem] = []
         var newFlatContent: [ContentType] = []
+        var smartCollectionVideos: [Video]?
         
         do {
             if let smartCollection = currentSmartCollection {
                 let videos = try LibraryContentProvider.loadSmartCollection(smartCollection, library: library, context: context)
+                smartCollectionVideos = videos
                 newFlatContent = videos.map { .video($0) }
                 newHierarchicalContent = videos.map(HierarchicalContentItem.init(video:))
             } else if let folderID = currentFolderID {
@@ -308,8 +306,19 @@ class FolderNavigationStore: ObservableObject {
         self.flatContent = applySorting(newFlatContent)
         
         // 🔍 SELECTION PRESERVATION: Restore selection if it still exists in content
-        if currentSmartCollection != nil {
-            if selectedVideo != nil {
+        if let smartCollectionVideos {
+            if let preservedID = preservedSelectionID,
+               let matchedVideo = smartCollectionVideos.first(where: { $0.id == preservedID }) {
+                if let currentSelectedVideo = selectedVideo {
+                    if currentSelectedVideo !== matchedVideo {
+                        selectedVideo = matchedVideo
+                    }
+                } else {
+                    selectedVideo = matchedVideo
+                }
+                print("✅ STORE: Preserved smart-collection selection \(preservedID.uuidString)")
+            } else if selectedVideo != nil {
+                print("❌ STORE: Clearing selection not present in smart collection")
                 selectedVideo = nil
             }
         } else if let preservedID = preservedSelectionID {
@@ -391,22 +400,6 @@ class FolderNavigationStore: ObservableObject {
         applyFolderSelection(folder, clearSelectedVideo: clearSelectedVideo)
     }
     
-    // MARK: - Content Access (for Sidebar)
-    // Legacy persisted smart folders are kept for compatibility, but sidebar UI now renders
-    // virtual smart collections from SmartCollectionKind.
-    func systemFolders() -> [Folder] {
-        guard let context = libraryManager.viewContext, let library = libraryManager.currentLibrary else { return [] }
-        let request = Folder.fetchRequest()
-        request.predicate = NSPredicate(format: "library == %@ AND isTopLevel == YES AND isSmartFolder == YES", library)
-        request.sortDescriptors = [NSSortDescriptor(keyPath: \Folder.name, ascending: true)]
-        do {
-            return try context.fetch(request)
-        } catch {
-            errorMessage = "Failed to load system folders: \(error.localizedDescription)"
-            return []
-        }
-    }
-    
     func userFolders() -> [Folder] {
         guard let context = libraryManager.viewContext, let library = libraryManager.currentLibrary else { return [] }
         let request = Folder.fetchRequest()
@@ -443,6 +436,27 @@ class FolderNavigationStore: ObservableObject {
     func selectVideo(_ video: Video) {
         selectedVideo = video
     }
+
+    func openVideoDetailWithoutLocation(_ video: Video) {
+        selectedVideo = video
+
+        if !navigationPath.isEmpty {
+            navigationPath = NavigationPath()
+        }
+
+        if selectedTopLevelFolder != nil {
+            selectedTopLevelFolder = nil
+        }
+
+        if currentFolderID != nil {
+            currentFolderID = nil
+        }
+
+        if selectedSidebarItem != nil {
+            selectedSidebarItem = nil
+        }
+    }
+
     func selectVideo(by id: UUID) {
         guard let context = libraryManager.viewContext else { return }
         let request = Video.fetchRequest()
@@ -459,7 +473,19 @@ class FolderNavigationStore: ObservableObject {
 
         selectedVideo = video
         guard let folder = video.folder else {
-            // Keep the selected video even when we cannot derive a navigable folder path.
+            // No folder path to reveal; clear virtual routes so detail can open.
+            if !navigationPath.isEmpty {
+                navigationPath = NavigationPath()
+            }
+            if selectedTopLevelFolder != nil {
+                selectedTopLevelFolder = nil
+            }
+            if currentFolderID != nil {
+                currentFolderID = nil
+            }
+            if selectedSidebarItem != nil {
+                selectedSidebarItem = nil
+            }
             return
         }
 

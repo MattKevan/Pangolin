@@ -35,14 +35,6 @@ enum SmartCollectionKind: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    // Legacy persisted smart folders are still kept for compatibility.
-    var legacyFolderName: String { title }
-
-    static func fromLegacyFolderName(_ name: String?) -> SmartCollectionKind? {
-        guard let name else { return nil }
-        return allCases.first { $0.legacyFolderName == name }
-    }
-
     func configureVideoFetchRequest(_ request: NSFetchRequest<Video>, library: Library) {
         switch self {
         case .allVideos:

@@ -37,6 +37,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     #endif
     
     private var timeObserver: Any?
+    private var timeObserverOwner: AVPlayer?
     private var playbackEndedCancellable: AnyCancellable?
     private var durationStatusCancellable: AnyCancellable?
     private var playerStateCancellable: AnyCancellable?
@@ -250,6 +251,19 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         }
     }
 
+    @MainActor
+    func clearLoadedVideo() {
+        buildTask?.cancel()
+        resetPlayerObservers()
+        player?.pause()
+        player = nil
+        currentVideo = nil
+        isPlaying = false
+        currentTime = 0
+        duration = 0
+        isLoading = false
+    }
+
     // MARK: - External Playback Options
 
 #if os(macOS)
@@ -417,8 +431,10 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     @MainActor
     private func setupTimeObserver() {
         removeTimeObserver()
+        guard let player else { return }
         let interval = CMTime(seconds: 0.1, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
-        timeObserver = player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+        timeObserverOwner = player
+        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             guard let self else { return }
             self.currentTime = CMTimeGetSeconds(time)
             
@@ -484,8 +500,9 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     @MainActor
     private func removeTimeObserver() {
         if let observer = timeObserver {
-            player?.removeTimeObserver(observer)
+            timeObserverOwner?.removeTimeObserver(observer)
             timeObserver = nil
+            timeObserverOwner = nil
         }
     }
     
@@ -539,7 +556,11 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         playbackEndedCancellable?.cancel()
         durationStatusCancellable?.cancel()
         playerStateCancellable?.cancel()
-        if let observer = timeObserver { player?.removeTimeObserver(observer) }
+        if let observer = timeObserver {
+            timeObserverOwner?.removeTimeObserver(observer)
+            timeObserver = nil
+            timeObserverOwner = nil
+        }
         buildTask?.cancel()
     }
 }

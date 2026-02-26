@@ -94,12 +94,8 @@ struct DetailView: View {
                 if let v = store.selectedVideo {
                     playerViewModel.loadVideo(v)
                 } else {
-                    // Clear player if selection cleared
-                    playerViewModel.player = nil
-                    playerViewModel.currentVideo = nil
-                    playerViewModel.isPlaying = false
-                    playerViewModel.currentTime = 0
-                    playerViewModel.duration = 0
+                    // Clear player and observer state if selection cleared.
+                    playerViewModel.clearLoadedVideo()
                 }
                 syncControlsInspectorVisibility()
             }

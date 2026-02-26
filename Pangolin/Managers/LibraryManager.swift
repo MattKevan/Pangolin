@@ -225,8 +225,6 @@ class LibraryManager: ObservableObject {
         
         print("All properties set successfully")
         
-        // Create default smart folders
-        createDefaultSmartFolders(for: library, in: context)
         loadingProgress = 0.8
         
         // Save context
@@ -302,8 +300,6 @@ class LibraryManager: ObservableObject {
         }
         loadingProgress = 0.8
         
-        // Ensure smart folders exist
-        await ensureSmartFoldersExist(for: library, in: context)
         cleanupLegacyDownloadsFolderIfNeeded(for: library, in: context)
 
         normalizeStorageSettings(for: library)
@@ -787,61 +783,6 @@ class LibraryManager: ObservableObject {
         return marker == storageSystemVersion
     }
     
-    private func createDefaultSmartFolders(for library: Library, in context: NSManagedObjectContext) {
-        guard let folderEntityDescription = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Folder"] else {
-            print("Could not find Folder entity description")
-            return
-        }
-
-        // Legacy compatibility: smart folders remain persisted in Core Data, but the UI now renders
-        // virtual smart collections from SmartCollectionKind and does not depend on these rows.
-        for kind in SmartCollectionKind.allCases {
-            let folder = Folder(entity: folderEntityDescription, insertInto: context)
-            folder.id = UUID()
-            folder.name = kind.legacyFolderName
-            folder.isTopLevel = true
-            folder.isSmartFolder = true
-            folder.dateCreated = Date()
-            folder.dateModified = Date()
-            folder.library = library
-        }
-    }
-    
-    private func ensureSmartFoldersExist(for library: Library, in context: NSManagedObjectContext) async {
-        // Legacy compatibility: keep persisted smart folders present for existing libraries,
-        // even though sidebar routing/display now uses virtual destinations.
-        let request = Folder.fetchRequest()
-        request.predicate = NSPredicate(format: "library == %@ AND isSmartFolder == YES", library)
-        
-        do {
-            let existingSmartFolders = try context.fetch(request)
-            let existingNames = Set(existingSmartFolders.map { $0.name })
-
-            // Create any missing smart folders
-            for kind in SmartCollectionKind.allCases {
-                let folderName = kind.legacyFolderName
-                if !existingNames.contains(folderName) {
-                    guard let folderEntityDescription = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Folder"] else {
-                        continue
-                    }
-                    
-                    let folder = Folder(entity: folderEntityDescription, insertInto: context)
-                    folder.id = UUID()
-                    folder.name = folderName
-                    folder.isTopLevel = true
-                    folder.isSmartFolder = true
-                    folder.dateCreated = Date()
-                    folder.dateModified = Date()
-                    folder.library = library
-                }
-            }
-            
-            try context.save()
-        } catch {
-            print("Failed to ensure smart folders exist: \(error)")
-        }
-    }
-
     private func cleanupLegacyDownloadsFolderIfNeeded(for library: Library, in context: NSManagedObjectContext) {
         let request = Folder.fetchRequest()
         request.predicate = NSPredicate(

@@ -10,7 +10,7 @@ import CoreData
 import Combine
 
 /// A Finder-like hierarchical content view using SwiftUI's native Table with columns
-@available(*, deprecated, message: "Legacy library content view. Current library routing uses FolderContentView/FolderOutlinePane/SmartFolderTablePane.")
+@available(*, deprecated, message: "Legacy library content view. Current library routing uses FolderContentView/FolderOutlinePane/SmartCollectionTablePane.")
 struct HierarchicalContentView: View {
     @EnvironmentObject private var store: FolderNavigationStore
     @EnvironmentObject var libraryManager: LibraryManager

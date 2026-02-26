@@ -101,7 +101,7 @@ private struct SearchResultsTableView: View {
               let selectedID = selection.first else { return }
         if let selectedVideo = videos.first(where: { $0.id == selectedID }) {
             guard selectedVideo.folder != nil else {
-                folderStore.selectVideo(selectedVideo)
+                folderStore.openVideoDetailWithoutLocation(selectedVideo)
                 return
             }
 

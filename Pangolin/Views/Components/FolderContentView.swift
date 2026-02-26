@@ -15,7 +15,7 @@ struct FolderContentView: View {
         store.currentSmartCollection
     }
 
-    private var smartFolderVideos: [Video] {
+    private var smartCollectionVideos: [Video] {
         store.flatContent.compactMap { item in
             if case .video(let video) = item {
                 return video
@@ -27,11 +27,11 @@ struct FolderContentView: View {
     var body: some View {
         Group {
             if let kind = currentSmartCollection {
-                SmartFolderTablePane(
+                SmartCollectionTablePane(
                     title: kind.title,
-                    videos: smartFolderVideos,
+                    videos: smartCollectionVideos,
                     selectedVideo: store.selectedVideo,
-                    onSelectVideo: handleSmartFolderVideoSelection
+                    onSelectVideo: handleSmartCollectionVideoSelection
                 )
                 .allVideosImportDrop(
                     isEnabled: kind == .allVideos,
@@ -48,10 +48,10 @@ struct FolderContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func handleSmartFolderVideoSelection(_ video: Video) {
+    private func handleSmartCollectionVideoSelection(_ video: Video) {
         guard video.folder != nil else {
             // Fallback for orphaned videos: keep selection local and avoid navigation failure.
-            store.selectVideo(video)
+            store.openVideoDetailWithoutLocation(video)
             return
         }
 
