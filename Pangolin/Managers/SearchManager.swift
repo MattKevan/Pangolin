@@ -21,6 +21,7 @@ class SearchManager: ObservableObject {
 
     // Improved search configuration
     private var searchTask: Task<Void, Never>?
+    private var searchRequestID: UInt64 = 0
     private let debounceDelay: TimeInterval = 0.5  // Increased for better performance
     private let minimumQueryLength = 2  // Don't search until 2+ characters
     
@@ -53,19 +54,37 @@ class SearchManager: ObservableObject {
     }
     
     private var cancellables = Set<AnyCancellable>()
+
+    private func resetSearchState(results: [Video] = [], isSearching: Bool = false, hasSearched: Bool = false) {
+        if results.isEmpty {
+            if !self.searchResults.isEmpty {
+                self.searchResults = []
+            }
+        } else {
+            self.searchResults = results
+        }
+
+        if self.isSearching != isSearching {
+            self.isSearching = isSearching
+        }
+
+        if self.hasSearched != hasSearched {
+            self.hasSearched = hasSearched
+        }
+    }
     
     private func scheduleSearch(query: String) {
         // Cancel any existing search task
         searchTask?.cancel()
+        searchRequestID &+= 1
+        let requestID = searchRequestID
 
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Handle empty queries immediately
         if trimmedQuery.isEmpty {
             Task { @MainActor in
-                searchResults = []
-                isSearching = false
-                hasSearched = false
+                resetSearchState()
             }
             return
         }
@@ -73,60 +92,81 @@ class SearchManager: ObservableObject {
         // Don't search until minimum length reached
         if trimmedQuery.count < minimumQueryLength {
             Task { @MainActor in
-                searchResults = []
-                isSearching = false
-                hasSearched = false
+                resetSearchState()
             }
             return
         }
 
+        // Clear stale results immediately when the query changes, then fetch new ones after debounce.
+        if !searchResults.isEmpty {
+            searchResults = []
+        }
+        if hasSearched {
+            hasSearched = false
+        }
+        if isSearching {
+            isSearching = false
+        }
+
         // Create new search task with proper cancellation
         searchTask = Task { @MainActor [weak self] in
-            // Set searching state on next run loop to avoid publishing during view update
-            self?.isSearching = true
             do {
                 // Wait for debounce period
                 try await Task.sleep(for: .milliseconds(Int(self?.debounceDelay ?? 0.5 * 1000)))
 
                 // Check if cancelled during sleep
-                guard !Task.isCancelled else {
-                    await MainActor.run {
-                        self?.isSearching = false
-                    }
+                guard !Task.isCancelled,
+                      self?.searchRequestID == requestID else {
                     return
                 }
 
+                if self?.isSearching != true {
+                    self?.isSearching = true
+                }
+
                 // Perform the actual search
-                await self?.performSearch(query: trimmedQuery)
+                await self?.performSearch(query: trimmedQuery, requestID: requestID)
             } catch {
                 // Task was cancelled
                 await MainActor.run {
-                    self?.isSearching = false
+                    guard self?.searchRequestID == requestID else { return }
+                    if self?.isSearching == true {
+                        self?.isSearching = false
+                    }
                 }
             }
         }
     }
     
-    private func performSearch(query: String) async {
+    private func performSearch(query: String, requestID: UInt64? = nil) async {
         guard let context = LibraryManager.shared.viewContext,
               !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            searchResults = []
-            isSearching = false
-            hasSearched = false
+            resetSearchState()
             return
         }
 
         do {
             let results = try await searchVideos(query: query, in: context)
+            if let requestID, requestID != searchRequestID {
+                return
+            }
             searchResults = results
             hasSearched = true
         } catch {
+            if let requestID, requestID != searchRequestID {
+                return
+            }
             print("Search error: \(error)")
             searchResults = []
             hasSearched = true
         }
 
-        isSearching = false
+        if let requestID, requestID != searchRequestID {
+            return
+        }
+        if isSearching {
+            isSearching = false
+        }
     }
     
     private func searchVideos(query: String, in context: NSManagedObjectContext) async throws -> [Video] {
@@ -190,11 +230,14 @@ class SearchManager: ObservableObject {
     func clearSearch() {
         searchTask?.cancel()
         Task { @MainActor in
-            searchText = ""
-            searchResults = []
-            isSearchActive = false
-            isSearching = false
-            hasSearched = false
+            searchRequestID &+= 1
+            if !searchText.isEmpty {
+                searchText = ""
+            }
+            resetSearchState()
+            if isSearchActive {
+                isSearchActive = false
+            }
         }
     }
     
@@ -218,8 +261,13 @@ class SearchManager: ObservableObject {
 
         // Cancel any existing search and perform immediately
         searchTask?.cancel()
+        searchRequestID &+= 1
+        let requestID = searchRequestID
         Task { @MainActor in
-            await performSearch(query: trimmedQuery)
+            if !isSearching {
+                isSearching = true
+            }
+            await performSearch(query: trimmedQuery, requestID: requestID)
         }
     }
     

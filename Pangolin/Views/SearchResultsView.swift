@@ -20,24 +20,45 @@ struct SearchResultsView: View {
         !searchManager.searchResults.isEmpty
     }
 
+    private var trimmedQuery: String {
+        searchManager.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     var body: some View {
         Group {
-            if searchManager.isSearching {
-                LoadingStateView()
-            } else if isSearchTextEmpty {
+            if isSearchTextEmpty {
                 EmptySearchStateView()
-            } else if !hasResults {
-                NoResultsStateView()
             } else {
-                SearchResultsTableView(
-                    videos: searchManager.searchResults,
-                    selectedItems: $selectedItems,
-                    searchManager: searchManager,
-                    folderStore: folderStore
-                )
+                ZStack {
+                    SearchResultsTableView(
+                        videos: searchManager.searchResults,
+                        selectedItems: $selectedItems,
+                        searchManager: searchManager,
+                        folderStore: folderStore
+                    )
+
+                    if searchManager.isSearching && !hasResults {
+                        LoadingStateView()
+                            .background(.regularMaterial)
+                    } else if shouldShowMinimumCharactersHint {
+                        SearchHintStateView(
+                            title: "Keep typing",
+                            systemImage: "text.cursor",
+                            description: "Type at least 2 characters to search"
+                        )
+                    } else if searchManager.hasSearched && !hasResults {
+                        NoResultsStateView()
+                    }
+                }
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: searchManager.isSearching)
+        .onChange(of: searchManager.searchText) { _, _ in
+            selectedItems.removeAll()
+        }
+    }
+
+    private var shouldShowMinimumCharactersHint: Bool {
+        !trimmedQuery.isEmpty && trimmedQuery.count < 2 && !searchManager.isSearching
     }
 }
 
@@ -60,6 +81,20 @@ private struct EmptySearchStateView: View {
             "Search your videos",
             systemImage: "magnifyingglass",
             description: Text("Enter search terms to search videos, transcripts, and summaries")
+        )
+    }
+}
+
+private struct SearchHintStateView: View {
+    let title: String
+    let systemImage: String
+    let description: String
+
+    var body: some View {
+        ContentUnavailableView(
+            title,
+            systemImage: systemImage,
+            description: Text(description)
         )
     }
 }

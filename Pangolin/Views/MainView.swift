@@ -15,6 +15,7 @@ struct MainView: View {
     
     // Popover state for task indicator
     @State private var showTaskPopover = false
+    @State private var isSearchFieldPresented = false
     @FocusState private var isSearchFieldFocused: Bool
     
     init(libraryManager: LibraryManager) {
@@ -65,23 +66,21 @@ struct MainView: View {
             .environmentObject(libraryManager)
             .environmentObject(transcriptionService)
             .navigationSplitViewColumnWidth(min: 420, ideal: 760)
+            .searchable(
+                text: $searchManager.searchText,
+                isPresented: $isSearchFieldPresented,
+                placement: .toolbar,
+                prompt: "Search videos, transcripts, and summaries"
+            )
+            .searchFocused($isSearchFieldFocused)
+            .onSubmit(of: .search) {
+                guard folderStore.isSearchMode else { return }
+                let trimmedQuery = searchManager.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmedQuery.isEmpty else { return }
+                searchManager.performManualSearch()
+            }
             .toolbar {
-                if folderStore.isSearchMode {
-                    ToolbarItem(placement: .principal) {
-                        TextField("Search videos, transcripts, and summaries", text: $searchManager.searchText)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(minWidth: 320, idealWidth: 460, maxWidth: 640)
-                            .focused($isSearchFieldFocused)
-                            .onSubmit {
-                                let trimmedQuery = searchManager.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-                                guard !trimmedQuery.isEmpty else { return }
-                                if folderStore.selectedSidebarItem != .search {
-                                    folderStore.selectedSidebarItem = .search
-                                }
-                                searchManager.performManualSearch()
-                            }
-                    }
-                } else {
+                if !folderStore.isSearchMode {
                     // Normal Mode: Standard toolbar items
                     ToolbarItemGroup(placement: .navigation) {
                         Button {
@@ -152,12 +151,21 @@ struct MainView: View {
                 }
             }
             .onChange(of: folderStore.isSearchMode) { _, isSearchMode in
+                isSearchFieldPresented = isSearchMode
                 if isSearchMode {
                     DispatchQueue.main.async {
                         isSearchFieldFocused = true
                     }
                 } else {
                     isSearchFieldFocused = false
+                }
+            }
+            .onChange(of: searchManager.searchText) { _, _ in
+                guard folderStore.isSearchMode else { return }
+                // Keep the search field active while results/search state updates
+                // re-render the detail column as the user types.
+                Task { @MainActor in
+                    isSearchFieldFocused = true
                 }
             }
     }
