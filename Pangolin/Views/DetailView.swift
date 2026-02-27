@@ -86,6 +86,7 @@ struct DetailView: View {
                 if let selected = effectiveSelectedVideo,
                    ((playerViewModel.currentVideo?.id != selected.id) || (playerViewModel.player == nil)) {
                     playerViewModel.loadVideo(selected)
+                    applyPendingSearchSeekIfNeeded(for: selected)
                 }
                 syncControlsInspectorVisibility()
             }
@@ -93,6 +94,7 @@ struct DetailView: View {
                 // Load selected video so duration/slider are available; playback remains paused until user presses play.
                 if let v = store.selectedVideo {
                     playerViewModel.loadVideo(v)
+                    applyPendingSearchSeekIfNeeded(for: v)
                 } else {
                     // Clear player and observer state if selection cleared.
                     playerViewModel.clearLoadedVideo()
@@ -157,6 +159,30 @@ struct DetailView: View {
 
     private func syncControlsInspectorVisibility() {
         isControlsInspectorPresented = canShowControlsInspector
+    }
+
+    private func applyPendingSearchSeekIfNeeded(for video: Video) {
+        guard let videoID = video.id,
+              let pending = store.consumePendingSearchSeekRequest(for: videoID) else {
+            return
+        }
+
+        if let source = pending.source {
+            switch source {
+            case .transcript:
+                selectedInspectorTab = .transcript
+            case .translation:
+                selectedInspectorTab = .translation
+            case .summary:
+                selectedInspectorTab = .summary
+            case .title:
+                break
+            }
+        }
+
+        if let seconds = pending.seconds {
+            playerViewModel.seek(to: seconds, in: video)
+        }
     }
 
     private func toggleFavorite(video: Video) {

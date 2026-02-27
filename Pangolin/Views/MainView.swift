@@ -60,25 +60,17 @@ struct MainView: View {
     }
 
     private var detailColumn: some View {
-        DetailColumnView()
+        configuredDetailColumn
+    }
+
+    @ViewBuilder
+    private var configuredDetailColumn: some View {
+        let baseDetailColumn = DetailColumnView()
             .environmentObject(folderStore)
             .environmentObject(searchManager)
             .environmentObject(libraryManager)
             .environmentObject(transcriptionService)
             .navigationSplitViewColumnWidth(min: 420, ideal: 760)
-            .searchable(
-                text: $searchManager.searchText,
-                isPresented: $isSearchFieldPresented,
-                placement: .toolbar,
-                prompt: "Search videos, transcripts, and summaries"
-            )
-            .searchFocused($isSearchFieldFocused)
-            .onSubmit(of: .search) {
-                guard folderStore.isSearchMode else { return }
-                let trimmedQuery = searchManager.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmedQuery.isEmpty else { return }
-                searchManager.performManualSearch()
-            }
             .toolbar {
                 if !folderStore.isSearchMode {
                     // Normal Mode: Standard toolbar items
@@ -168,6 +160,25 @@ struct MainView: View {
                     isSearchFieldFocused = true
                 }
             }
+
+        if folderStore.isSearchMode {
+            baseDetailColumn
+                .searchable(
+                    text: $searchManager.searchText,
+                    isPresented: $isSearchFieldPresented,
+                    placement: .toolbarPrincipal,
+                    prompt: "Search videos, transcripts, and summaries"
+                )
+                .searchFocused($isSearchFieldFocused)
+                .onSubmit(of: .search) {
+                    guard folderStore.isSearchMode else { return }
+                    let trimmedQuery = searchManager.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmedQuery.isEmpty else { return }
+                    searchManager.performManualSearch()
+                }
+        } else {
+            baseDetailColumn
+        }
     }
     
     

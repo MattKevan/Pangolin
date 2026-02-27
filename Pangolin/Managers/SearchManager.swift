@@ -15,6 +15,8 @@ class SearchManager: ObservableObject {
     @Published var searchText = ""
     @Published var isSearchActive = false
     @Published var searchResults: [Video] = []
+    @Published var presentedResults: [SearchResultRowModel] = []
+    @Published var answerPanel: SearchAnswerPanelModel?
     @Published var searchScope: SearchScope = .all
     @Published var isSearching = false
     @Published var hasSearched = false // Track if search has been performed
@@ -29,6 +31,7 @@ class SearchManager: ObservableObject {
         case all = "All"
         case titles = "Titles"
         case transcripts = "Transcripts"
+        case translations = "Translations"
         case summaries = "Summaries"
         
         var id: String { rawValue }
@@ -38,6 +41,7 @@ class SearchManager: ObservableObject {
             case .all: return "magnifyingglass"
             case .titles: return "textformat"
             case .transcripts: return "doc.text"
+            case .translations: return "globe"
             case .summaries: return "doc.text.below.ecg"
             }
         }
@@ -51,6 +55,15 @@ class SearchManager: ObservableObject {
                 self?.scheduleSearch(query: newText)
             }
             .store(in: &cancellables)
+
+        $searchScope
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.scheduleSearch(query: self.searchText)
+            }
+            .store(in: &cancellables)
     }
     
     private var cancellables = Set<AnyCancellable>()
@@ -62,6 +75,15 @@ class SearchManager: ObservableObject {
             }
         } else {
             self.searchResults = results
+        }
+
+        if results.isEmpty {
+            if !presentedResults.isEmpty {
+                presentedResults = []
+            }
+            if answerPanel != nil {
+                answerPanel = nil
+            }
         }
 
         if self.isSearching != isSearching {
@@ -100,6 +122,12 @@ class SearchManager: ObservableObject {
         // Clear stale results immediately when the query changes, then fetch new ones after debounce.
         if !searchResults.isEmpty {
             searchResults = []
+        }
+        if !presentedResults.isEmpty {
+            presentedResults = []
+        }
+        if answerPanel != nil {
+            answerPanel = nil
         }
         if hasSearched {
             hasSearched = false
@@ -145,12 +173,20 @@ class SearchManager: ObservableObject {
             return
         }
 
+        let scopeAtQueryTime = searchScope
+
         do {
             let results = try await searchVideos(query: query, in: context)
             if let requestID, requestID != searchRequestID {
                 return
             }
             searchResults = results
+            let presentation = SearchEvidenceBuilder.build(videos: results, query: query, scope: scopeAtQueryTime)
+            if let requestID, requestID != searchRequestID {
+                return
+            }
+            presentedResults = presentation.rows
+            answerPanel = presentation.answerPanel
             hasSearched = true
         } catch {
             if let requestID, requestID != searchRequestID {
@@ -158,6 +194,8 @@ class SearchManager: ObservableObject {
             }
             print("Search error: \(error)")
             searchResults = []
+            presentedResults = []
+            answerPanel = nil
             hasSearched = true
         }
 
@@ -206,8 +244,9 @@ class SearchManager: ObservableObject {
                 "title CONTAINS[cd] %@ OR " +
                 "fileName CONTAINS[cd] %@ OR " +
                 "transcriptText CONTAINS[cd] %@ OR " +
+                "translatedText CONTAINS[cd] %@ OR " +
                 "transcriptSummary CONTAINS[cd] %@",
-                trimmedQuery, trimmedQuery, trimmedQuery, trimmedQuery
+                trimmedQuery, trimmedQuery, trimmedQuery, trimmedQuery, trimmedQuery
             )
         case .titles:
             return NSPredicate(format:
@@ -217,6 +256,11 @@ class SearchManager: ObservableObject {
         case .transcripts:
             return NSPredicate(format:
                 "transcriptText CONTAINS[cd] %@",
+                trimmedQuery
+            )
+        case .translations:
+            return NSPredicate(format:
+                "translatedText CONTAINS[cd] %@",
                 trimmedQuery
             )
         case .summaries:

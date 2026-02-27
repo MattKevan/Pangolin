@@ -80,6 +80,7 @@ class FolderNavigationStore: ObservableObject {
     }
     @Published var selectedTopLevelFolder: Folder?
     @Published var selectedVideo: Video?
+    @Published var pendingSearchSeekRequest: SearchSeekRequest?
     
     // Reactive data sources for the UI
     @Published var hierarchicalContent: [HierarchicalContentItem] = []
@@ -435,6 +436,27 @@ class FolderNavigationStore: ObservableObject {
     
     func selectVideo(_ video: Video) {
         selectedVideo = video
+    }
+
+    func openFromSearchCitation(_ video: Video, seekTo seconds: TimeInterval?, source: SearchMatchSource?) {
+        if video.folder != nil {
+            revealVideoLocation(video)
+        } else {
+            openVideoDetailWithoutLocation(video)
+        }
+
+        if let videoID = video.id {
+            pendingSearchSeekRequest = SearchSeekRequest(videoID: videoID, seconds: seconds, source: source)
+        }
+    }
+
+    func consumePendingSearchSeekRequest(for videoID: UUID) -> SearchSeekRequest? {
+        guard let pendingSearchSeekRequest,
+              pendingSearchSeekRequest.videoID == videoID else {
+            return nil
+        }
+        self.pendingSearchSeekRequest = nil
+        return pendingSearchSeekRequest
     }
 
     func openVideoDetailWithoutLocation(_ video: Video) {

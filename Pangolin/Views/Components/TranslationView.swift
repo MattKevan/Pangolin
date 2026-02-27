@@ -153,11 +153,11 @@ struct TranslationView: View {
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: 720, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .center)
-                    //.padding(.horizontal, 12)
+                    .padding(.horizontal, 12)
             }
         } else if let loadError {
             ContentUnavailableView(
-                "Timed translation unavailable",
+                "No translation available",
                 systemImage: "exclamationmark.bubble",
                 description: Text(loadError)
             )
