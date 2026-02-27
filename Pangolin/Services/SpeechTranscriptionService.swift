@@ -18,6 +18,7 @@ enum TranscriptionError: LocalizedError {
     case translationFailed(String)
     case translationModelsNotInstalled(String, String)
     case summarizationFailed(String)
+    case flashcardsGenerationFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -44,6 +45,8 @@ enum TranscriptionError: LocalizedError {
             return "Translation models for \(from) to \(to) are not installed on this system."
         case .summarizationFailed(let reason):
             return "Summarization failed: \(reason)"
+        case .flashcardsGenerationFailed(let reason):
+            return "Flashcards generation failed: \(reason)"
         }
     }
 
@@ -71,6 +74,8 @@ enum TranscriptionError: LocalizedError {
             return "Go to System Settings → General → Language & Region → Translation Languages to download the required translation models, then try again."
         case .summarizationFailed:
             return "Ensure Apple Intelligence is enabled in System Settings and try again. Summarisation requires Apple Intelligence to be active."
+        case .flashcardsGenerationFailed:
+            return "Ensure transcript data is available and Apple Intelligence is enabled, then retry."
         }
     }
 }
@@ -423,11 +428,155 @@ class SpeechTranscriptionService: ObservableObject {
         await setTranscribingState(isTranscribing: false, isSummarizing: false)
     }
 
+    // MARK: - Flashcards
+
+    func generateFlashcards(
+        for video: Video,
+        libraryManager: LibraryManager,
+        sourceMode: FlashcardsSourceMode = .autoSystemLanguage,
+        targetCount: Int = 12,
+        customPrompt: String? = nil
+    ) async {
+        guard let videoID = video.id else {
+            await setErrorMessage("Video metadata is missing. Please re-import this video.")
+            return
+        }
+
+        let initialState = await MainActor.run { () -> (title: String, transcriptLanguage: String?, translatedLanguage: String?) in
+            guard let persistedVideo = fetchVideo(with: videoID) else {
+                return ("Unknown", nil, nil)
+            }
+            return (
+                persistedVideo.title ?? "Unknown",
+                persistedVideo.transcriptLanguage,
+                persistedVideo.translatedLanguage
+            )
+        }
+        print("🟢 Started generateFlashcards for \(initialState.title)")
+
+        await Task.yield()
+        guard !(await isTranscribingOnMain()) else { return }
+
+        await setTranscribingState(isTranscribing: true, isSummarizing: false)
+        await setErrorMessage(nil)
+        await setProgress(0.0)
+        await setStatus("Preparing flashcards...")
+
+        do {
+            let model = SystemLanguageModel.default
+            switch model.availability {
+            case .available:
+                break
+            case .unavailable(.deviceNotEligible):
+                throw TranscriptionError.flashcardsGenerationFailed("This device doesn't support Apple Intelligence.")
+            case .unavailable(.appleIntelligenceNotEnabled):
+                throw TranscriptionError.flashcardsGenerationFailed("Apple Intelligence is not enabled. Please enable it in System Settings.")
+            case .unavailable(.modelNotReady):
+                throw TranscriptionError.flashcardsGenerationFailed("Apple Intelligence model is not ready. Please try again later.")
+            case .unavailable(let reason):
+                throw TranscriptionError.flashcardsGenerationFailed("Apple Intelligence is unavailable: \(reason)")
+            }
+
+            await setProgress(0.05)
+            let resolvedSource = try await resolveFlashcardsSource(
+                for: videoID,
+                libraryManager: libraryManager,
+                sourceMode: sourceMode,
+                transcriptLanguageIdentifier: initialState.transcriptLanguage,
+                translatedLanguageIdentifier: initialState.translatedLanguage
+            )
+
+            let boundedCount = max(1, targetCount)
+            let generatedCards = try await generateFlashcardCandidates(
+                from: resolvedSource.entries,
+                targetCount: boundedCount,
+                customPrompt: customPrompt
+            )
+
+            guard !generatedCards.isEmpty else {
+                throw TranscriptionError.flashcardsGenerationFailed("No flashcards were generated from the available content.")
+            }
+
+            let sourceLookup = Dictionary(uniqueKeysWithValues: resolvedSource.entries.map { ($0.id, $0) })
+            let cards: [Flashcard] = generatedCards.compactMap { candidate in
+                guard let source = sourceLookup[candidate.sourceChunkID] else { return nil }
+                return Flashcard(
+                    front: candidate.front,
+                    back: candidate.back,
+                    startSeconds: source.startSeconds,
+                    endSeconds: source.endSeconds,
+                    sourceSnippet: source.text
+                )
+            }
+
+            guard !cards.isEmpty else {
+                throw TranscriptionError.flashcardsGenerationFailed("Generated flashcards did not contain valid source references.")
+            }
+
+            let deck = FlashcardDeck(
+                videoID: videoID,
+                generatedAt: Date(),
+                sourceModeUsed: resolvedSource.modeUsed,
+                sourceLanguageCode: resolvedSource.sourceLanguageCode,
+                cards: Array(cards.prefix(boundedCount))
+            )
+
+            await setStatus("Saving flashcards...")
+            await setProgress(0.95)
+            try await MainActor.run {
+                guard let persistedVideo = fetchVideo(with: videoID) else { return }
+                try libraryManager.ensureTextArtifactDirectories()
+                guard let url = libraryManager.flashcardsURL(for: persistedVideo) else {
+                    throw TranscriptionError.flashcardsGenerationFailed("Could not determine flashcards storage path.")
+                }
+                try libraryManager.writeFlashcardDeckAtomically(deck, to: url)
+            }
+
+            await libraryManager.save()
+            await setProgress(1.0)
+            await setStatus("Flashcards complete!")
+        } catch {
+            await setErrorMessage(userVisibleMessage(for: error))
+            print("🚨 Flashcards error: \(error)")
+        }
+
+        await setTranscribingState(isTranscribing: false, isSummarizing: false)
+    }
+
     private struct TranslationComputationResult {
         let output: TranslationOutput
         let targetLanguageIdentifier: String
         let resolvedSourceLanguageIdentifier: String?
         let translationSkipped: Bool
+    }
+
+    private struct FlashcardSourceEntry: Sendable, Hashable {
+        let id: String
+        let startSeconds: TimeInterval
+        let endSeconds: TimeInterval
+        let text: String
+    }
+
+    private struct ResolvedFlashcardsSource: Sendable {
+        let modeUsed: FlashcardsSourceMode
+        let sourceLanguageCode: String
+        let entries: [FlashcardSourceEntry]
+    }
+
+    private struct GeneratedFlashcardCandidate: Sendable, Hashable {
+        let front: String
+        let back: String
+        let sourceChunkID: String
+    }
+
+    private struct FlashcardModelResponse: Decodable {
+        struct Card: Decodable {
+            let front: String
+            let back: String
+            let sourceChunkID: String
+        }
+
+        let cards: [Card]
     }
 
     @MainActor
@@ -593,6 +742,270 @@ class SpeechTranscriptionService: ObservableObject {
         }
 
         return chunks
+    }
+
+    private func resolveFlashcardsSource(
+        for videoID: UUID,
+        libraryManager: LibraryManager,
+        sourceMode: FlashcardsSourceMode,
+        transcriptLanguageIdentifier: String?,
+        translatedLanguageIdentifier: String?
+    ) async throws -> ResolvedFlashcardsSource {
+        let transcriptData = try await MainActor.run { () throws -> (languageCode: String, entries: [FlashcardSourceEntry]) in
+            guard let persistedVideo = fetchVideo(with: videoID),
+                  let timedURL = libraryManager.timedTranscriptURL(for: persistedVideo),
+                  FileManager.default.fileExists(atPath: timedURL.path) else {
+                throw TranscriptionError.flashcardsGenerationFailed("Timed transcript not found. Please transcribe this video again.")
+            }
+
+            let transcript = try libraryManager.readTimedTranscript(from: timedURL)
+            let entries = transcript.makeChunkIndex().allEntries.map {
+                FlashcardSourceEntry(
+                    id: $0.id.uuidString,
+                    startSeconds: $0.startSeconds,
+                    endSeconds: $0.endSeconds,
+                    text: $0.text
+                )
+            }
+            guard !entries.isEmpty else {
+                throw TranscriptionError.flashcardsGenerationFailed("Transcript has no timed chunks to build flashcards from.")
+            }
+            let trimmedTranscriptLanguage = transcriptLanguageIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let languageCode = trimmedTranscriptLanguage.isEmpty ? transcript.localeIdentifier : trimmedTranscriptLanguage
+            return (languageCode, entries)
+        }
+
+        let translationData: (languageCode: String, entries: [FlashcardSourceEntry])? = try await MainActor.run { () throws -> (String, [FlashcardSourceEntry])? in
+            guard let persistedVideo = fetchVideo(with: videoID),
+                  let translatedLanguageIdentifier,
+                  !translatedLanguageIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let timedURL = libraryManager.timedTranslationURL(for: persistedVideo, languageCode: translatedLanguageIdentifier),
+                  FileManager.default.fileExists(atPath: timedURL.path) else {
+                return nil
+            }
+
+            let translation = try libraryManager.readTimedTranslation(from: timedURL)
+            let entries = translation.makeChunkIndex().allEntries.map {
+                FlashcardSourceEntry(
+                    id: $0.id,
+                    startSeconds: $0.startSeconds,
+                    endSeconds: $0.endSeconds,
+                    text: $0.text
+                )
+            }
+            guard !entries.isEmpty else { return nil }
+            return (translation.targetLocaleIdentifier, entries)
+        }
+
+        switch sourceMode {
+        case .transcript:
+            return ResolvedFlashcardsSource(
+                modeUsed: .transcript,
+                sourceLanguageCode: transcriptData.languageCode,
+                entries: transcriptData.entries
+            )
+        case .translation:
+            guard let translationData else {
+                throw TranscriptionError.flashcardsGenerationFailed("Translation data is unavailable. Generate a translation first or use transcript source.")
+            }
+            return ResolvedFlashcardsSource(
+                modeUsed: .translation,
+                sourceLanguageCode: translationData.languageCode,
+                entries: translationData.entries
+            )
+        case .autoSystemLanguage:
+            if shouldPreferTranslationForAutoSource(transcriptLanguageIdentifier: transcriptData.languageCode),
+               let translationData {
+                return ResolvedFlashcardsSource(
+                    modeUsed: .translation,
+                    sourceLanguageCode: translationData.languageCode,
+                    entries: translationData.entries
+                )
+            }
+
+            if shouldPreferTranslationForAutoSource(transcriptLanguageIdentifier: transcriptData.languageCode),
+               translationData == nil {
+                await setStatus("Translation unavailable, using transcript for flashcards.")
+            }
+
+            return ResolvedFlashcardsSource(
+                modeUsed: .transcript,
+                sourceLanguageCode: transcriptData.languageCode,
+                entries: transcriptData.entries
+            )
+        }
+    }
+
+    private func shouldPreferTranslationForAutoSource(transcriptLanguageIdentifier: String?) -> Bool {
+        guard let transcriptLanguageIdentifier,
+              !transcriptLanguageIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+
+        guard let transcriptLanguageCode = normalizedLanguageCode(from: Locale(identifier: transcriptLanguageIdentifier)),
+              let systemLanguageCode = normalizedLanguageCode(from: .autoupdatingCurrent) else {
+            return false
+        }
+
+        return transcriptLanguageCode != systemLanguageCode
+    }
+
+    private func normalizedLanguageCode(from locale: Locale) -> String? {
+        let code = locale.language.languageCode?.identifier
+            ?? locale.identifier.split(separator: "-").first.map(String.init)
+            ?? locale.identifier.split(separator: "_").first.map(String.init)
+        return code?.lowercased()
+    }
+
+    private func generateFlashcardCandidates(
+        from entries: [FlashcardSourceEntry],
+        targetCount: Int,
+        customPrompt: String?
+    ) async throws -> [GeneratedFlashcardCandidate] {
+        let batches = flashcardBatches(from: entries, maxCharactersPerBatch: 9_000)
+        guard !batches.isEmpty else {
+            throw TranscriptionError.flashcardsGenerationFailed("No content available to generate flashcards.")
+        }
+
+        let maxBatchesToProcess = max(1, min(batches.count, targetCount))
+        var collected: [GeneratedFlashcardCandidate] = []
+        var dedupe = Set<String>()
+
+        for index in 0..<maxBatchesToProcess {
+            let batch = batches[index]
+            let remainingBatches = maxBatchesToProcess - index
+            let remainingSlots = max(1, targetCount - collected.count)
+            let batchTarget = max(1, remainingSlots / max(1, remainingBatches))
+
+            await setStatus("Generating flashcards batch \(index + 1) of \(maxBatchesToProcess)...")
+            await setProgress(0.1 + (0.75 * Double(index) / Double(max(1, maxBatchesToProcess))))
+
+            let generated = try await generateFlashcardCandidatesForBatch(
+                batch,
+                desiredCount: batchTarget,
+                customPrompt: customPrompt
+            )
+
+            for item in generated {
+                let key = "\(item.front.lowercased())\n\(item.back.lowercased())"
+                if dedupe.contains(key) { continue }
+                dedupe.insert(key)
+                collected.append(item)
+                if collected.count >= targetCount {
+                    return collected
+                }
+            }
+        }
+
+        return collected
+    }
+
+    private func flashcardBatches(
+        from entries: [FlashcardSourceEntry],
+        maxCharactersPerBatch: Int
+    ) -> [[FlashcardSourceEntry]] {
+        var batches: [[FlashcardSourceEntry]] = []
+        var currentBatch: [FlashcardSourceEntry] = []
+        var currentCharCount = 0
+
+        for entry in entries {
+            let lineLength = entry.id.count + entry.text.count + 12
+            if !currentBatch.isEmpty && currentCharCount + lineLength > maxCharactersPerBatch {
+                batches.append(currentBatch)
+                currentBatch = []
+                currentCharCount = 0
+            }
+            currentBatch.append(entry)
+            currentCharCount += lineLength
+        }
+
+        if !currentBatch.isEmpty {
+            batches.append(currentBatch)
+        }
+
+        return batches
+    }
+
+    private func generateFlashcardCandidatesForBatch(
+        _ batch: [FlashcardSourceEntry],
+        desiredCount: Int,
+        customPrompt: String?
+    ) async throws -> [GeneratedFlashcardCandidate] {
+        let instructions = Instructions(flashcardsInstructions(from: customPrompt))
+
+        let sourceLines = batch.map { "[\($0.id)] \($0.text)" }.joined(separator: "\n")
+        let prompt = """
+        Generate \(max(1, desiredCount)) flashcards from these timed source chunks.
+        Use only sourceChunkID values exactly as provided in brackets.
+
+        Source chunks:
+        \(sourceLines)
+        """
+
+        let responseText = try await respondWithFreshLanguageModelSession(
+            prompt: prompt,
+            instructions: instructions
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let jsonString: String
+        if responseText.first == "{", responseText.last == "}" {
+            jsonString = responseText
+        } else if let extracted = extractJSONObjectString(from: responseText) {
+            jsonString = extracted
+        } else {
+            throw TranscriptionError.flashcardsGenerationFailed("Model returned an invalid flashcards format.")
+        }
+
+        guard let data = jsonString.data(using: .utf8) else {
+            throw TranscriptionError.flashcardsGenerationFailed("Could not parse flashcards output.")
+        }
+
+        let decoded = try JSONDecoder().decode(FlashcardModelResponse.self, from: data)
+        let validIDs = Set(batch.map(\.id))
+        let mapped = decoded.cards.compactMap { card -> GeneratedFlashcardCandidate? in
+            let front = card.front.trimmingCharacters(in: .whitespacesAndNewlines)
+            let back = card.back.trimmingCharacters(in: .whitespacesAndNewlines)
+            let sourceChunkID = card.sourceChunkID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !front.isEmpty, !back.isEmpty, validIDs.contains(sourceChunkID) else {
+                return nil
+            }
+            return GeneratedFlashcardCandidate(front: front, back: back, sourceChunkID: sourceChunkID)
+        }
+
+        return mapped
+    }
+
+    private func flashcardsInstructions(from customPrompt: String?) -> String {
+        let userPrompt = customPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let customSection = userPrompt.isEmpty
+            ? "Prefer concise Q/A cards that emphasize key ideas and facts."
+            : userPrompt
+
+        return """
+        You generate Anki-style flashcards from transcript chunks.
+        Return JSON only, no markdown, no prose.
+        The JSON format must be:
+        {
+          "cards": [
+            {
+              "front": "Question or prompt",
+              "back": "Answer",
+              "sourceChunkID": "chunk-id"
+            }
+          ]
+        }
+        Keep each front/back concise and specific.
+        Use only sourceChunkID values that appear in the provided source.
+        \(customSection)
+        """
+    }
+
+    private func extractJSONObjectString(from text: String) -> String? {
+        guard let start = text.firstIndex(of: "{"),
+              let end = text.lastIndex(of: "}") else {
+            return nil
+        }
+        return String(text[start...end])
     }
 
     // MARK: - Model preparation helpers (cache-aware)
@@ -1535,14 +1948,15 @@ class SpeechTranscriptionService: ObservableObject {
         Task:
         \(instructionsText)
         """)
-        let session = LanguageModelSession(instructions: instructions)
         let prompt = """
         Summarize the following transcript chunk:
 
         \(chunk)
         """
-        let response = try await session.respond(to: prompt)
-        return response.content
+        return try await respondWithFreshLanguageModelSession(
+            prompt: prompt,
+            instructions: instructions
+        )
     }
     
     private func reduceSummaries(_ summaries: [String], customPrompt: String?) async throws -> String {
@@ -1557,15 +1971,16 @@ class SpeechTranscriptionService: ObservableObject {
         Final summary style:
         \(instructionsText)
         """)
-        let session = LanguageModelSession(instructions: instructions)
         let joined = summaries.enumerated().map { "Chunk \($0 + 1):\n\($1)" }.joined(separator: "\n\n---\n\n")
         let prompt = """
         Combine the following chunk summaries into a single, coherent summary:
 
         \(joined)
         """
-        let response = try await session.respond(to: prompt)
-        return response.content
+        return try await respondWithFreshLanguageModelSession(
+            prompt: prompt,
+            instructions: instructions
+        )
     }
 
     private func summaryInstructions(from customPrompt: String?) -> String {
@@ -1574,6 +1989,43 @@ class SpeechTranscriptionService: ObservableObject {
             return "Summarize the content clearly with headings and bullet points."
         }
         return trimmed
+    }
+
+    private func respondWithFreshLanguageModelSession(
+        prompt: String,
+        instructions: Instructions,
+        maxAttempts: Int = 3
+    ) async throws -> String {
+        var lastError: Error?
+
+        for attempt in 1...max(1, maxAttempts) {
+            do {
+                let session = LanguageModelSession(instructions: instructions)
+                let response = try await session.respond(to: prompt)
+                return response.content
+            } catch {
+                lastError = error
+
+                if attempt < maxAttempts && isLanguageModelInitializationReuseError(error) {
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                    continue
+                }
+
+                throw error
+            }
+        }
+
+        throw lastError ?? TranscriptionError.summarizationFailed("Language model request failed unexpectedly.")
+    }
+
+    private func isLanguageModelInitializationReuseError(_ error: Error) -> Bool {
+        let lowercasedDescription = error.localizedDescription.lowercased()
+        let lowercasedDebugDescription = String(describing: error).lowercased()
+        let combined = "\(lowercasedDescription) \(lowercasedDebugDescription)"
+
+        return combined.contains("invalid reuse after initialization failure")
+            || combined.contains("invalid reuse")
+            || (combined.contains("reuse") && combined.contains("initialization failure"))
     }
 
     // MARK: - Main-thread UI helpers
@@ -1604,6 +2056,10 @@ class SpeechTranscriptionService: ObservableObject {
     }
 
     private func userVisibleMessage(for error: Error) -> String {
+        if isLanguageModelInitializationReuseError(error) {
+            return "Apple Intelligence failed to initialize this request. Please try again."
+        }
+
         if let localized = error as? LocalizedError {
             let description = localized.errorDescription?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let suggestion = localized.recoverySuggestion?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

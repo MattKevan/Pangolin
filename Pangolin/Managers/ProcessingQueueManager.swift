@@ -301,8 +301,35 @@ class ProcessingQueueManager: ObservableObject {
         )
     }
 
+    func enqueueFlashcards(
+        for videos: [Video],
+        force: Bool = false,
+        count: Int = 12,
+        sourceMode: FlashcardsSourceMode = .autoSystemLanguage,
+        customPrompt: String? = nil
+    ) {
+        if sourceMode == .autoSystemLanguage {
+            let videosNeedingTranslation = videos.filter { shouldAutoTranslateToSystemLanguage(for: $0) && !hasSystemLanguageTranslation(for: $0) }
+            if !videosNeedingTranslation.isEmpty {
+                enqueueTranslation(for: videosNeedingTranslation, targetLocale: .autoupdatingCurrent, force: false)
+            }
+        }
+
+        let trimmedPrompt = customPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalizedPrompt = trimmedPrompt.isEmpty ? nil : trimmedPrompt
+        let normalizedCount = max(1, count)
+        enqueueVideoTasks(
+            for: videos,
+            types: [.generateFlashcards],
+            force: force,
+            flashcardsCustomPrompt: normalizedPrompt,
+            flashcardsCount: normalizedCount,
+            flashcardsSourceMode: sourceMode
+        )
+    }
+
     func enqueueFullWorkflow(for videos: [Video]) {
-        enqueueVideoTasks(for: videos, types: [.ensureLocalAvailability, .generateThumbnail, .transcribe, .translate, .summarize], force: false)
+        enqueueVideoTasks(for: videos, types: [.ensureLocalAvailability, .generateThumbnail, .transcribe, .translate, .summarize, .generateFlashcards], force: false)
     }
 
     func enqueueTranscriptionAndSummary(for videos: [Video]) {
@@ -319,7 +346,10 @@ class ProcessingQueueManager: ObservableObject {
         force: Bool,
         preferredLocale: Locale? = nil,
         targetLocale: Locale? = nil,
-        summaryCustomPrompt: String? = nil
+        summaryCustomPrompt: String? = nil,
+        flashcardsCustomPrompt: String? = nil,
+        flashcardsCount: Int? = nil,
+        flashcardsSourceMode: FlashcardsSourceMode? = nil
     ) {
         let videoIDs = videos.compactMap { $0.id }
         for video in videos {
@@ -343,7 +373,10 @@ class ProcessingQueueManager: ObservableObject {
                     force: force,
                     preferredLocaleIdentifier: preferredLocale?.identifier,
                     targetLocaleIdentifier: targetLocale?.identifier,
-                    summaryCustomPrompt: type == .summarize ? summaryCustomPrompt : nil
+                    summaryCustomPrompt: type == .summarize ? summaryCustomPrompt : nil,
+                    flashcardsCustomPrompt: type == .generateFlashcards ? flashcardsCustomPrompt : nil,
+                    flashcardsCount: type == .generateFlashcards ? flashcardsCount : nil,
+                    flashcardsSourceModeRawValue: type == .generateFlashcards ? flashcardsSourceMode?.rawValue : nil
                 )
                 processingQueue.addTask(task)
             }
@@ -358,6 +391,7 @@ class ProcessingQueueManager: ObservableObject {
     func addTranscriptionOnly(for videos: [Video]) { enqueueTranscription(for: videos) }
     func addTranslationOnly(for videos: [Video]) { enqueueTranslation(for: videos) }
     func addSummaryOnly(for videos: [Video]) { enqueueSummarization(for: videos) }
+    func addFlashcardsOnly(for videos: [Video]) { enqueueFlashcards(for: videos) }
     func addFullProcessingWorkflow(for videos: [Video]) { enqueueFullWorkflow(for: videos) }
     func addTranscriptionAndSummary(for videos: [Video]) { enqueueTranscriptionAndSummary(for: videos) }
     func addThumbnailsOnly(for videos: [Video]) { enqueueThumbnails(for: videos) }
@@ -519,6 +553,8 @@ class ProcessingQueueManager: ObservableObject {
                 try await executeTranslation(task)
             case .summarize:
                 try await executeSummarization(task)
+            case .generateFlashcards:
+                try await executeFlashcardsGeneration(task)
             case .fileOperation:
                 task.markAsCompleted()
             }
@@ -672,6 +708,7 @@ class ProcessingQueueManager: ObservableObject {
         }
 
         enqueueAutoTranslationIfNeeded(afterTranscriptionFor: video)
+        enqueueAutoFlashcardsIfNeeded(afterTranscriptionFor: video)
     }
 
     private func executeTranslation(_ task: ProcessingTask) async throws {
@@ -701,6 +738,26 @@ class ProcessingQueueManager: ObservableObject {
         )
         if let error = transcriptionService.errorMessage {
             throw TranscriptionError.summarizationFailed(error)
+        }
+    }
+
+    private func executeFlashcardsGeneration(_ task: ProcessingTask) async throws {
+        guard let video = fetchVideo(for: task) else {
+            throw FileSystemError.fileNotFound
+        }
+
+        let sourceMode = FlashcardsSourceMode(rawValue: task.flashcardsSourceModeRawValue ?? "")
+            ?? .autoSystemLanguage
+        let count = max(1, task.flashcardsCount ?? 12)
+        await transcriptionService.generateFlashcards(
+            for: video,
+            libraryManager: LibraryManager.shared,
+            sourceMode: sourceMode,
+            targetCount: count,
+            customPrompt: task.flashcardsCustomPrompt
+        )
+        if let error = transcriptionService.errorMessage {
+            throw TranscriptionError.flashcardsGenerationFailed(error)
         }
     }
 
@@ -823,6 +880,9 @@ class ProcessingQueueManager: ObservableObject {
     private func shouldSkip(_ task: ProcessingTask) -> Bool {
         if task.force { return false }
         guard let videoID = task.videoID else { return false }
+        if task.type == .generateFlashcards, let video = fetchVideo(for: task) {
+            return hasFlashcardsArtifact(for: video)
+        }
         if task.type == .translate, let target = task.targetLocaleIdentifier, let video = fetchVideo(for: task) {
             let targetLanguageCode = normalizedLanguageCode(from: Locale(identifier: target))
             let translatedLanguageCode = video.translatedLanguage.map { normalizedLanguageCode(from: Locale(identifier: $0)) } ?? nil
@@ -870,6 +930,8 @@ class ProcessingQueueManager: ObservableObject {
         case .summarize:
             if let text = video.transcriptSummary { return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             return false
+        case .generateFlashcards:
+            return hasFlashcardsArtifact(for: video)
         case .fileOperation:
             return false
         }
@@ -880,6 +942,26 @@ class ProcessingQueueManager: ObservableObject {
             return false
         }
         return FileManager.default.fileExists(atPath: url.path)
+    }
+
+    private func hasFlashcardsArtifact(for video: Video) -> Bool {
+        guard let url = LibraryManager.shared.flashcardsURL(for: video) else {
+            return false
+        }
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+
+    private func hasSystemLanguageTranslation(for video: Video) -> Bool {
+        guard let translatedLanguage = video.translatedLanguage,
+              !translatedLanguage.isEmpty,
+              let translatedLanguageCode = normalizedLanguageCode(from: Locale(identifier: translatedLanguage)),
+              let systemLanguageCode = normalizedLanguageCode(from: .autoupdatingCurrent),
+              translatedLanguageCode == systemLanguageCode,
+              let translatedText = video.translatedText,
+              !translatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        return hasTimedTranslationArtifact(for: video, languageCode: translatedLanguage)
     }
 
     private func assignImportedVideo(_ video: Video, toFolderID folderID: UUID, in context: NSManagedObjectContext, library: Library) {
@@ -913,6 +995,25 @@ class ProcessingQueueManager: ObservableObject {
             return
         }
         enqueueTranslation(for: [video], targetLocale: .autoupdatingCurrent, force: true)
+    }
+
+    private func enqueueAutoFlashcardsIfNeeded(afterTranscriptionFor video: Video) {
+        guard let transcriptText = video.transcriptText,
+              !transcriptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
+
+        if shouldAutoTranslateToSystemLanguage(for: video) {
+            enqueueTranslation(for: [video], targetLocale: .autoupdatingCurrent, force: true)
+        }
+
+        enqueueFlashcards(
+            for: [video],
+            force: true,
+            count: 12,
+            sourceMode: .autoSystemLanguage,
+            customPrompt: nil
+        )
     }
 
     private func shouldAutoTranslateToSystemLanguage(for video: Video) -> Bool {

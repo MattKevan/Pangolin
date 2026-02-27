@@ -7,6 +7,7 @@ enum ProcessingTaskType: String, CaseIterable, Codable {
     case transcribe = "transcribe"
     case translate = "translate"
     case summarize = "summarize"
+    case generateFlashcards = "generate_flashcards"
     case ensureLocalAvailability = "ensure_local_availability"
     case fileOperation = "file_operation"
     
@@ -18,6 +19,7 @@ enum ProcessingTaskType: String, CaseIterable, Codable {
         case .transcribe: return "Transcription"
         case .translate: return "Translation"
         case .summarize: return "Summary"
+        case .generateFlashcards: return "Flashcards"
         case .ensureLocalAvailability: return "Ensure Local Availability"
         case .fileOperation: return "File Operation"
         }
@@ -31,6 +33,7 @@ enum ProcessingTaskType: String, CaseIterable, Codable {
         case .transcribe: return "waveform"
         case .translate: return "translate"
         case .summarize: return "doc.text.below.ecg"
+        case .generateFlashcards: return "rectangle.stack.badge.play"
         case .ensureLocalAvailability: return "arrow.down.circle"
         case .fileOperation: return "folder"
         }
@@ -50,6 +53,8 @@ enum ProcessingTaskType: String, CaseIterable, Codable {
             return [.transcribe]
         case .summarize:
             return [.transcribe] // Can work with either original or translated text
+        case .generateFlashcards:
+            return [.transcribe]
         case .ensureLocalAvailability:
             return [] // local availability checks are independent
         case .fileOperation:
@@ -119,6 +124,9 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
     let preferredLocaleIdentifier: String?
     let targetLocaleIdentifier: String?
     let summaryCustomPrompt: String?
+    let flashcardsCustomPrompt: String?
+    let flashcardsCount: Int?
+    let flashcardsSourceModeRawValue: String?
     @Published var status: ProcessingTaskStatus
     @Published var progress: Double
     @Published var errorMessage: String?
@@ -135,7 +143,10 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         followUpTypes: [ProcessingTaskType] = [],
         preferredLocaleIdentifier: String? = nil,
         targetLocaleIdentifier: String? = nil,
-        summaryCustomPrompt: String? = nil
+        summaryCustomPrompt: String? = nil,
+        flashcardsCustomPrompt: String? = nil,
+        flashcardsCount: Int? = nil,
+        flashcardsSourceModeRawValue: String? = nil
     ) {
         self.id = UUID()
         self.videoID = videoID
@@ -153,6 +164,9 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         self.preferredLocaleIdentifier = preferredLocaleIdentifier
         self.targetLocaleIdentifier = targetLocaleIdentifier
         self.summaryCustomPrompt = summaryCustomPrompt
+        self.flashcardsCustomPrompt = flashcardsCustomPrompt
+        self.flashcardsCount = flashcardsCount
+        self.flashcardsSourceModeRawValue = flashcardsSourceModeRawValue
         self.status = .pending
         self.progress = 0.0
         self.errorMessage = nil
@@ -189,6 +203,9 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         self.preferredLocaleIdentifier = nil
         self.targetLocaleIdentifier = nil
         self.summaryCustomPrompt = nil
+        self.flashcardsCustomPrompt = nil
+        self.flashcardsCount = nil
+        self.flashcardsSourceModeRawValue = nil
         self.status = .pending
         self.progress = 0.0
         self.errorMessage = nil
@@ -223,6 +240,9 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         self.preferredLocaleIdentifier = nil
         self.targetLocaleIdentifier = nil
         self.summaryCustomPrompt = nil
+        self.flashcardsCustomPrompt = nil
+        self.flashcardsCount = nil
+        self.flashcardsSourceModeRawValue = nil
         self.status = .pending
         self.progress = 0.0
         self.errorMessage = nil
@@ -235,7 +255,7 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
     // MARK: - Codable Implementation
     
     enum CodingKeys: String, CodingKey {
-        case id, videoID, sourceURLPath, remoteURLString, remoteProviderRawValue, originalRemoteURLString, remoteVideoIdentifier, destinationFolderID, libraryID, type, itemName, force, followUpTypes, preferredLocaleIdentifier, targetLocaleIdentifier, summaryCustomPrompt, status, progress, errorMessage, statusMessage
+        case id, videoID, sourceURLPath, remoteURLString, remoteProviderRawValue, originalRemoteURLString, remoteVideoIdentifier, destinationFolderID, libraryID, type, itemName, force, followUpTypes, preferredLocaleIdentifier, targetLocaleIdentifier, summaryCustomPrompt, flashcardsCustomPrompt, flashcardsCount, flashcardsSourceModeRawValue, status, progress, errorMessage, statusMessage
         case createdAt, startedAt, completedAt
     }
     
@@ -258,6 +278,9 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         preferredLocaleIdentifier = try container.decodeIfPresent(String.self, forKey: .preferredLocaleIdentifier)
         targetLocaleIdentifier = try container.decodeIfPresent(String.self, forKey: .targetLocaleIdentifier)
         summaryCustomPrompt = try container.decodeIfPresent(String.self, forKey: .summaryCustomPrompt)
+        flashcardsCustomPrompt = try container.decodeIfPresent(String.self, forKey: .flashcardsCustomPrompt)
+        flashcardsCount = try container.decodeIfPresent(Int.self, forKey: .flashcardsCount)
+        flashcardsSourceModeRawValue = try container.decodeIfPresent(String.self, forKey: .flashcardsSourceModeRawValue)
         status = try container.decode(ProcessingTaskStatus.self, forKey: .status)
         progress = try container.decode(Double.self, forKey: .progress)
         errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
@@ -286,6 +309,9 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         try container.encodeIfPresent(preferredLocaleIdentifier, forKey: .preferredLocaleIdentifier)
         try container.encodeIfPresent(targetLocaleIdentifier, forKey: .targetLocaleIdentifier)
         try container.encodeIfPresent(summaryCustomPrompt, forKey: .summaryCustomPrompt)
+        try container.encodeIfPresent(flashcardsCustomPrompt, forKey: .flashcardsCustomPrompt)
+        try container.encodeIfPresent(flashcardsCount, forKey: .flashcardsCount)
+        try container.encodeIfPresent(flashcardsSourceModeRawValue, forKey: .flashcardsSourceModeRawValue)
         try container.encode(status, forKey: .status)
         try container.encode(progress, forKey: .progress)
         try container.encodeIfPresent(errorMessage, forKey: .errorMessage)
@@ -358,6 +384,7 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         case .transcribe: return 30.0 // Depends on video length
         case .translate: return 10.0
         case .summarize: return 15.0
+        case .generateFlashcards: return 15.0
         case .ensureLocalAvailability: return 20.0 // Depends on file size and network speed
         case .fileOperation: return 10.0
         }

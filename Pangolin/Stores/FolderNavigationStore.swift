@@ -1042,6 +1042,17 @@ class FolderNavigationStore: ObservableObject {
                 }
             }
 
+            if let flashcardsURL = libraryManager.flashcardsURL(for: video) {
+                do {
+                    if FileManager.default.fileExists(atPath: flashcardsURL.path) {
+                        try FileManager.default.removeItem(at: flashcardsURL)
+                        print("🗑️ DELETION: Deleted flashcards: \(flashcardsURL.lastPathComponent)")
+                    }
+                } catch {
+                    print("⚠️ DELETION: Failed to delete flashcards \(flashcardsURL.lastPathComponent): \(error)")
+                }
+            }
+
             for translationURL in libraryManager.translationURLs(for: video) {
                 do {
                     if FileManager.default.fileExists(atPath: translationURL.path) {

@@ -355,6 +355,7 @@ struct TaskRowView: View {
         case .transcribe: return .blue
         case .translate: return .green
         case .summarize: return .purple
+        case .generateFlashcards: return .mint
         case .ensureLocalAvailability: return .cyan
         case .fileOperation: return .gray
         }

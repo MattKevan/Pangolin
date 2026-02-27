@@ -307,7 +307,7 @@ class LibraryManager: ObservableObject {
         // Update library
         // Keep the persisted library path in sync with the actual opened URL.
         // This fixes moved libraries / username changes (e.g. /Users/mattkevan -> /Users/matt)
-        // so text artifacts (Transcripts/Translations/Summaries) are written to the correct location.
+        // so text artifacts (Transcripts/Translations/Summaries/Flashcards) are written to the correct location.
         if library.libraryPath != url.path {
             print("🔧 LIBRARY: Updating stored libraryPath from \(library.libraryPath ?? "nil") to \(url.path)")
             library.libraryPath = url.path
@@ -482,7 +482,7 @@ class LibraryManager: ObservableObject {
         }
         
         // Check for required subdirectories (create them if missing)
-        let requiredDirs = ["Videos", "Subtitles", "Thumbnails", "Transcripts", "Translations", "Summaries", "Backups"]
+        let requiredDirs = ["Videos", "Subtitles", "Thumbnails", "Transcripts", "Translations", "Summaries", "Flashcards", "Backups"]
         for dir in requiredDirs {
             let dirPath = url.appendingPathComponent(dir)
             if !fileManager.fileExists(atPath: dirPath.path) {
@@ -618,6 +618,7 @@ class LibraryManager: ObservableObject {
             "Transcripts",   // All transcription files here
             "Translations",  // All translation files here
             "Summaries",     // All summary files here
+            "Flashcards",    // All generated flashcards here
             "Backups"        // Any backup data here
         ]
         print("🏗️ CREATE_STRUCTURE: Creating subdirectories: \(subdirectories)")
@@ -742,6 +743,7 @@ class LibraryManager: ObservableObject {
             base.appendingPathComponent("Transcripts", isDirectory: true),
             base.appendingPathComponent("Translations", isDirectory: true),
             base.appendingPathComponent("Summaries", isDirectory: true),
+            base.appendingPathComponent("Flashcards", isDirectory: true),
         ]
 
         for directory in directories {
@@ -888,12 +890,13 @@ enum LibraryError: LocalizedError {
 // MARK: - Text Artifact Directories & I/O
 
 extension LibraryManager {
-    private func textArtifactsDirectories(for library: Library? = nil) -> (transcripts: URL, translations: URL, summaries: URL)? {
+    private func textArtifactsDirectories(for library: Library? = nil) -> (transcripts: URL, translations: URL, summaries: URL, flashcards: URL)? {
         let target = library ?? currentLibrary
         guard let base = target?.url else { return nil }
         return (base.appendingPathComponent("Transcripts", isDirectory: true),
                 base.appendingPathComponent("Translations", isDirectory: true),
-                base.appendingPathComponent("Summaries", isDirectory: true))
+                base.appendingPathComponent("Summaries", isDirectory: true),
+                base.appendingPathComponent("Flashcards", isDirectory: true))
     }
     
     func ensureTextArtifactDirectories(for library: Library? = nil) throws {
@@ -901,6 +904,7 @@ extension LibraryManager {
         try FileManager.default.createDirectory(at: dirs.transcripts, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: dirs.translations, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: dirs.summaries, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: dirs.flashcards, withIntermediateDirectories: true)
     }
     
     func transcriptURL(for video: Video) -> URL? {
@@ -935,6 +939,11 @@ extension LibraryManager {
     func summaryURL(for video: Video) -> URL? {
         guard let id = video.id, let dirs = textArtifactsDirectories(for: video.library) else { return nil }
         return dirs.summaries.appendingPathComponent("\(id.uuidString).md")
+    }
+
+    func flashcardsURL(for video: Video) -> URL? {
+        guard let id = video.id, let dirs = textArtifactsDirectories(for: video.library) else { return nil }
+        return dirs.flashcards.appendingPathComponent("\(id.uuidString).json")
     }
     
     func writeTimedTranscriptAtomically(_ transcript: TimedTranscript, to url: URL) throws {
@@ -992,5 +1001,27 @@ extension LibraryManager {
             try fm.removeItem(at: url)
         }
         try fm.moveItem(at: tmp, to: url)
+    }
+
+    func writeFlashcardDeckAtomically(_ deck: FlashcardDeck, to url: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(deck)
+        let fm = FileManager.default
+        let dir = url.deletingLastPathComponent()
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let tmp = dir.appendingPathComponent(UUID().uuidString)
+        try data.write(to: tmp, options: .atomic)
+        if fm.fileExists(atPath: url.path) {
+            try fm.removeItem(at: url)
+        }
+        try fm.moveItem(at: tmp, to: url)
+    }
+
+    func readFlashcardDeck(from url: URL) throws -> FlashcardDeck {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(FlashcardDeck.self, from: Data(contentsOf: url))
     }
 }

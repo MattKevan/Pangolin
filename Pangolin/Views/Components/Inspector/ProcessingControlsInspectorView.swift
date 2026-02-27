@@ -14,6 +14,8 @@ struct ProcessingControlsInspectorView: View {
                     TranslationControlsInspectorPane(video: video)
                 case .summary:
                     SummaryControlsInspectorPane(video: video)
+                case .flashcards:
+                    FlashcardsControlsInspectorPane(video: video)
                 }
             }
             .padding(14)

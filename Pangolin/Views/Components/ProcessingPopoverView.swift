@@ -323,7 +323,7 @@ struct CompactTaskRowView: View {
             return true
         case .ensureLocalAvailability:
             return true
-        case .transcribe, .translate, .summarize, .generateThumbnail, .importVideo, .fileOperation:
+        case .transcribe, .translate, .summarize, .generateFlashcards, .generateThumbnail, .importVideo, .fileOperation:
             return false
         }
     }
@@ -348,6 +348,8 @@ struct CompactTaskRowView: View {
             verb = "Translating"
         case .summarize:
             verb = "Summarising"
+        case .generateFlashcards:
+            verb = "Generating flashcards for"
         case .ensureLocalAvailability:
             verb = "Downloading from iCloud"
         case .fileOperation:
@@ -389,6 +391,7 @@ struct CompactTaskRowView: View {
         case .transcribe: return .blue
         case .translate: return .green
         case .summarize: return .purple
+        case .generateFlashcards: return .mint
         case .ensureLocalAvailability: return .cyan
         case .fileOperation: return .gray
         }
