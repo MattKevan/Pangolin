@@ -22,7 +22,7 @@ struct ProcessingControlsInspectorView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         #if os(macOS)
-        .background(Color(NSColor.windowBackgroundColor))
+        .background(Color.appWindowBackground)
         #endif
     }
 }

@@ -23,20 +23,11 @@ struct DetailView: View {
     @State private var isControlsInspectorPresented = true
     
     private var windowBackgroundColor: Color {
-        #if os(macOS)
-        return Color(NSColor.windowBackgroundColor)
-        #else
-        return Color(.secondarySystemBackground)
-        #endif
+        Color.appWindowBackground
     }
     
-    // Subtle, platform-appropriate background for the framed player box
     private var framedPlayerBackground: some ShapeStyle {
-        #if os(macOS)
-        return .regularMaterial
-        #else
-        return Color(.secondarySystemBackground)
-        #endif
+        .appFramedPlayerBackground
     }
     
     var body: some View {

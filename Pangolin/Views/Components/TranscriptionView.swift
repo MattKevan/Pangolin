@@ -161,6 +161,22 @@ struct TranscriptionView: View {
                 description: Text(loadError)
             )
             .frame(maxWidth: .infinity, minHeight: 320)
+        } else if let transcriptText = video.transcriptText,
+                  !transcriptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Timed transcript unavailable. Showing plain transcript.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text(transcriptText)
+                    .font(.system(size: 17))
+                    .lineSpacing(14)
+                    .textSelection(.enabled)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: 720, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.horizontal, 12)
+            }
         } else {
             ContentUnavailableView(
                 "No transcript yet",
@@ -172,7 +188,7 @@ struct TranscriptionView: View {
     }
 
     private func loadTimedTranscript() {
-        guard let url = libraryManager.timedTranscriptURL(for: video) else {
+        guard let url = libraryManager.existingTimedTranscriptURL(for: video) else {
             chunkIndex = nil
             inlineTokens = []
             chunkParagraphs = []
@@ -184,7 +200,16 @@ struct TranscriptionView: View {
         }
 
         do {
-            let transcript = try libraryManager.readTimedTranscript(from: url)
+            guard let transcript = try libraryManager.readTimedTranscriptIfAvailable(from: url) else {
+                chunkIndex = nil
+                inlineTokens = []
+                chunkParagraphs = []
+                paragraphIDByChunkID = [:]
+                useChunkListLayout = false
+                loadError = nil
+                activeChunkID = nil
+                return
+            }
             let loadedChunkIndex = transcript.makeChunkIndex()
             let entries = loadedChunkIndex.allEntries
             let shouldUseChunkList = entries.count > Self.chunkListLayoutThreshold
@@ -208,7 +233,9 @@ struct TranscriptionView: View {
             chunkParagraphs = []
             paragraphIDByChunkID = [:]
             useChunkListLayout = false
-            loadError = "Failed to load timed transcript: \(error.localizedDescription)"
+            loadError = video.transcriptText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                ? nil
+                : "Transcript data is unavailable. Generate it again to recreate the synced timing data."
             activeChunkID = nil
         }
     }

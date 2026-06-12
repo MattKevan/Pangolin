@@ -12,6 +12,7 @@ struct PangolinApp: App {
     @State private var hasAttemptedStartup = false
 
     var body: some Scene {
+        #if os(macOS)
         WindowGroup {
             ZStack {
                 MainView(libraryManager: libraryManager)
@@ -29,7 +30,6 @@ struct PangolinApp: App {
                     .transition(.opacity)
                 }
             }
-            .frame(minWidth: 600, minHeight: 500)
             .animation(.easeOut(duration: 0.2), value: libraryManager.isLibraryOpen)
             .onAppear {
                 if !hasAttemptedStartup {
@@ -82,12 +82,36 @@ struct PangolinApp: App {
                 .disabled(!libraryManager.isLibraryOpen)
             }
         }
-        #if os(macOS)
         Settings {
             SettingsView()
                 .environmentObject(libraryManager)
                 .environmentObject(storagePolicyManager)
                 .environmentObject(videoFileManager)
+        }
+        #else
+        WindowGroup {
+            ZStack {
+                MainView(libraryManager: libraryManager)
+                    .environmentObject(libraryManager)
+                    .environmentObject(videoFileManager)
+                    .allowsHitTesting(libraryManager.isLibraryOpen)
+
+                if !libraryManager.isLibraryOpen {
+                    StartupOverlayView(
+                        error: libraryManager.error,
+                        loadingProgress: libraryManager.loadingProgress,
+                        retryAction: retryLibraryOpen,
+                        resetAction: resetCorruptedLibrary
+                    )
+                    .transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.2), value: libraryManager.isLibraryOpen)
+            .onAppear {
+                if !hasAttemptedStartup {
+                    startLibraryStartup()
+                }
+            }
         }
         #endif
     }
@@ -235,9 +259,9 @@ private struct StartupStatusView: View {
             } else {
                 ProgressView()
                     .controlSize(.large)
-                Text("Preparing iCloud Library…")
+                Text("Opening Library…")
                     .font(.headline)
-                Text("Setting up your cloud-backed library in Documents/Pangolin.")
+                Text("Loading your cloud-backed library.")
                     .font(.caption)
                     .foregroundColor(.secondary)
 

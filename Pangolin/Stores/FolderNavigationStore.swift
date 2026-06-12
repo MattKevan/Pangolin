@@ -765,7 +765,7 @@ class FolderNavigationStore: ObservableObject {
         
         do {
             if let folder = try context.fetch(request).first {
-                return folder.name!
+                return folder.name ?? "Untitled"
             }
         } catch {}
         

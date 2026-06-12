@@ -25,11 +25,14 @@ class LibraryManager: ObservableObject {
     private let userDefaults = UserDefaults.standard
     private let fileManager = FileManager.default
     private var coreDataStack: CoreDataStack?
+    var textArtifactsCloudRootURLProvider: () -> URL? = {
+        let fileManager = FileManager.default
+        return fileManager.url(forUbiquityContainerIdentifier: VideoFileManager.shared.cloudContainerIdentifier)
+            ?? fileManager.url(forUbiquityContainerIdentifier: nil)
+    }
     
     // MARK: - Constants
-    private let libraryExtension = "pangolin"
     private let currentVersion = "1.1.0"
-    private let storageSystemVersion = 2
     private let cloudContainerIdentifier = "iCloud.com.newindustries.pangolin"
     private let recentLibrariesKey = "RecentLibraries"
     private let lastOpenedLibraryKey = "LastOpenedLibrary"
@@ -43,19 +46,102 @@ class LibraryManager: ObservableObject {
     
     // MARK: - Public Properties
     
-    /// Access to the current Core Data context
     var viewContext: NSManagedObjectContext? {
         return coreDataStack?.viewContext ?? nil
     }
     
-    /// Access to the current Core Data stack for sync engine
     var currentCoreDataStack: CoreDataStack? {
         return coreDataStack
     }
     
+    // MARK: - Library Path
+    
+    func libraryBaseURL() throws -> URL {
+        guard let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            throw LibraryError.documentsFolderUnavailable
+        }
+        let url = appSupport.appendingPathComponent("com.pangolin", isDirectory: true)
+        try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+    
+    private func hasDatabase(at url: URL) -> Bool {
+        fileManager.fileExists(atPath: url.appendingPathComponent("Library.sqlite").path)
+    }
+
+    private func fetchLibraries(in context: NSManagedObjectContext) throws -> [Library] {
+        let request = Library.fetchRequest()
+        request.sortDescriptors = [NSSortDescriptor(keyPath: \Library.createdDate, ascending: true)]
+        return try context.fetch(request)
+    }
+
+    private func chooseCanonicalLibrary(from libraries: [Library]) -> Library? {
+        libraries.max { lhs, rhs in
+            let lhsScore = (lhs.folders?.count ?? 0) + (lhs.videos?.count ?? 0)
+            let rhsScore = (rhs.folders?.count ?? 0) + (rhs.videos?.count ?? 0)
+            if lhsScore != rhsScore {
+                return lhsScore < rhsScore
+            }
+
+            let lhsDate = lhs.createdDate ?? .distantFuture
+            let rhsDate = rhs.createdDate ?? .distantFuture
+            if lhsDate != rhsDate {
+                return lhsDate > rhsDate
+            }
+
+            return lhs.objectID.uriRepresentation().absoluteString > rhs.objectID.uriRepresentation().absoluteString
+        }
+    }
+
+    private func consolidateDuplicateLibraries(
+        in context: NSManagedObjectContext,
+        preferredStoreURL: URL
+    ) throws -> Library {
+        let libraries = try fetchLibraries(in: context)
+        guard let canonical = chooseCanonicalLibrary(from: libraries) else {
+            throw LibraryError.libraryNotFound
+        }
+
+        let duplicates = libraries.filter { $0.objectID != canonical.objectID }
+        if !duplicates.isEmpty {
+            print("🔧 LIBRARY: Consolidating \(duplicates.count + 1) library records into one canonical library")
+        }
+
+        for duplicate in duplicates {
+            if canonical.name?.isEmpty != false, let name = duplicate.name, !name.isEmpty {
+                canonical.name = name
+            }
+            if canonical.version?.isEmpty != false, let version = duplicate.version, !version.isEmpty {
+                canonical.version = version
+            }
+            if canonical.createdDate == nil {
+                canonical.createdDate = duplicate.createdDate
+            }
+            if let duplicateLastOpened = duplicate.lastOpenedDate,
+               canonical.lastOpenedDate == nil || duplicateLastOpened > canonical.lastOpenedDate! {
+                canonical.lastOpenedDate = duplicateLastOpened
+            }
+
+            if let folders = duplicate.folders as? Set<Folder> {
+                for folder in folders {
+                    folder.library = canonical
+                }
+            }
+
+            if let videos = duplicate.videos as? Set<Video> {
+                for video in videos {
+                    video.library = canonical
+                }
+            }
+
+            context.delete(duplicate)
+        }
+
+        return canonical
+    }
+    
     // MARK: - Public Methods
     
-    /// Saves the current library's data context if there are changes.
     func save() async {
         print("💽 LIBRARY: save() called")
         
@@ -69,7 +155,6 @@ class LibraryManager: ObservableObject {
         print("📊 LIBRARY: Context updatedObjects count: \(context.updatedObjects.count)")
         print("📊 LIBRARY: Context deletedObjects count: \(context.deletedObjects.count)")
         
-        // Log details about updated objects
         for obj in context.updatedObjects {
             print("📝 LIBRARY: Updated object: \(obj)")
             if let folder = obj as? Folder {
@@ -89,7 +174,6 @@ class LibraryManager: ObservableObject {
             try context.save()
             print("✅ LIBRARY: Save successful!")
             
-            // Verify that changes were actually saved by re-fetching
             print("🔄 LIBRARY: Verifying save by checking context state...")
             print("📊 LIBRARY: After save - hasChanges: \(context.hasChanges)")
             print("📊 LIBRARY: After save - updatedObjects count: \(context.updatedObjects.count)")
@@ -139,7 +223,7 @@ class LibraryManager: ObservableObject {
     /// Create a new library at the specified URL
     func createLibrary(at url: URL, name: String) async throws -> Library {
         print("📝 CREATE_LIBRARY: Starting createLibrary...")
-        print("📝 CREATE_LIBRARY: Parent URL: \(url.path)")
+        print("📝 CREATE_LIBRARY: URL: \(url.path)")
         print("📝 CREATE_LIBRARY: Library name: \(name)")
 
         isLoading = true
@@ -150,36 +234,27 @@ class LibraryManager: ObservableObject {
             loadingProgress = 0
         }
 
-        // Create library package directory
-        let libraryURL = url.appendingPathComponent("\(name).\(libraryExtension)")
-        print("📝 CREATE_LIBRARY: Full library URL: \(libraryURL.path)")
-
-        // Check if already exists
-        if fileManager.fileExists(atPath: libraryURL.path) {
+        if hasDatabase(at: url) {
             print("❌ CREATE_LIBRARY: Library already exists at path")
-            throw LibraryError.libraryAlreadyExists(libraryURL)
+            throw LibraryError.libraryAlreadyExists(url)
         }
         
-        // Create directory structure
-        try createLibraryStructure(at: libraryURL)
+        try createLibraryDirectories(at: url)
         loadingProgress = 0.3
         
-        // Initialize Core Data stack using singleton pattern
         let stack: CoreDataStack
         do {
-            stack = try CoreDataStack.getInstance(for: libraryURL)
+            stack = try await CoreDataStack.getInstance(for: url)
         } catch {
             throw LibraryError.databaseCorrupted(error)
         }
         self.coreDataStack = stack
         loadingProgress = 0.6
         
-        // Create library entity using NSEntityDescription
         guard let context = stack.viewContext else {
             throw LibraryError.corruptedDatabase
         }
         
-        // Debug: Check if the managed object model is loaded correctly
         guard let model = context.persistentStoreCoordinator?.managedObjectModel else {
             print("ERROR: No managed object model found")
             throw LibraryError.corruptedDatabase
@@ -195,7 +270,6 @@ class LibraryManager: ObservableObject {
         print("Creating library entity with description: \(entityDescription)")
         let library = Library(entity: entityDescription, insertInto: context)
         
-        // Verify library was created successfully
         guard library.entity == entityDescription else {
             print("ERROR: Library entity creation failed")
             throw LibraryError.corruptedDatabase
@@ -205,21 +279,19 @@ class LibraryManager: ObservableObject {
         
         library.id = UUID()
         library.name = name
-        library.libraryPath = libraryURL.path
+        library.libraryPath = url.path
         library.createdDate = Date()
         library.lastOpenedDate = Date()
         library.version = currentVersion
         
         print("Basic properties set, setting default settings...")
         
-        // Set default settings
         library.copyFilesOnImport = true
         library.organizeByDate = true
         library.autoMatchSubtitles = true
         library.defaultPlaybackSpeed = 1.0
         library.rememberPlaybackPosition = true
         
-        // Default to Photos-style optimized storage with a 10GB local cache.
         library.videoStorageType = defaultVideoStorageType
         library.maxLocalVideoCacheBytes = defaultMaxLocalVideoCacheBytes
         
@@ -227,28 +299,23 @@ class LibraryManager: ObservableObject {
         
         loadingProgress = 0.8
         
-        // Save context
         try context.save()
         
-        // Update current library
         self.currentLibrary = library
         self.isLibraryOpen = true
         
         print("Library created successfully: \(library.name ?? "Untitled")")
         print("Library open state: \(self.isLibraryOpen)")
         
-        // Add to recent libraries
         addToRecentLibraries(library)
-        
-        // Save as last opened
-        saveLastOpenedLibrary(libraryURL)
+        saveLastOpenedLibrary(url)
         
         loadingProgress = 1.0
         
         return library
     }
     
-    /// Open an existing library
+    /// Open an existing library at the given URL
     func openLibrary(at url: URL) async throws -> Library {
         isLoading = true
         loadingProgress = 0
@@ -258,74 +325,61 @@ class LibraryManager: ObservableObject {
             loadingProgress = 0
         }
         
-        // Validate library
-        let validation = try validateLibrary(at: url)
-        guard validation.isValid else {
-            throw LibraryError.invalidLibrary(validation.errors)
+        guard fileManager.fileExists(atPath: url.path) else {
+            throw LibraryError.invalidLibrary(["Library directory does not exist at \(url.path)"])
+        }
+        
+        guard hasDatabase(at: url) else {
+            throw LibraryError.corruptedDatabase
         }
         loadingProgress = 0.2
         
-        // Close current library if open
+        try createLibraryDirectories(at: url)
+        loadingProgress = 0.3
+        
         if currentLibrary != nil {
             await closeCurrentLibrary()
         }
-        loadingProgress = 0.3
         
-        // Initialize Core Data stack using singleton pattern
         let stack: CoreDataStack
         do {
-            stack = try CoreDataStack.getInstance(for: url)
+            stack = try await CoreDataStack.getInstance(for: url)
         } catch {
             throw LibraryError.databaseCorrupted(error)
         }
         self.coreDataStack = stack
         loadingProgress = 0.5
         
-        // Fetch library entity
         guard let context = stack.viewContext else {
             throw LibraryError.corruptedDatabase
         }
-        let request = Library.fetchRequest()
-        request.fetchLimit = 1
-        
-        guard let library = try context.fetch(request).first else {
-            throw LibraryError.libraryNotFound
-        }
+        let library = try consolidateDuplicateLibraries(in: context, preferredStoreURL: url)
+        let previousLibraryURL = library.libraryPath.map(URL.init(fileURLWithPath:))
         loadingProgress = 0.7
         
-        // Check for migration needs
         let currentLibraryVersion = library.version ?? "0.0.0"
         if currentLibraryVersion != currentVersion {
             try await migrateLibrary(library, from: currentLibraryVersion, to: currentVersion)
         }
         loadingProgress = 0.8
         
-        cleanupLegacyDownloadsFolderIfNeeded(for: library, in: context)
-
         normalizeStorageSettings(for: library)
-        
-        // Update library
-        // Keep the persisted library path in sync with the actual opened URL.
-        // This fixes moved libraries / username changes (e.g. /Users/mattkevan -> /Users/matt)
-        // so text artifacts (Transcripts/Translations/Summaries/Flashcards) are written to the correct location.
+        try migrateTextArtifactsToPreferredLocation(for: library, legacyLibraryURL: previousLibraryURL)
+        library.lastOpenedDate = Date()
         if library.libraryPath != url.path {
             print("🔧 LIBRARY: Updating stored libraryPath from \(library.libraryPath ?? "nil") to \(url.path)")
             library.libraryPath = url.path
         }
-        library.lastOpenedDate = Date()
         try context.save()
         
-        // Set as current
         self.currentLibrary = library
         self.isLibraryOpen = true
         
-        // Update recent libraries
         addToRecentLibraries(library)
         saveLastOpenedLibrary(url)
         
         loadingProgress = 1.0
         
-        // Generate thumbnails for videos that don't have them (async in background)
         Task { @MainActor in
             let request = Video.fetchRequest()
             request.predicate = NSPredicate(format: "library == %@ AND thumbnailPath == nil", library)
@@ -340,15 +394,12 @@ class LibraryManager: ObservableObject {
     func closeCurrentLibrary() async {
         guard let library = currentLibrary else { return }
         
-        // Save any pending changes
         await save()
         
-        // Release the CoreDataStack instance for this library
         if let libraryURL = library.url {
             CoreDataStack.releaseInstance(for: libraryURL)
         }
         
-        // Clean up
         coreDataStack = nil
         currentLibrary = nil
         isLibraryOpen = false
@@ -371,279 +422,81 @@ class LibraryManager: ObservableObject {
         await StoragePolicyManager.shared.applyPolicy(for: library)
     }
     
-    /// Smart startup following Apple's performance best practices
+    /// Smart startup — opens existing library or creates a fresh one
     func smartStartup() async throws -> Library {
         print("🚀 LIBRARY: Starting smart startup...")
-        let (documentsURL, storageLocationLabel) = try resolveLibraryDocumentsDirectory()
-        print("📁 LIBRARY: Documents directory: \(documentsURL.path)")
-        print("☁️ LIBRARY: Startup storage location: \(storageLocationLabel)")
+        let libraryURL = try libraryBaseURL()
+        print("📍 LIBRARY: Library URL: \(libraryURL.path)")
+        print("📍 LIBRARY: Has database: \(hasDatabase(at: libraryURL))")
 
-        let pangolinDirectory = documentsURL.appendingPathComponent("Pangolin")
-        let libraryName = "Library"
-        let libraryURL = pangolinDirectory.appendingPathComponent("\(libraryName).pangolin")
-
-        print("📍 LIBRARY: Pangolin directory: \(pangolinDirectory.path)")
-        print("📍 LIBRARY: Library path: \(libraryURL.path)")
-        print("📍 LIBRARY: Library exists: \(fileManager.fileExists(atPath: libraryURL.path))")
-
-        print("🎯 ==> LIBRARY LOCATION: \(libraryURL.path)")
-
-        // FAST PATH 2: New user - no library folder exists
-        if !fileManager.fileExists(atPath: libraryURL.path) {
-            print("👤 LIBRARY: New user detected - creating fresh library")
-            return try await createNewUserLibrary(at: libraryURL, name: libraryName)
+        if !hasDatabase(at: libraryURL) {
+            print("🆕 LIBRARY: No existing library — creating fresh")
+            return try await createNewUserLibrary(at: libraryURL, name: "Pangolin Library")
         }
 
-        // HARD CUTOVER: Replace any old/legacy library immediately.
-        if !isCurrentStorageSystem(at: libraryURL) {
-            print("🧨 LIBRARY: Legacy library detected - deleting for hard cutover.")
-            try fileManager.removeItem(at: libraryURL)
-            return try await createNewUserLibrary(at: libraryURL, name: libraryName)
-        }
-
-        // Open the current cloud-backed library directly.
-        return try await openExistingLibrary(at: libraryURL)
+        return try await openLibrary(at: libraryURL)
     }
     
+    // MARK: - Smart Startup Support
     
-    // MARK: - Smart Startup Support Methods
-    
-    /// Fast new user library creation
     private func createNewUserLibrary(at libraryURL: URL, name: String) async throws -> Library {
-        print("🆕 LIBRARY: Creating new user library...")
-        print("📍 LIBRARY: Target library URL: \(libraryURL.path)")
-        print("📍 LIBRARY: Library name: \(name)")
-
-        let creationInput = Self.libraryCreationInput(from: libraryURL)
-        let pangolinDirectory = creationInput.parentDirectory
-        let effectiveName = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? creationInput.name : name
-        print("📁 LIBRARY: Parent directory: \(pangolinDirectory.path)")
-
-        // Create directory structure if needed
-        do {
-            print("🔧 LIBRARY: Creating parent directory...")
-            try fileManager.createDirectory(at: pangolinDirectory, withIntermediateDirectories: true, attributes: nil)
-            print("✅ LIBRARY: Parent directory created successfully")
-        } catch {
-            print("❌ LIBRARY: Failed to create parent directory: \(error)")
-            throw error
-        }
-
-        // Create library - pass the parent directory, createLibrary will append the name
-        do {
-            print("🔧 LIBRARY: Calling createLibrary...")
-            let newLibrary = try await createLibrary(at: pangolinDirectory, name: effectiveName)
-            print("✅ LIBRARY: Library created successfully")
-            return newLibrary
-        } catch {
-            print("❌ LIBRARY: Failed to create library: \(error)")
-            throw error
-        }
-    }
-
-    static func libraryCreationInput(from libraryURL: URL) -> (parentDirectory: URL, name: String) {
-        (
-            parentDirectory: libraryURL.deletingLastPathComponent(),
-            name: libraryURL.deletingPathExtension().lastPathComponent
-        )
+        print("🆕 LIBRARY: Creating new library at \(libraryURL.path)")
+        return try await createLibrary(at: libraryURL, name: name)
     }
     
-    /// Fast existing library opening
     private func openExistingLibrary(at libraryURL: URL) async throws -> Library {
         return try await openLibrary(at: libraryURL)
     }
     
-    /// Recreate empty library
-    private func recreateEmptyLibrary(at libraryURL: URL, name: String) async throws -> Library {
-        // Clean up any existing broken files
-        if fileManager.fileExists(atPath: libraryURL.path) {
-            try fileManager.removeItem(at: libraryURL)
+    // MARK: - Library Directories
+    
+    private func createLibraryDirectories(at url: URL) throws {
+        let subdirectories = [
+            "Videos",
+            "Subtitles",
+            "Thumbnails",
+            "Transcripts",
+            "Translations",
+            "Summaries",
+            "Flashcards"
+        ]
+        for dir in subdirectories {
+            let dirURL = url.appendingPathComponent(dir)
+            try fileManager.createDirectory(at: dirURL, withIntermediateDirectories: true)
         }
-        
-        return try await createNewUserLibrary(at: libraryURL, name: name)
     }
-    
-    // MARK: - Library Validation
-    
-    struct LibraryValidation {
-        let isValid: Bool
-        let errors: [String]
-        let isRepairable: Bool
-    }
-    
-    func validateLibrary(at url: URL) throws -> LibraryValidation {
-        var errors: [String] = []
-        
-        // Check if directory exists
-        guard fileManager.fileExists(atPath: url.path) else {
-            return LibraryValidation(isValid: false,
-                                    errors: ["Library does not exist"],
-                                    isRepairable: false)
-        }
-        
-        // Check for required subdirectories (create them if missing)
-        let requiredDirs = ["Videos", "Subtitles", "Thumbnails", "Transcripts", "Translations", "Summaries", "Flashcards", "Backups"]
-        for dir in requiredDirs {
-            let dirPath = url.appendingPathComponent(dir)
-            if !fileManager.fileExists(atPath: dirPath.path) {
-                // Try to create missing directories
-                do {
-                    try fileManager.createDirectory(at: dirPath, withIntermediateDirectories: true)
-                    print("📁 Created missing directory: \(dir)")
-                } catch {
-                    errors.append("Missing directory: \(dir)")
-                }
-            }
-        }
-        
-        // Check for database file
-        let dbPath = url.appendingPathComponent("Library.sqlite")
-        if !fileManager.fileExists(atPath: dbPath.path) {
-            errors.append("Database file not found")
-        }
-        
-        // Check Info.plist (create if missing)
-        let infoPlistPath = url.appendingPathComponent("Info.plist")
-        if !fileManager.fileExists(atPath: infoPlistPath.path) {
-            // Try to create Info.plist
-            do {
-                let info: [String: Any] = [
-                    "Version": currentVersion,
-                    "CreatedDate": Date(),
-                    "BundleIdentifier": "com.pangolin.library",
-                    "LibraryType": "VideoLibrary"
-                ]
-                let plistData = try PropertyListSerialization.data(fromPropertyList: info,
-                                                                  format: .xml,
-                                                                  options: 0)
-                try plistData.write(to: infoPlistPath)
-                print("📄 Created missing Info.plist")
-            } catch {
-                errors.append("Info.plist not found")
-            }
-        }
-        
-        let isValid = errors.isEmpty
-        let isRepairable = !errors.contains("Database file not found")
-        
-        return LibraryValidation(isValid: isValid,
-                                errors: errors,
-                                isRepairable: isRepairable)
-    }
-    
     
     // MARK: - Database Recovery
     
-    /// Delete corrupted database and start fresh, then reimport existing videos
     func resetCorruptedDatabase() async throws -> Library {
         print("🔧 LIBRARY: Resetting corrupted database...")
-        let (documentsURL, storageLocationLabel) = try resolveLibraryDocumentsDirectory()
-        print("☁️ LIBRARY: Reset target storage location: \(storageLocationLabel)")
-
-        let pangolinDirectory = documentsURL.appendingPathComponent("Pangolin")
-        let libraryName = "Library"
-        let libraryURL = pangolinDirectory.appendingPathComponent("\(libraryName).pangolin")
+        let libraryURL = try libraryBaseURL()
         
-        // If library folder exists, clean it up first
-        if fileManager.fileExists(atPath: libraryURL.path) {
-            print("🔧 LIBRARY: Removing existing library structure...")
-            
-            // Release any existing CoreDataStack instance for this library
-            CoreDataStack.releaseInstance(for: libraryURL)
-            
-            let databaseURL = libraryURL.appendingPathComponent("Library.sqlite")
-            let walURL = databaseURL.appendingPathExtension("sqlite-wal")  
-            let shmURL = databaseURL.appendingPathExtension("sqlite-shm")
-            
-            // Remove database files if they exist
-            for fileURL in [databaseURL, walURL, shmURL] {
-                if fileManager.fileExists(atPath: fileURL.path) {
-                    do {
-                        try fileManager.removeItem(at: fileURL)
-                        print("🗑️ LIBRARY: Removed \(fileURL.lastPathComponent)")
-                    } catch {
-                        print("⚠️ LIBRARY: Failed to remove \(fileURL.lastPathComponent): \(error)")
-                    }
+        CoreDataStack.releaseInstance(for: libraryURL)
+        
+        let databaseURL = libraryURL.appendingPathComponent("Library.sqlite")
+        let walURL = databaseURL.appendingPathExtension("sqlite-wal")
+        let shmURL = databaseURL.appendingPathExtension("sqlite-shm")
+        
+        for fileURL in [databaseURL, walURL, shmURL] {
+            if fileManager.fileExists(atPath: fileURL.path) {
+                do {
+                    try fileManager.removeItem(at: fileURL)
+                    print("🗑️ LIBRARY: Removed \(fileURL.lastPathComponent)")
+                } catch {
+                    print("⚠️ LIBRARY: Failed to remove \(fileURL.lastPathComponent): \(error)")
                 }
             }
         }
         
-        // Create fresh library
         print("🆕 LIBRARY: Creating fresh library...")
-        let newLibrary = try await createLibrary(at: pangolinDirectory, name: libraryName)
+        let newLibrary = try await createLibrary(at: libraryURL, name: "Pangolin Library")
         
-        // Open the new library to set up Core Data context
-        _ = try await openLibrary(at: libraryURL)
-
-        print("✅ LIBRARY: Fresh library created and opened successfully")
-        
+        print("✅ LIBRARY: Fresh library created successfully")
         return newLibrary
     }
     
     // MARK: - Private Methods
-
-    private func resolveLibraryDocumentsDirectory() throws -> (url: URL, label: String) {
-        if let ubiquitousRoot = fileManager.url(forUbiquityContainerIdentifier: cloudContainerIdentifier)
-            ?? fileManager.url(forUbiquityContainerIdentifier: nil) {
-            let ubiquitousDocuments = ubiquitousRoot.appendingPathComponent("Documents", isDirectory: true)
-            try fileManager.createDirectory(at: ubiquitousDocuments, withIntermediateDirectories: true)
-            return (ubiquitousDocuments, "iCloud ubiquity container")
-        }
-
-        guard let localDocuments = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            throw LibraryError.documentsFolderUnavailable
-        }
-        print("⚠️ LIBRARY: iCloud ubiquity container unavailable. Falling back to local Documents.")
-        return (localDocuments, "local sandbox fallback")
-    }
-    
-    private func createLibraryStructure(at url: URL) throws {
-        print("🏗️ CREATE_STRUCTURE: Creating library structure at: \(url.path)")
-
-        // Create main directory
-        do {
-            print("🏗️ CREATE_STRUCTURE: Creating main directory...")
-            try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
-            print("✅ CREATE_STRUCTURE: Main directory created successfully")
-        } catch {
-            print("❌ CREATE_STRUCTURE: Failed to create main directory: \(error)")
-            throw error
-        }
-
-        // Create subdirectories - ALL content goes inside the package
-        let subdirectories = [
-            "Videos",        // All video files here
-            "Subtitles",     // All subtitle files here
-            "Thumbnails",    // All generated thumbnails here
-            "Transcripts",   // All transcription files here
-            "Translations",  // All translation files here
-            "Summaries",     // All summary files here
-            "Flashcards",    // All generated flashcards here
-            "Backups"        // Any backup data here
-        ]
-        print("🏗️ CREATE_STRUCTURE: Creating subdirectories: \(subdirectories)")
-        for dir in subdirectories {
-            let dirURL = url.appendingPathComponent(dir)
-            try fileManager.createDirectory(at: dirURL,
-                                          withIntermediateDirectories: true)
-        }
-        
-        // Create Info.plist
-        let info: [String: Any] = [
-            "Version": currentVersion,
-            "StorageSystemVersion": storageSystemVersion,
-            "CreatedDate": Date(),
-            "BundleIdentifier": "com.pangolin.library",
-            "LibraryType": "VideoLibrary"
-        ]
-        
-        let infoPlistURL = url.appendingPathComponent("Info.plist")
-        let plistData = try PropertyListSerialization.data(fromPropertyList: info,
-                                                          format: .xml,
-                                                          options: 0)
-        try plistData.write(to: infoPlistURL)
-    }
-    
     
     private func loadRecentLibraries() {
         if let data = userDefaults.data(forKey: recentLibrariesKey),
@@ -673,18 +526,13 @@ class LibraryManager: ObservableObject {
             totalSize: library.totalSize
         )
         
-        // Remove if already exists
         recentLibraries.removeAll { $0.id == descriptor.id }
-        
-        // Add to front
         recentLibraries.insert(descriptor, at: 0)
         
-        // Keep only last 10
         if recentLibraries.count > 10 {
             recentLibraries = Array(recentLibraries.prefix(10))
         }
         
-        // Save
         if let data = try? JSONEncoder().encode(recentLibraries) {
             userDefaults.set(data, forKey: recentLibrariesKey)
         }
@@ -738,15 +586,23 @@ class LibraryManager: ObservableObject {
             video.summaryDateGenerated = nil
         }
 
-        guard let base = library.url else { return }
-        let directories = [
-            base.appendingPathComponent("Transcripts", isDirectory: true),
-            base.appendingPathComponent("Translations", isDirectory: true),
-            base.appendingPathComponent("Summaries", isDirectory: true),
-            base.appendingPathComponent("Flashcards", isDirectory: true),
-        ]
+        var directoriesByPath: [String: URL] = [:]
 
-        for directory in directories {
+        if let localDirectories = localTextArtifactsDirectories(for: library) {
+            directoriesByPath[localDirectories.transcripts.standardizedFileURL.path] = localDirectories.transcripts
+            directoriesByPath[localDirectories.translations.standardizedFileURL.path] = localDirectories.translations
+            directoriesByPath[localDirectories.summaries.standardizedFileURL.path] = localDirectories.summaries
+            directoriesByPath[localDirectories.flashcards.standardizedFileURL.path] = localDirectories.flashcards
+        }
+
+        if let cloudDirectories = cloudTextArtifactsDirectories() {
+            directoriesByPath[cloudDirectories.transcripts.standardizedFileURL.path] = cloudDirectories.transcripts
+            directoriesByPath[cloudDirectories.translations.standardizedFileURL.path] = cloudDirectories.translations
+            directoriesByPath[cloudDirectories.summaries.standardizedFileURL.path] = cloudDirectories.summaries
+            directoriesByPath[cloudDirectories.flashcards.standardizedFileURL.path] = cloudDirectories.flashcards
+        }
+
+        for directory in directoriesByPath.values {
             if fileManager.fileExists(atPath: directory.path) {
                 try fileManager.removeItem(at: directory)
             }
@@ -773,54 +629,6 @@ class LibraryManager: ObservableObject {
         if library.maxLocalVideoCacheBytes <= 0 {
             library.maxLocalVideoCacheBytes = defaultMaxLocalVideoCacheBytes
         }
-    }
-
-    private func isCurrentStorageSystem(at libraryURL: URL) -> Bool {
-        let infoURL = libraryURL.appendingPathComponent("Info.plist")
-        guard let data = try? Data(contentsOf: infoURL),
-              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-              let marker = plist["StorageSystemVersion"] as? Int else {
-            return false
-        }
-        return marker == storageSystemVersion
-    }
-    
-    private func cleanupLegacyDownloadsFolderIfNeeded(for library: Library, in context: NSManagedObjectContext) {
-        let request = Folder.fetchRequest()
-        request.predicate = NSPredicate(
-            format: "library == %@ AND isSmartFolder == NO AND isTopLevel == YES AND name == %@",
-            library,
-            "Downloads"
-        )
-
-        do {
-            let legacyDownloadsFolders = try context.fetch(request)
-            guard !legacyDownloadsFolders.isEmpty else { return }
-
-            for folder in legacyDownloadsFolders {
-                let hasChildFolders = !folder.childFoldersArray.isEmpty
-                let directVideos = folder.videosArray
-                guard !hasChildFolders, !directVideos.isEmpty else { continue }
-
-                let allVideosAreLegacyRemoteImports = directVideos.allSatisfy(isLegacyRemoteImportVideo(_:))
-                guard allVideosAreLegacyRemoteImports else { continue }
-
-                for video in directVideos {
-                    video.folder = nil
-                }
-
-                context.delete(folder)
-                print("🧹 LIBRARY: Migrated legacy Downloads folder to Downloads smart collection")
-            }
-        } catch {
-            print("Failed to clean up legacy Downloads folder: \(error)")
-        }
-    }
-
-    private func isLegacyRemoteImportVideo(_ video: Video) -> Bool {
-        let hasOriginalURL = !(video.originalURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-        let hasRemoteVideoID = !(video.remoteVideoID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-        return hasOriginalURL || hasRemoteVideoID
     }
 }
 
@@ -882,7 +690,7 @@ enum LibraryError: LocalizedError {
         case .diskSpaceInsufficient:
             return "Free up disk space and try again"
         case .documentsFolderUnavailable:
-            return "Check file system permissions and ensure the Documents folder is accessible."
+            return "Check file system permissions and ensure the Application Support folder is accessible."
         }
     }
 }
@@ -890,13 +698,120 @@ enum LibraryError: LocalizedError {
 // MARK: - Text Artifact Directories & I/O
 
 extension LibraryManager {
-    private func textArtifactsDirectories(for library: Library? = nil) -> (transcripts: URL, translations: URL, summaries: URL, flashcards: URL)? {
+    private typealias TextArtifactDirectories = (transcripts: URL, translations: URL, summaries: URL, flashcards: URL)
+
+    private func localTextArtifactsDirectories(
+        for library: Library? = nil,
+        baseOverride: URL? = nil
+    ) -> TextArtifactDirectories? {
+        if let baseOverride {
+            return (
+                baseOverride.appendingPathComponent("Transcripts", isDirectory: true),
+                baseOverride.appendingPathComponent("Translations", isDirectory: true),
+                baseOverride.appendingPathComponent("Summaries", isDirectory: true),
+                baseOverride.appendingPathComponent("Flashcards", isDirectory: true)
+            )
+        }
+
         let target = library ?? currentLibrary
         guard let base = target?.url else { return nil }
-        return (base.appendingPathComponent("Transcripts", isDirectory: true),
-                base.appendingPathComponent("Translations", isDirectory: true),
-                base.appendingPathComponent("Summaries", isDirectory: true),
-                base.appendingPathComponent("Flashcards", isDirectory: true))
+        return (
+            base.appendingPathComponent("Transcripts", isDirectory: true),
+            base.appendingPathComponent("Translations", isDirectory: true),
+            base.appendingPathComponent("Summaries", isDirectory: true),
+            base.appendingPathComponent("Flashcards", isDirectory: true)
+        )
+    }
+
+    private func cloudTextArtifactsDirectories() -> TextArtifactDirectories? {
+        guard let root = textArtifactsCloudRootURLProvider() else { return nil }
+        return (
+            root.appendingPathComponent("Transcripts", isDirectory: true),
+            root.appendingPathComponent("Translations", isDirectory: true),
+            root.appendingPathComponent("Summaries", isDirectory: true),
+            root.appendingPathComponent("Flashcards", isDirectory: true)
+        )
+    }
+
+    private func textArtifactsDirectories(for library: Library? = nil) -> TextArtifactDirectories? {
+        cloudTextArtifactsDirectories() ?? localTextArtifactsDirectories(for: library)
+    }
+
+    private func migrateArtifactIfNeeded(from sourceURL: URL, to preferredURL: URL) {
+        guard sourceURL.standardizedFileURL != preferredURL.standardizedFileURL else { return }
+        guard fileManager.fileExists(atPath: sourceURL.path),
+              !fileManager.fileExists(atPath: preferredURL.path) else { return }
+
+        do {
+            try fileManager.createDirectory(at: preferredURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fileManager.copyItem(at: sourceURL, to: preferredURL)
+        } catch {
+            print("⚠️ LIBRARY: Failed to migrate artifact \(sourceURL.lastPathComponent) to shared storage: \(error)")
+        }
+    }
+
+    private func resolveExistingArtifactURL(preferredURL: URL?, fallbackURLs: [URL]) -> URL? {
+        if let preferredURL, fileManager.fileExists(atPath: preferredURL.path) {
+            return preferredURL
+        }
+
+        for fallbackURL in fallbackURLs {
+            guard fileManager.fileExists(atPath: fallbackURL.path) else { continue }
+            if let preferredURL {
+                migrateArtifactIfNeeded(from: fallbackURL, to: preferredURL)
+                if fileManager.fileExists(atPath: preferredURL.path) {
+                    return preferredURL
+                }
+            }
+            return fallbackURL
+        }
+
+        return nil
+    }
+
+    private func migrateArtifacts(
+        from sourceDirectories: TextArtifactDirectories,
+        to destinationDirectories: TextArtifactDirectories
+    ) throws {
+        let directoryPairs = [
+            (sourceDirectories.transcripts, destinationDirectories.transcripts),
+            (sourceDirectories.translations, destinationDirectories.translations),
+            (sourceDirectories.summaries, destinationDirectories.summaries),
+            (sourceDirectories.flashcards, destinationDirectories.flashcards),
+        ]
+
+        for (sourceDirectory, destinationDirectory) in directoryPairs {
+            guard sourceDirectory.standardizedFileURL != destinationDirectory.standardizedFileURL,
+                  fileManager.fileExists(atPath: sourceDirectory.path) else { continue }
+
+            try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+            let files = try fileManager.contentsOfDirectory(
+                at: sourceDirectory,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )
+
+            for fileURL in files {
+                let destinationURL = destinationDirectory.appendingPathComponent(fileURL.lastPathComponent)
+                migrateArtifactIfNeeded(from: fileURL, to: destinationURL)
+            }
+        }
+    }
+
+    private func migrateTextArtifactsToPreferredLocation(
+        for library: Library,
+        legacyLibraryURL: URL? = nil
+    ) throws {
+        guard let preferredDirectories = cloudTextArtifactsDirectories() else { return }
+
+        if let localDirectories = localTextArtifactsDirectories(for: library) {
+            try migrateArtifacts(from: localDirectories, to: preferredDirectories)
+        }
+
+        if let legacyLibraryURL,
+           let legacyDirectories = localTextArtifactsDirectories(baseOverride: legacyLibraryURL) {
+            try migrateArtifacts(from: legacyDirectories, to: preferredDirectories)
+        }
     }
     
     func ensureTextArtifactDirectories(for library: Library? = nil) throws {
@@ -911,10 +826,36 @@ extension LibraryManager {
         guard let id = video.id, let dirs = textArtifactsDirectories(for: video.library) else { return nil }
         return dirs.transcripts.appendingPathComponent("\(id.uuidString).txt")
     }
+
+    func existingTranscriptURL(for video: Video) -> URL? {
+        guard let id = video.id else { return nil }
+        let preferredURL = textArtifactsDirectories(for: video.library)?
+            .transcripts
+            .appendingPathComponent("\(id.uuidString).txt")
+        let fallbackURLs = [
+            localTextArtifactsDirectories(for: video.library)?
+                .transcripts
+                .appendingPathComponent("\(id.uuidString).txt")
+        ].compactMap { $0 }
+        return resolveExistingArtifactURL(preferredURL: preferredURL, fallbackURLs: fallbackURLs)
+    }
     
     func timedTranscriptURL(for video: Video) -> URL? {
         guard let id = video.id, let dirs = textArtifactsDirectories(for: video.library) else { return nil }
         return dirs.transcripts.appendingPathComponent("\(id.uuidString).timed.json")
+    }
+
+    func existingTimedTranscriptURL(for video: Video) -> URL? {
+        guard let id = video.id else { return nil }
+        let preferredURL = textArtifactsDirectories(for: video.library)?
+            .transcripts
+            .appendingPathComponent("\(id.uuidString).timed.json")
+        let fallbackURLs = [
+            localTextArtifactsDirectories(for: video.library)?
+                .transcripts
+                .appendingPathComponent("\(id.uuidString).timed.json")
+        ].compactMap { $0 }
+        return resolveExistingArtifactURL(preferredURL: preferredURL, fallbackURLs: fallbackURLs)
     }
 
     func translationURL(for video: Video, languageCode: String) -> URL? {
@@ -923,10 +864,40 @@ extension LibraryManager {
         return dirs.translations.appendingPathComponent("\(id.uuidString)_\(safeLang).txt")
     }
 
+    func existingTranslationURL(for video: Video, languageCode: String) -> URL? {
+        guard let id = video.id else { return nil }
+        let safeLang = languageCode.replacingOccurrences(of: "/", with: "-")
+        let fileName = "\(id.uuidString)_\(safeLang).txt"
+        let preferredURL = textArtifactsDirectories(for: video.library)?
+            .translations
+            .appendingPathComponent(fileName)
+        let fallbackURLs = [
+            localTextArtifactsDirectories(for: video.library)?
+                .translations
+                .appendingPathComponent(fileName)
+        ].compactMap { $0 }
+        return resolveExistingArtifactURL(preferredURL: preferredURL, fallbackURLs: fallbackURLs)
+    }
+
     func timedTranslationURL(for video: Video, languageCode: String) -> URL? {
         guard let id = video.id, let dirs = textArtifactsDirectories(for: video.library) else { return nil }
         let safeLang = languageCode.replacingOccurrences(of: "/", with: "-")
         return dirs.translations.appendingPathComponent("\(id.uuidString)_\(safeLang).timed.json")
+    }
+
+    func existingTimedTranslationURL(for video: Video, languageCode: String) -> URL? {
+        guard let id = video.id else { return nil }
+        let safeLang = languageCode.replacingOccurrences(of: "/", with: "-")
+        let fileName = "\(id.uuidString)_\(safeLang).timed.json"
+        let preferredURL = textArtifactsDirectories(for: video.library)?
+            .translations
+            .appendingPathComponent(fileName)
+        let fallbackURLs = [
+            localTextArtifactsDirectories(for: video.library)?
+                .translations
+                .appendingPathComponent(fileName)
+        ].compactMap { $0 }
+        return resolveExistingArtifactURL(preferredURL: preferredURL, fallbackURLs: fallbackURLs)
     }
 
     func translationURLs(for video: Video) -> [URL] {
@@ -941,9 +912,35 @@ extension LibraryManager {
         return dirs.summaries.appendingPathComponent("\(id.uuidString).md")
     }
 
+    func existingSummaryURL(for video: Video) -> URL? {
+        guard let id = video.id else { return nil }
+        let preferredURL = textArtifactsDirectories(for: video.library)?
+            .summaries
+            .appendingPathComponent("\(id.uuidString).md")
+        let fallbackURLs = [
+            localTextArtifactsDirectories(for: video.library)?
+                .summaries
+                .appendingPathComponent("\(id.uuidString).md")
+        ].compactMap { $0 }
+        return resolveExistingArtifactURL(preferredURL: preferredURL, fallbackURLs: fallbackURLs)
+    }
+
     func flashcardsURL(for video: Video) -> URL? {
         guard let id = video.id, let dirs = textArtifactsDirectories(for: video.library) else { return nil }
         return dirs.flashcards.appendingPathComponent("\(id.uuidString).json")
+    }
+
+    func existingFlashcardsURL(for video: Video) -> URL? {
+        guard let id = video.id else { return nil }
+        let preferredURL = textArtifactsDirectories(for: video.library)?
+            .flashcards
+            .appendingPathComponent("\(id.uuidString).json")
+        let fallbackURLs = [
+            localTextArtifactsDirectories(for: video.library)?
+                .flashcards
+                .appendingPathComponent("\(id.uuidString).json")
+        ].compactMap { $0 }
+        return resolveExistingArtifactURL(preferredURL: preferredURL, fallbackURLs: fallbackURLs)
     }
     
     func writeTimedTranscriptAtomically(_ transcript: TimedTranscript, to url: URL) throws {
@@ -966,6 +963,11 @@ extension LibraryManager {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(TimedTranscript.self, from: Data(contentsOf: url))
+    }
+
+    func readTimedTranscriptIfAvailable(from url: URL) throws -> TimedTranscript? {
+        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        return try readTimedTranscript(from: url)
     }
 
     func writeTimedTranslationAtomically(_ translation: TimedTranslation, to url: URL) throws {
@@ -996,7 +998,6 @@ extension LibraryManager {
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         let tmp = dir.appendingPathComponent(UUID().uuidString)
         try text.data(using: .utf8)?.write(to: tmp, options: .atomic)
-        // Remove existing file if present to avoid replaceItem oddities across volumes
         if fm.fileExists(atPath: url.path) {
             try fm.removeItem(at: url)
         }

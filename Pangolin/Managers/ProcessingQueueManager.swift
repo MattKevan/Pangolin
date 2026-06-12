@@ -614,9 +614,6 @@ class ProcessingQueueManager: ObservableObject {
     }
 
     private func executeImport(_ task: ProcessingTask) async throws {
-        guard let sourcePath = task.sourceURLPath else {
-            throw FileSystemError.importFailed("Missing source path.")
-        }
         guard let library = LibraryManager.shared.currentLibrary,
               let context = LibraryManager.shared.viewContext else {
             throw FileSystemError.invalidLibraryPath
@@ -625,7 +622,42 @@ class ProcessingQueueManager: ObservableObject {
             library.id = UUID()
         }
 
-        let fileURL = URL(fileURLWithPath: sourcePath)
+        let fileURL: URL
+        var bookmarkAccessing = false
+
+        #if os(macOS)
+        if let bookmark = task.sourceBookmark {
+            var isStale = false
+            if let resolved = try? URL(resolvingBookmarkData: bookmark, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale) {
+                bookmarkAccessing = resolved.startAccessingSecurityScopedResource()
+                fileURL = resolved
+                print("📎 QUEUE: Resolved bookmark, accessing=\(bookmarkAccessing) for \(fileURL.lastPathComponent)")
+            } else if let sourcePath = task.sourceURLPath {
+                print("⚠️ QUEUE: Bookmark resolution failed, falling back to plain path")
+                fileURL = URL(fileURLWithPath: sourcePath)
+            } else {
+                throw FileSystemError.importFailed("Missing source path.")
+            }
+        } else if let sourcePath = task.sourceURLPath {
+            print("⚠️ QUEUE: No bookmark, using plain path")
+            fileURL = URL(fileURLWithPath: sourcePath)
+        } else {
+            throw FileSystemError.importFailed("Missing source path.")
+        }
+        #else
+        guard let sourcePath = task.sourceURLPath else {
+            throw FileSystemError.importFailed("Missing source path.")
+        }
+        fileURL = URL(fileURLWithPath: sourcePath)
+        #endif
+
+        #if os(macOS)
+        defer {
+            if bookmarkAccessing {
+                fileURL.stopAccessingSecurityScopedResource()
+            }
+        }
+        #endif
         let folderMap = importFolderMaps[library.id ?? UUID()] ?? [:]
 
         task.statusMessage = "Importing \(fileURL.lastPathComponent)..."
@@ -938,14 +970,14 @@ class ProcessingQueueManager: ObservableObject {
     }
 
     private func hasTimedTranslationArtifact(for video: Video, languageCode: String) -> Bool {
-        guard let url = LibraryManager.shared.timedTranslationURL(for: video, languageCode: languageCode) else {
+        guard let url = LibraryManager.shared.existingTimedTranslationURL(for: video, languageCode: languageCode) else {
             return false
         }
         return FileManager.default.fileExists(atPath: url.path)
     }
 
     private func hasFlashcardsArtifact(for video: Video) -> Bool {
-        guard let url = LibraryManager.shared.flashcardsURL(for: video) else {
+        guard let url = LibraryManager.shared.existingFlashcardsURL(for: video) else {
             return false
         }
         return FileManager.default.fileExists(atPath: url.path)
@@ -1039,7 +1071,7 @@ class ProcessingQueueManager: ObservableObject {
             return Locale(identifier: transcriptLanguageIdentifier)
         }
 
-        guard let timedURL = LibraryManager.shared.timedTranscriptURL(for: video),
+        guard let timedURL = LibraryManager.shared.existingTimedTranscriptURL(for: video),
               FileManager.default.fileExists(atPath: timedURL.path),
               let transcript = try? LibraryManager.shared.readTimedTranscript(from: timedURL),
               !transcript.localeIdentifier.isEmpty else {

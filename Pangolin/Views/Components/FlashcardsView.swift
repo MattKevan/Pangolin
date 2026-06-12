@@ -73,7 +73,14 @@ struct FlashcardsView: View {
             .background(Color.orange.opacity(0.12))
             .clipShape(RoundedRectangle(cornerRadius: 8))
         } else if let deck, !deck.cards.isEmpty {
-            flashcardsDeckContent(deck)
+            FlashcardsDeckContentView(
+                deck: deck,
+                selectedIndex: $selectedIndex,
+                flippedCardIDs: $flippedCardIDs,
+                onViewInVideo: { card in
+                    playerViewModel.seek(to: card.startSeconds, in: video)
+                }
+            )
         } else if let loadError {
             ContentUnavailableView(
                 "No flashcards available",
@@ -91,8 +98,49 @@ struct FlashcardsView: View {
         }
     }
 
-    @ViewBuilder
-    private func flashcardsDeckContent(_ deck: FlashcardDeck) -> some View {
+    private func loadFlashcards() {
+        guard let url = libraryManager.existingFlashcardsURL(for: video),
+              FileManager.default.fileExists(atPath: url.path) else {
+            deck = nil
+            loadError = nil
+            selectedIndex = 0
+            flippedCardIDs.removeAll()
+            return
+        }
+
+        do {
+            let loadedDeck = try libraryManager.readFlashcardDeck(from: url)
+            deck = loadedDeck
+            selectedIndex = min(selectedIndex, max(loadedDeck.cards.count - 1, 0))
+            loadError = nil
+        } catch {
+            deck = nil
+            loadError = "Failed to load flashcards: \(error.localizedDescription)"
+            selectedIndex = 0
+            flippedCardIDs.removeAll()
+        }
+    }
+
+    private var flashcardsTask: ProcessingTask? {
+        processingQueueManager.task(for: video, type: .generateFlashcards)
+    }
+
+    private var isFlashcardsActive: Bool {
+        flashcardsTask?.status.isActive == true
+    }
+
+    private var flashcardsErrorMessage: String? {
+        flashcardsTask?.errorMessage
+    }
+}
+
+private struct FlashcardsDeckContentView: View {
+    let deck: FlashcardDeck
+    @Binding var selectedIndex: Int
+    @Binding var flippedCardIDs: Set<UUID>
+    let onViewInVideo: (Flashcard) -> Void
+
+    var body: some View {
         let cards = deck.cards
         VStack(alignment: .center, spacing: 14) {
             HStack {
@@ -115,7 +163,7 @@ struct FlashcardsView: View {
                             toggleFlip(for: card.id)
                         },
                         onViewInVideo: {
-                            playerViewModel.seek(to: card.startSeconds, in: video)
+                            onViewInVideo(card)
                         }
                     )
                     .tag(index)
@@ -132,7 +180,7 @@ struct FlashcardsView: View {
                     toggleFlip(for: cards[selectedIndex].id)
                 },
                 onViewInVideo: {
-                    playerViewModel.seek(to: cards[selectedIndex].startSeconds, in: video)
+                    onViewInVideo(cards[selectedIndex])
                 }
             )
             .frame(minHeight: 300, maxHeight: 380)
@@ -179,41 +227,6 @@ struct FlashcardsView: View {
             flippedCardIDs.insert(cardID)
         }
     }
-
-    private func loadFlashcards() {
-        guard let url = libraryManager.flashcardsURL(for: video),
-              FileManager.default.fileExists(atPath: url.path) else {
-            deck = nil
-            loadError = nil
-            selectedIndex = 0
-            flippedCardIDs.removeAll()
-            return
-        }
-
-        do {
-            let loadedDeck = try libraryManager.readFlashcardDeck(from: url)
-            deck = loadedDeck
-            selectedIndex = min(selectedIndex, max(loadedDeck.cards.count - 1, 0))
-            loadError = nil
-        } catch {
-            deck = nil
-            loadError = "Failed to load flashcards: \(error.localizedDescription)"
-            selectedIndex = 0
-            flippedCardIDs.removeAll()
-        }
-    }
-
-    private var flashcardsTask: ProcessingTask? {
-        processingQueueManager.task(for: video, type: .generateFlashcards)
-    }
-
-    private var isFlashcardsActive: Bool {
-        flashcardsTask?.status.isActive == true
-    }
-
-    private var flashcardsErrorMessage: String? {
-        flashcardsTask?.errorMessage
-    }
 }
 
 private struct FlashcardCardView: View {
@@ -238,7 +251,7 @@ private struct FlashcardCardView: View {
 
             ScrollView {
                 Text(isFlipped ? card.back : card.front)
-                    .font(.title3)
+                    .font(.largeTitle)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
                     .padding(.vertical, 4)
@@ -263,4 +276,58 @@ private struct FlashcardCardView: View {
             onToggleFlip()
         }
     }
+}
+
+private struct FlashcardsDeckContentPreview: View {
+    @State private var selectedIndex = 0
+    @State private var flippedCardIDs = Set<UUID>()
+
+    var body: some View {
+        FlashcardsDeckContentView(
+            deck: .previewDeck,
+            selectedIndex: $selectedIndex,
+            flippedCardIDs: $flippedCardIDs,
+            onViewInVideo: { _ in }
+        )
+        .frame(maxWidth: 760)
+        .padding()
+    }
+}
+
+private extension FlashcardDeck {
+    static var previewDeck: FlashcardDeck {
+        let cardOne = Flashcard(
+            front: "What is the main claim of the talk?",
+            back: "Deliberate practice with feedback is more effective than passive repetition.",
+            startSeconds: 42,
+            endSeconds: 58,
+            sourceSnippet: "Deliberate practice with feedback is what creates mastery."
+        )
+        let cardTwo = Flashcard(
+            front: "What tactic was suggested to improve retention?",
+            back: "Use active recall in short cycles instead of rereading notes.",
+            startSeconds: 132,
+            endSeconds: 146,
+            sourceSnippet: "Quiz yourself frequently; avoid passive re-reading."
+        )
+        let cardThree = Flashcard(
+            front: "How did they evaluate learning outcomes?",
+            back: "They measured retention one week later using a short assessment.",
+            startSeconds: 211,
+            endSeconds: 233,
+            sourceSnippet: "We measured retention after one week with a short test."
+        )
+
+        return FlashcardDeck(
+            videoID: UUID(),
+            generatedAt: Date(),
+            sourceModeUsed: .transcript,
+            sourceLanguageCode: "en",
+            cards: [cardOne, cardTwo, cardThree]
+        )
+    }
+}
+
+#Preview("Flashcards Deck") {
+    FlashcardsDeckContentPreview()
 }

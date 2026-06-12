@@ -81,15 +81,11 @@ struct VideoPlayerWithPosterView: View {
     @ViewBuilder
     private func posterOverlay(for video: Video) -> some View {
         if let thumbnailURL = video.thumbnailURL,
-           FileManager.default.fileExists(atPath: thumbnailURL.path) {
-            AsyncImage(url: thumbnailURL) { image in
-                image
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } placeholder: {
-                Color.black
-            }
+           let platformImage = platformImage(from: thumbnailURL) {
+            Image(platformImage: platformImage)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             Color.black
         }

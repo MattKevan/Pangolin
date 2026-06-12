@@ -33,6 +33,161 @@ struct TimedTranscriptTests {
         #expect(decoded == transcript)
     }
 
+    @Test("Timed transcript optional read returns nil when file is missing")
+    @MainActor
+    func timedTranscriptOptionalReadReturnsNilWhenFileIsMissing() throws {
+        let manager = LibraryManager.shared
+        let missingURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MissingTimedTranscript-\(UUID().uuidString)")
+            .appendingPathExtension("timed.json")
+
+        let transcript = try manager.readTimedTranscriptIfAvailable(from: missingURL)
+        #expect(transcript == nil)
+    }
+
+    @Test("Timed transcript optional read returns transcript when file exists")
+    @MainActor
+    func timedTranscriptOptionalReadReturnsTranscriptWhenFileExists() throws {
+        let manager = LibraryManager.shared
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("TimedTranscriptOptionalRead-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: tempRoot)
+        }
+
+        let transcript = TimedTranscript(
+            videoID: UUID(),
+            localeIdentifier: "en-US",
+            generatedAt: Date(timeIntervalSince1970: 12345),
+            segments: [
+                TimedSegment(
+                    startSeconds: 0,
+                    endSeconds: 2,
+                    text: "hello world",
+                    words: [
+                        TimedWord(startSeconds: 0, endSeconds: 1, text: "hello"),
+                        TimedWord(startSeconds: 1, endSeconds: 2, text: "world"),
+                    ]
+                )
+            ]
+        )
+
+        let url = tempRoot.appendingPathComponent("\(transcript.videoID.uuidString).timed.json")
+        try manager.writeTimedTranscriptAtomically(transcript, to: url)
+
+        let loadedTranscript = try manager.readTimedTranscriptIfAvailable(from: url)
+        #expect(loadedTranscript == transcript)
+    }
+
+    @Test("Timed transcript URL prefers shared cloud root when available")
+    @MainActor
+    func timedTranscriptURLPrefersSharedCloudRootWhenAvailable() async throws {
+        let manager = LibraryManager.shared
+        let originalProvider = manager.textArtifactsCloudRootURLProvider
+        let fileManager = FileManager.default
+        let tempRoot = fileManager.temporaryDirectory.appendingPathComponent("TimedTranscriptSharedRoot-\(UUID().uuidString)", isDirectory: true)
+        let cloudRoot = tempRoot.appendingPathComponent("CloudRoot", isDirectory: true)
+        let libraryURL = tempRoot.appendingPathComponent("Library", isDirectory: true)
+
+        try fileManager.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+        manager.textArtifactsCloudRootURLProvider = { cloudRoot }
+        defer {
+            manager.textArtifactsCloudRootURLProvider = originalProvider
+            try? fileManager.removeItem(at: tempRoot)
+        }
+
+        let library = try await manager.createLibrary(at: libraryURL, name: "SharedRootTest")
+        guard let context = manager.viewContext else {
+            #expect(Bool(false))
+            return
+        }
+        guard let videoEntity = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Video"] else {
+            #expect(Bool(false))
+            return
+        }
+
+        let video = Video(entity: videoEntity, insertInto: context)
+        video.id = UUID()
+        video.title = "Clip"
+        video.library = library
+        try context.save()
+
+        let expectedURL = cloudRoot
+            .appendingPathComponent("Transcripts", isDirectory: true)
+            .appendingPathComponent("\(try #require(video.id).uuidString).timed.json")
+
+        #expect(manager.timedTranscriptURL(for: video) == expectedURL)
+
+        await manager.closeCurrentLibrary()
+    }
+
+    @Test("Existing timed transcript migrates local artifact to shared cloud root")
+    @MainActor
+    func existingTimedTranscriptMigratesLocalArtifactToSharedCloudRoot() async throws {
+        let manager = LibraryManager.shared
+        let originalProvider = manager.textArtifactsCloudRootURLProvider
+        let fileManager = FileManager.default
+        let tempRoot = fileManager.temporaryDirectory.appendingPathComponent("TimedTranscriptMigration-\(UUID().uuidString)", isDirectory: true)
+        let cloudRoot = tempRoot.appendingPathComponent("CloudRoot", isDirectory: true)
+        let libraryURL = tempRoot.appendingPathComponent("Library", isDirectory: true)
+
+        try fileManager.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+        manager.textArtifactsCloudRootURLProvider = { cloudRoot }
+        defer {
+            manager.textArtifactsCloudRootURLProvider = originalProvider
+            try? fileManager.removeItem(at: tempRoot)
+        }
+
+        let library = try await manager.createLibrary(at: libraryURL, name: "MigrationTest")
+        guard let context = manager.viewContext else {
+            #expect(Bool(false))
+            return
+        }
+        guard let videoEntity = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Video"] else {
+            #expect(Bool(false))
+            return
+        }
+
+        let video = Video(entity: videoEntity, insertInto: context)
+        video.id = UUID()
+        video.title = "Clip"
+        video.library = library
+        try context.save()
+
+        let transcript = TimedTranscript(
+            videoID: try #require(video.id),
+            localeIdentifier: "en-US",
+            generatedAt: Date(timeIntervalSince1970: 12345),
+            segments: [
+                TimedSegment(
+                    startSeconds: 0,
+                    endSeconds: 2,
+                    text: "hello world",
+                    words: [
+                        TimedWord(startSeconds: 0, endSeconds: 1, text: "hello"),
+                        TimedWord(startSeconds: 1, endSeconds: 2, text: "world"),
+                    ]
+                )
+            ]
+        )
+
+        let localURL = libraryURL
+            .appendingPathComponent("Transcripts", isDirectory: true)
+            .appendingPathComponent("\(transcript.videoID.uuidString).timed.json")
+        try manager.writeTimedTranscriptAtomically(transcript, to: localURL)
+
+        let resolvedURL = try #require(manager.existingTimedTranscriptURL(for: video))
+        let expectedCloudURL = cloudRoot
+            .appendingPathComponent("Transcripts", isDirectory: true)
+            .appendingPathComponent("\(transcript.videoID.uuidString).timed.json")
+
+        #expect(resolvedURL == expectedCloudURL)
+        #expect(fileManager.fileExists(atPath: expectedCloudURL.path))
+        #expect(try manager.readTimedTranscript(from: expectedCloudURL) == transcript)
+
+        await manager.closeCurrentLibrary()
+    }
+
     @Test("Token timing split is proportional by token length")
     func tokenTimingSplitIsProportional() {
         let words = SpeechTranscriptionService.proportionalWordTimingTokens(
@@ -170,20 +325,23 @@ struct TimedTranscriptTests {
     @MainActor
     func migrationWipesLegacyTextData() async throws {
         let manager = LibraryManager.shared
+        let originalProvider = manager.textArtifactsCloudRootURLProvider
         let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("PangolinMigrationTest-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+        manager.textArtifactsCloudRootURLProvider = { nil }
         defer {
+            manager.textArtifactsCloudRootURLProvider = originalProvider
             try? FileManager.default.removeItem(at: tempRoot)
         }
 
         let library = try await manager.createLibrary(at: tempRoot, name: "MigrationTest")
         guard let context = manager.viewContext else {
-            #expect(false)
+            #expect(Bool(false))
             return
         }
 
         guard let videoEntity = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Video"] else {
-            #expect(false)
+            #expect(Bool(false))
             return
         }
 
@@ -220,7 +378,7 @@ struct TimedTranscriptTests {
         try context.save()
 
         guard let libraryURL = library.url else {
-            #expect(false)
+            #expect(Bool(false))
             return
         }
 
@@ -228,7 +386,7 @@ struct TimedTranscriptTests {
         _ = try await manager.openLibrary(at: libraryURL)
 
         guard let reopenedContext = manager.viewContext else {
-            #expect(false)
+            #expect(Bool(false))
             return
         }
         let request = Video.fetchRequest()
@@ -259,4 +417,43 @@ struct TimedTranscriptTests {
 
         await manager.closeCurrentLibrary()
     }
+
+    @Test("Migration uses opened library URL instead of stale stored path")
+    @MainActor
+    func migrationUsesOpenedLibraryURLInsteadOfStaleStoredPath() async throws {
+        let manager = LibraryManager.shared
+        let fileManager = FileManager.default
+        let tempRoot = fileManager.temporaryDirectory.appendingPathComponent("PangolinStalePathMigration-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+
+        let staleParent = tempRoot.appendingPathComponent("ReadOnlyParent", isDirectory: true)
+        try fileManager.createDirectory(at: staleParent, withIntermediateDirectories: true)
+        try fileManager.setAttributes([.posixPermissions: 0o555], ofItemAtPath: staleParent.path)
+
+        defer {
+            try? fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: staleParent.path)
+            try? fileManager.removeItem(at: tempRoot)
+        }
+
+        let libraryURL = tempRoot.appendingPathComponent("ActualLibrary", isDirectory: true)
+        let library = try await manager.createLibrary(at: libraryURL, name: "StalePathTest")
+
+        guard let context = manager.viewContext else {
+            #expect(Bool(false))
+            return
+        }
+
+        library.version = "1.0.0"
+        library.libraryPath = staleParent.appendingPathComponent("Library.pangolin", isDirectory: true).path
+        try context.save()
+
+        await manager.closeCurrentLibrary()
+
+        let reopenedLibrary = try await manager.openLibrary(at: libraryURL)
+        #expect(reopenedLibrary.libraryPath == libraryURL.path)
+        #expect(fileManager.fileExists(atPath: staleParent.appendingPathComponent("Library.pangolin", isDirectory: true).path) == false)
+
+        await manager.closeCurrentLibrary()
+    }
+
 }

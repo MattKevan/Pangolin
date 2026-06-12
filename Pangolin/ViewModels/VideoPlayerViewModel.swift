@@ -15,6 +15,7 @@ import AppKit
 import AVKit
 #endif
 
+@MainActor
 class VideoPlayerViewModel: NSObject, ObservableObject {
     @Published var player: AVPlayer?
     @Published var isPlaying = false
@@ -251,7 +252,6 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         }
     }
 
-    @MainActor
     func clearLoadedVideo() {
         buildTask?.cancel()
         resetPlayerObservers()
@@ -309,7 +309,6 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     
     // MARK: - Async composition builder
     
-    @MainActor
     private func buildPlayerItem(for videoURL: URL, with subtitle: Subtitle?) async throws -> AVPlayerItem {
         // If no subtitle requested, return the plain item
         guard let subtitle, let legibleAsset = legibleAsset(for: subtitle) else {
@@ -428,7 +427,6 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     
     // MARK: - Observers & state
     
-    @MainActor
     private func setupTimeObserver() {
         removeTimeObserver()
         guard let player else { return }
@@ -446,7 +444,6 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         }
     }
     
-    @MainActor
     private func setupNotifications() {
         playbackEndedCancellable?.cancel()
         playbackEndedCancellable = NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)
@@ -456,19 +453,16 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     }
     
     // Helpers to call setup methods conditionally with await if the async overload exists
-    @MainActor
     private func setupTimeObserverIfAsync() async {
         // Call the sync version
         setupTimeObserver()
     }
     
-    @MainActor
     private func setupNotificationsIfAsync() async {
         // Call the sync version
         setupNotifications()
     }
     
-    @MainActor
     private func updateDuration(from item: AVPlayerItem) async {
         if item.status == .readyToPlay {
             duration = CMTimeGetSeconds(item.duration)
@@ -486,7 +480,6 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         }
     }
 
-    @MainActor
     private func resetPlayerObservers() {
         removeTimeObserver()
         playbackEndedCancellable?.cancel()
@@ -497,7 +490,6 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         playerStateCancellable = nil
     }
 
-    @MainActor
     private func removeTimeObserver() {
         if let observer = timeObserver {
             timeObserverOwner?.removeTimeObserver(observer)
@@ -541,7 +533,6 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         return position
     }
 
-    @MainActor
     private func observePlaybackState(for player: AVPlayer) {
         playerStateCancellable?.cancel()
         playerStateCancellable = player.publisher(for: \.timeControlStatus)
@@ -564,8 +555,6 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         buildTask?.cancel()
     }
 }
-
-extension VideoPlayerViewModel: @unchecked Sendable {}
 
 #if os(macOS)
 extension VideoPlayerViewModel: NSWindowDelegate {

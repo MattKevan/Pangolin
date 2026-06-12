@@ -4,11 +4,14 @@ import CoreData
 import CloudKit
 
 /// Singleton Core Data stack that ensures only one instance per database
-/// Cloud-backed Core Data stack for .pangolin library packages
+/// Cloud-backed Core Data stack for Pangolin libraries
 class CoreDataStack {
     private let modelName = "Pangolin"
     private let libraryURL: URL
     private let cloudContainerIdentifier = "iCloud.com.newindustries.pangolin"
+
+    static let persistentStoreFileProtectionOptionValue =
+        FileProtectionType.completeUntilFirstUserAuthentication.rawValue
     
     // MARK: - Singleton Management
     private static var instances: [String: CoreDataStack] = [:]
@@ -16,18 +19,18 @@ class CoreDataStack {
     
     /// Get or create a CoreDataStack instance for the given library URL
     /// This ensures only one stack per database file, preventing corruption
-    static func getInstance(for libraryURL: URL) throws -> CoreDataStack {
+    static func getInstance(for libraryURL: URL) async throws -> CoreDataStack {
         let key = libraryURL.path
 
         if let existing = instanceQueue.sync(execute: { instances[key] }) {
             print("✅ STACK: Reusing existing CoreDataStack for \(key)")
-            try existing.loadPersistentContainerIfNeeded()
+            try await existing.loadPersistentContainerIfNeeded()
             return existing
         }
 
         print("🆕 STACK: Creating new CoreDataStack for \(key)")
         let stack = CoreDataStack(libraryURL: libraryURL)
-        try stack.loadPersistentContainerIfNeeded()
+        try await stack.loadPersistentContainerIfNeeded()
 
         var resolvedStack: CoreDataStack?
         instanceQueue.sync(flags: .barrier) {
@@ -76,18 +79,18 @@ class CoreDataStack {
     }
     
     // MARK: - Container Creation
-    private func loadPersistentContainerIfNeeded() throws {
-        try containerQueue.sync {
-            if _persistentContainer != nil {
-                return
-            }
+    private func loadPersistentContainerIfNeeded() async throws {
+        if _persistentContainer != nil {
+            return
+        }
 
-            let container = try createPersistentContainer()
+        let container = try await createPersistentContainer()
+        await MainActor.run {
             _persistentContainer = container
         }
     }
 
-    private func createPersistentContainer() throws -> NSPersistentCloudKitContainer {
+    private func createPersistentContainer() async throws -> NSPersistentCloudKitContainer {
         print("🏗️ STACK: Creating NSPersistentCloudKitContainer...")
 
         let container = NSPersistentCloudKitContainer(name: modelName)
@@ -99,42 +102,34 @@ class CoreDataStack {
         let storeDescription = createStoreDescription(for: storeURL)
         container.persistentStoreDescriptions = [storeDescription]
         
-        // Use semaphore to ensure synchronous loading
-        let semaphore = DispatchSemaphore(value: 0)
-        var loadError: Error?
-        
-        container.loadPersistentStores { (storeDescription, error) in
-            defer { semaphore.signal() }
-            
-            if let error = error as NSError? {
-                print("❌ STACK: Core Data load error: \(error), \(error.userInfo)")
-                loadError = CoreDataStackError.loadPersistentStoreFailed(error)
-                
-                // Handle database corruption with proper recovery
-                if error.code == 11 || error.domain == NSSQLiteErrorDomain && error.code == 11 {
-                    print("🔧 STACK: Database corruption detected - attempting recovery...")
-                    do {
-                        guard let storeURL = storeDescription.url else {
-                            loadError = CoreDataStackError.persistentStoreURLMissing
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            container.loadPersistentStores { (storeDescription, error) in
+                if let error = error as NSError? {
+                    print("❌ STACK: Core Data load error: \(error), \(error.userInfo)")
+                    
+                    // Handle database corruption with proper recovery
+                    if error.code == 11 || error.domain == NSSQLiteErrorDomain && error.code == 11 {
+                        print("🔧 STACK: Database corruption detected - attempting recovery...")
+                        do {
+                            guard let storeURL = storeDescription.url else {
+                                continuation.resume(throwing: CoreDataStackError.persistentStoreURLMissing)
+                                return
+                            }
+                            try CoreDataStack.handleDatabaseCorruptionStatic(storeURL: storeURL)
+                        } catch {
+                            print("❌ STACK: Recovery failed: \(error)")
+                            continuation.resume(throwing: error)
                             return
                         }
-                        try self.handleDatabaseCorruption(storeURL: storeURL)
-                    } catch {
-                        print("❌ STACK: Recovery failed: \(error)")
-                        loadError = error
                     }
+                    continuation.resume(throwing: CoreDataStackError.loadPersistentStoreFailed(error))
+                } else {
+                    print("✅ STACK: Persistent store loaded successfully")
+                    continuation.resume()
                 }
-            } else {
-                print("✅ STACK: Persistent store loaded successfully")
             }
         }
-        
-        semaphore.wait()
-        
-        if let loadError = loadError {
-            throw loadError
-        }
-        
+
         // Configure view context
         configureViewContext(container.viewContext)
 
@@ -157,7 +152,10 @@ class CoreDataStack {
 
         // Enable file protection for better security (iOS only)
         #if os(iOS)
-        storeDescription.setOption(true as NSNumber, forKey: NSPersistentStoreFileProtectionKey)
+        storeDescription.setOption(
+            Self.persistentStoreFileProtectionOptionValue as NSString,
+            forKey: NSPersistentStoreFileProtectionKey
+        )
         #endif
 
         // Enable persistent history tracking for better data integrity
@@ -293,19 +291,12 @@ class CoreDataStack {
     }
     
     // MARK: - Database Recovery
-    private func handleDatabaseCorruption(storeURL: URL) throws {
+    private static func handleDatabaseCorruptionStatic(storeURL: URL) throws {
         print("🔧 STACK: Attempting database corruption recovery...")
         
         let fileManager = FileManager.default
         let backupURL = storeURL.appendingPathExtension("corrupted-\(Int(Date().timeIntervalSince1970))")
         
-        // Stop any ongoing operations
-        if _persistentContainer != nil {
-            // Give operations time to finish
-            Thread.sleep(forTimeInterval: 1.0)
-        }
-        
-        // Create backup of corrupted database
         if fileManager.fileExists(atPath: storeURL.path) {
             try fileManager.moveItem(at: storeURL, to: backupURL)
             print("✅ STACK: Corrupted database backed up to \(backupURL.lastPathComponent)")

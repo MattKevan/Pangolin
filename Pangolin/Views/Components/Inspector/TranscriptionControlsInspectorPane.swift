@@ -31,7 +31,9 @@ struct TranscriptionControlsInspectorPane: View {
                     Text("Select language").tag(InputMode.manual)
 
                 }
+                #if os(macOS)
                 .pickerStyle(.radioGroup)
+                #endif
                 .labelsHidden()
                 .frame(maxWidth: .infinity, alignment: .leading)
 

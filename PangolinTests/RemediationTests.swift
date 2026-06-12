@@ -28,18 +28,6 @@ struct RemediationTests {
         #expect(Notification.Name.triggerImportVideos.rawValue == "com.pangolin.triggerImportVideos")
     }
 
-    @Test("Library recreation derives parent directory and plain library name")
-    @MainActor
-    func libraryCreationInputUsesParentDirectory() {
-        let libraryURL = URL(fileURLWithPath: "/tmp/Pangolin/Library.pangolin", isDirectory: true)
-        let input = LibraryManager.libraryCreationInput(from: libraryURL)
-        let recreatedURL = input.parentDirectory.appendingPathComponent("\(input.name).pangolin", isDirectory: true)
-
-        #expect(input.parentDirectory.path == "/tmp/Pangolin")
-        #expect(input.name == "Library")
-        #expect(recreatedURL.path == libraryURL.path)
-    }
-
     @Test("Deletion messaging for single video remains explicit")
     func deletionMessagingForSingleVideo() {
         let item = DeletionItem(id: UUID(), name: "Clip", isFolder: false)

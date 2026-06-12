@@ -139,28 +139,23 @@ class SearchManager: ObservableObject {
         // Create new search task with proper cancellation
         searchTask = Task { @MainActor [weak self] in
             do {
-                // Wait for debounce period
-                try await Task.sleep(for: .milliseconds(Int(self?.debounceDelay ?? 0.5 * 1000)))
+                guard let self else { return }
+                try await Task.sleep(for: .milliseconds(max(1, Int(self.debounceDelay * 1000))))
 
-                // Check if cancelled during sleep
                 guard !Task.isCancelled,
-                      self?.searchRequestID == requestID else {
+                      self.searchRequestID == requestID else {
                     return
                 }
 
-                if self?.isSearching != true {
-                    self?.isSearching = true
+                if !self.isSearching {
+                    self.isSearching = true
                 }
 
-                // Perform the actual search
-                await self?.performSearch(query: trimmedQuery, requestID: requestID)
+                await self.performSearch(query: trimmedQuery, requestID: requestID)
             } catch {
-                // Task was cancelled
                 await MainActor.run {
                     guard self?.searchRequestID == requestID else { return }
-                    if self?.isSearching == true {
-                        self?.isSearching = false
-                    }
+                    self?.isSearching = false
                 }
             }
         }

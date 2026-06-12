@@ -8,7 +8,7 @@ struct MainView: View {
     @EnvironmentObject var videoFileManager: VideoFileManager
     @StateObject private var folderStore: FolderNavigationStore
     @StateObject private var searchManager = SearchManager()
-    @StateObject private var processingQueueManager = ProcessingQueueManager.shared
+    @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
     
     @State private var showingImportPicker = false
     @State private var showingURLImportSheet = false
@@ -48,6 +48,7 @@ struct MainView: View {
         } detail: {
             detailColumn
         }
+        .navigationSplitViewStyle(.balanced)
     }
 
     private var sidebarColumn: some View {
@@ -83,6 +84,7 @@ struct MainView: View {
                         .help("Import videos")
                         .disabled(libraryManager.currentLibrary == nil)
 
+                        #if os(macOS)
                         Button {
                             showingURLImportSheet = true
                         } label: {
@@ -90,6 +92,7 @@ struct MainView: View {
                         }
                         .help("Import from URL")
                         .disabled(libraryManager.currentLibrary == nil)
+                        #endif
                     }
 
                     // Trailing actions
@@ -194,10 +197,22 @@ struct MainView: View {
     private func handleVideoImport(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
-            if let library = libraryManager.currentLibrary, let context = libraryManager.viewContext {
-                Task {
-                    await processingQueueManager.enqueueImport(urls: urls, library: library, context: context)
+            guard let library = libraryManager.currentLibrary,
+                  let context = libraryManager.viewContext else { return }
+            #if os(macOS)
+            for url in urls {
+                _ = url.startAccessingSecurityScopedResource()
+            }
+            #endif
+            Task {
+                #if os(macOS)
+                defer {
+                    for url in urls {
+                        url.stopAccessingSecurityScopedResource()
+                    }
                 }
+                #endif
+                await processingQueueManager.enqueueImport(urls: urls, library: library, context: context)
             }
         case .failure(let error):
             print("Error importing files: \(error)")
@@ -265,9 +280,11 @@ private struct RootImportModifier: ViewModifier {
             ) { result in
                 handleVideoImport(result)
             }
+            #if os(macOS)
             .sheet(isPresented: $showingURLImportSheet) {
                 ImportFromURLSheet(onImport: handleURLImport)
             }
+            #endif
     }
 }
 
@@ -305,9 +322,11 @@ private struct RootEventsModifier: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .triggerImportVideos)) { _ in
                 showingImportPicker = true
             }
+            #if os(macOS)
             .onReceive(NotificationCenter.default.publisher(for: .triggerImportFromURL)) { _ in
                 showingURLImportSheet = true
             }
+            #endif
     }
 }
 

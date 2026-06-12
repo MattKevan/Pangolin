@@ -12,25 +12,6 @@
 	<array>
 		<string>audio</string>
 	</array>
-	<key>UTImportedTypeDeclarations</key>
-	<array>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.pangolin.library</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>com.apple.package</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>Pangolin Library</string>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>pangolin</string>
-				</array>
-			</dict>
-		</dict>
-	</array>
+
 </dict>
 </plist>

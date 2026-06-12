@@ -35,7 +35,9 @@ struct StorageSettingsPane: View {
                             Text(mode.title).tag(mode)
                         }
                     }
+                    #if os(macOS)
                     .pickerStyle(.radioGroup)
+                    #endif
 
                     Text(selectedPreference.subtitle)
                         .font(.caption)

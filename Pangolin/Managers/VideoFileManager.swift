@@ -18,7 +18,7 @@ class VideoFileManager: ObservableObject {
     @Published private(set) var transferSnapshots: [UUID: VideoCloudTransferSnapshot] = [:]
 
     private let fileManager = FileManager.default
-    private let cloudContainerIdentifier = "iCloud.com.newindustries.pangolin"
+    let cloudContainerIdentifier = "iCloud.com.newindustries.pangolin"
     private let retryDelays: [TimeInterval] = [5, 15, 45]
 
     private struct TransferFailureRecord {

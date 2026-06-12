@@ -68,9 +68,7 @@ struct InspectorContentView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        #if os(macOS)
-        
-        #else
+        #if os(iOS)
         .background(Color(.tertiarySystemBackground))
         #endif
         

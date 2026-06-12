@@ -247,7 +247,7 @@ struct TranslationView: View {
     private func loadTimedTranslation() {
         guard let languageCode = video.translatedLanguage,
               !languageCode.isEmpty,
-              let url = libraryManager.timedTranslationURL(for: video, languageCode: languageCode),
+              let url = libraryManager.existingTimedTranslationURL(for: video, languageCode: languageCode),
               FileManager.default.fileExists(atPath: url.path) else {
             chunkIndex = nil
             inlineTokens = []

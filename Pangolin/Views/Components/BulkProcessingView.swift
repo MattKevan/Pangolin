@@ -111,7 +111,7 @@ struct BulkProcessingView: View {
         }
         .padding()
         #if os(macOS)
-        .background(Color(NSColor.controlBackgroundColor))
+        .background(Color.appSecondaryBackground)
         #else
         .background(.regularMaterial)
         #endif
@@ -180,7 +180,7 @@ struct BulkProcessingView: View {
         }
         .padding()
         #if os(macOS)
-        .background(Color(NSColor.controlBackgroundColor))
+        .background(Color.appSecondaryBackground)
         #else
         .background(.regularMaterial)
         #endif

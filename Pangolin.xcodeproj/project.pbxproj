@@ -7,270 +7,553 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		29778CD62E732073000983C2 /* CloudKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 29778CD52E732073000983C2 /* CloudKit.framework */; };
-		C95D99B02E6EE5DB0041D37D /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = C95D99AF2E6EE5DB0041D37D /* MarkdownUI */; };
+		003AC721D036C59CA93AEDDD /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = A31540D5BB20CA519BC50E0D /* MarkdownUI */; };
+		009A57343301D60C04BF279A /* ProcessingControlsInspectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DAB7C10ACE6D59F613BA7E /* ProcessingControlsInspectorView.swift */; };
+		00B3CFCDA690133D196A8EF0 /* ProcessingPopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE429A782F01433C102B5359 /* ProcessingPopoverView.swift */; };
+		0AA75B388DBB5E7239A80752 /* TimedTranscriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C89494E75B3F5670DC22BCE5 /* TimedTranscriptTests.swift */; };
+		0F41C58DED6003BD54F6C6AF /* SearchManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75E24246155926F87F9ACD93 /* SearchManager.swift */; };
+		1022F2DF842A83309743E04B /* TimedTranslationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33232B10DCFE883C5127E91F /* TimedTranslationTests.swift */; };
+		111AA9BB22CC33DD44EE55FF /* LibraryManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 666AA9BB22CC33DD44EE55FF /* LibraryManagerTests.swift */; };
+		10B58336F14A243217C8E30D /* VideoFileStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FCD6B573253D5AEE638D14D /* VideoFileStatusView.swift */; };
+		12669B6FB29CE3545D87D7D1 /* MainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 091EDCBD5D29E9655B8F22B9 /* MainView.swift */; };
+		134C6A6D2F93414FA95C00BF /* FileSystemManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7160DB97F1F9C256A9B53DA2 /* FileSystemManager.swift */; };
+		15FFD2DD3D813A825A4960F5 /* FolderNavigationHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B667E82EE2E6FA1FF993AE85 /* FolderNavigationHeader.swift */; };
+		181E418B66DFA1C1FD968271 /* SummaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC33176EA111CFE584E008C7 /* SummaryView.swift */; };
+		1921EE75648C8527AD2F6A3C /* TimedTranscript.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBA2EF5EFABCACED3FB79E96 /* TimedTranscript.swift */; };
+		1B457B76BC0E9C27E556C133 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2F5C0FE5D539426573705B6 /* SettingsView.swift */; };
+		26DB1FB0B8894A44A3C506C8 /* VideoPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B24B035147F0F00E66A73A8 /* VideoPlayerView.swift */; };
+		29449FC602ECDFACC844F590 /* InspectorContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFEA6C8077F01019D192E39B /* InspectorContentView.swift */; };
+		2D64A301F7A314A50EE55D34 /* SmartFolderTablePane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 403FC129208DEA29D228541A /* SmartFolderTablePane.swift */; };
+		2DDBB0A4CEBA4182E651A0D9 /* DetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE9FE6DE5253A6ECFF499436 /* DetailView.swift */; };
+		32D30A3C1029DD8820B6CC7C /* DraggableSplitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 010A5B83922FC98F95915E1B /* DraggableSplitter.swift */; };
+		3922661902D5C0EE3DDA696E /* TranscriptWordWrapLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 092308F52224A524D8B4AC17 /* TranscriptWordWrapLayout.swift */; };
+		3DF35C9D6B1BEC261EACA352 /* PangolinTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AED33C7E1B0F16EC012EFE88 /* PangolinTests.swift */; };
+		41F7162C225EBB77989817C2 /* VideoDropDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE3F76497DFE65EFEF8C56F7 /* VideoDropDelegate.swift */; };
+		4533CB65CBE866864FF3BED1 /* VideoPlayerWithPosterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AB79366C9C180F9583DB911 /* VideoPlayerWithPosterView.swift */; };
+		45A2508BC3053408F3C51029 /* FolderTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 310B404B1B230FF1B09DD729 /* FolderTransfer.swift */; };
+		479BB67D62B6E74B8241F339 /* SpeechTranscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A086969CAA09848469601A /* SpeechTranscriptionService.swift */; };
+		4AB94E061F34B472BC2CBBA8 /* RemediationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2FEE876C0C2B4C24C1D791C /* RemediationTests.swift */; };
+		4D4D7B161BF23E1643421A28 /* SummaryControlsInspectorPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6291936AFC754AA338AA3C48 /* SummaryControlsInspectorPane.swift */; };
+		521FACFFDF571108AEE2CBE6 /* FolderContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2D9F2D0F5A0A6478889ACE4 /* FolderContentView.swift */; };
+		56769393E12EEDD709C73B50 /* URL+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6824F9BCDE602C2505665766 /* URL+Extensions.swift */; };
+		605B15F28A91BF0AB2B13E7E /* RemoteVideoDownloadService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33D1FFB47DD09AA360FB045A /* RemoteVideoDownloadService.swift */; };
+		6085D8CD2EBDAC9AB119A3D8 /* Color+App.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE120B3470BFEBFC9D670F63 /* Color+App.swift */; };
+		644135DAA4353AD235797257 /* HierarchicalContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEEBFE89C280C586735C6FC7 /* HierarchicalContent.swift */; };
+		6B51438583135C2EB79E3701 /* PangolinUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A9B81E039A968477C16F58 /* PangolinUITests.swift */; };
+		6E2995B427F3129F0B67DCD5 /* NotificationNames.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86B611BB84647CA843D18BC3 /* NotificationNames.swift */; };
+		72D7765CD0E0C808260BC3D8 /* FlashcardDeck.swift in Sources */ = {isa = PBXBuildFile; fileRef = D371D926B3F7AE8BE35CC922 /* FlashcardDeck.swift */; };
+		72F0399CFA145FA2E346F611 /* VideoInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1BE5070664320957B635ECC /* VideoInfoView.swift */; };
+		766EF5589BC5752005D30E70 /* VideoImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A045487B2FE1283F242CCC3B /* VideoImporter.swift */; };
+		7720E19D0FD7B9525C2731E7 /* FlashcardsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02A596FCF8EA79F240A4848F /* FlashcardsView.swift */; };
+		78C9E2382B4F3539FDB2C9C8 /* LibraryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8796FDF9EC95EE40753861E0 /* LibraryManager.swift */; };
+		81DB7AB699030A33F4E52764 /* TranscriptionControlsInspectorPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65E3867F55B97D2B31E1842E /* TranscriptionControlsInspectorPane.swift */; };
+		8480F37116C7A5A3E2968430 /* ContentRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 861A4C66A40173589AAB6E62 /* ContentRowView.swift */; };
+		86D0F8FDF9438334D48661DC /* TranslationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FD96B9CC3A8E47CA7E63F3F /* TranslationView.swift */; };
+		8CE05D483BC3AAE518A151F8 /* StoragePolicyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89DD7E34D0188A5E58511B76 /* StoragePolicyManager.swift */; };
+		8DCB91E528CB0CB512BD05D9 /* CircularProgressButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 569384A914040FDEA22D9202 /* CircularProgressButton.swift */; };
+		90C1B84CC2542DC4B6F7646C /* DeletionConfirmationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50BC09F91F4360B7125654F7 /* DeletionConfirmationView.swift */; };
+		97C6655CDFEEA705CFB94687 /* PlatformUtilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BEDC99BCD54F1AD69279744 /* PlatformUtilities.swift */; };
+		988401B5BCD8D919C9782DF9 /* ImportFromURLSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59161F0FC147530F7B139E9B /* ImportFromURLSheet.swift */; };
+		9AE202483B909790613F7DF7 /* ContentTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23429E992895DE201E2610C1 /* ContentTransfer.swift */; };
+		9EAF12DFD6C9411BF74C2836 /* PangolinApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA4DD32EC9273AD5C842C964 /* PangolinApp.swift */; };
+		9FB8418A22D7938662500206 /* Pangolin.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = 32E26A88A7BB8D934985B233 /* Pangolin.xcdatamodeld */; };
+		A28015091F5194662393F277 /* ImportProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40C2CA044D4385BE8F180BB7 /* ImportProgressView.swift */; };
+		A6BFE4153CE06500F5F56C63 /* VideoResultsTableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BE16050A3F83DBCB90E7498 /* VideoResultsTableView.swift */; };
+		A87115296EC7BCB4E0E4D051 /* FolderNavigationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E1B57D048336E48879E966 /* FolderNavigationStore.swift */; };
+		A8BCF5998519966FA0AE9FAE /* BulkProcessingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00DDC1D36638B5015B49BA22 /* BulkProcessingView.swift */; };
+		A8BD0147D2629F298FCCA376 /* TranscriptionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90BEF1F008BEA178FB54B820 /* TranscriptionView.swift */; };
+		A9D2FAECEAB30BC1CB5F0B84 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B826334966CFA30421D4C10 /* SidebarView.swift */; };
+		AA8E9CCE19815FC923AAF711 /* VideoThumbnailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 966068E6F758B9BE50FCFCE1 /* VideoThumbnailView.swift */; };
+		AB0D278195A92B0EC871679A /* ProcessingTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EB30D7CF0707906EAC655F7 /* ProcessingTask.swift */; };
+		AC0187C942A60A57B2E51357 /* PangolinUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 842EF6A04CD045279F43F0D7 /* PangolinUITestsLaunchTests.swift */; };
+		AE5ECEDB04FCD0593AA599F8 /* SmartCollectionKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = F137A1C1D1623F320D619E4C /* SmartCollectionKind.swift */; };
+		B15AAFFD0179CA028C380A88 /* TranslationControlsInspectorPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD5A94DE51C30112B9E9813C /* TranslationControlsInspectorPane.swift */; };
+		B3D157785A8450C59CD4C761 /* ProcessingQueueManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6FC785A62810E36F1519BF8 /* ProcessingQueueManager.swift */; };
+		BCE45B8F2B0D9CBEA9E52DDE /* FlashcardDeckTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDC54AB0734EFC82F6031500 /* FlashcardDeckTests.swift */; };
+		BF594089CDCDE4CB991B950B /* View+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A41882A210B40FD0B460F23 /* View+Extensions.swift */; };
+		C10A280FEB10EF9E378BD496 /* SearchResultsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E03337D8A161B064A05393C /* SearchResultsView.swift */; };
+		C36184497F2E7496D80099A1 /* CloudKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C3B0CC4C85ABAAEE8DB5B335 /* CloudKit.framework */; };
+		C50D5400D8E2727DAEF77FC0 /* TimedTranslation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EC118B2F7135B31D5508048 /* TimedTranslation.swift */; };
+		C977B7ACA46D1D13E964AA87 /* VideoFileManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99ACA89AE7A7E00054087363 /* VideoFileManager.swift */; };
+		CF3C51EC9802684F12BCC36D /* SearchEvidenceBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 460FB924FE1BD275776D10BA /* SearchEvidenceBuilder.swift */; };
+		D0944E97463372EE959C8CBF /* LibraryContentProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81BE753E04BED233142777A /* LibraryContentProvider.swift */; };
+		D2D8ACE0495F477323ACA9BD /* VideoPlayerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EAC0F600D0843ED7770572A /* VideoPlayerViewModel.swift */; };
+		D531CD4F6C49E7142208E230 /* CoreDataStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96E65EE14F17FAD0C4A95166 /* CoreDataStack.swift */; };
+		E0368C18C803DE394FFB41AA /* FlashcardsControlsInspectorPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 891BCBFC27CC37FEBA9674A4 /* FlashcardsControlsInspectorPane.swift */; };
+		E0BE193BFE9526D3AF19B918 /* ProcessingQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = C82F9C173483A73DD7C2D0A9 /* ProcessingQueue.swift */; };
+		E24022C3423E6DAAB5B8BD83 /* AllVideosImportDropModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F9329B526137D7325808278 /* AllVideosImportDropModifier.swift */; };
+		E72D0163211BE06DF347B1D7 /* StorageSettingsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9AF4F7D6AB775BE65B16281 /* StorageSettingsPane.swift */; };
+		EB485127D639337042F4F6CA /* VideoModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0494EEFBA9CEA95212F8DA3 /* VideoModel.swift */; };
+		EBFDFC4A9483355B2ABC6FE6 /* SearchPresentationModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9505F39918347E4BA4039BC9 /* SearchPresentationModels.swift */; };
+		F9B841C4C410F7C86B8C6765 /* FolderOutlineRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAF1956461F145BF4A555D6F /* FolderOutlineRow.swift */; };
+		FCAD5122E1D3D0ABCE29116D /* SubtitleMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F15031DC46A09DBA22A04B7 /* SubtitleMatcher.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		29CDD6502E5119C800E0B663 /* PBXContainerItemProxy */ = {
+		529E7ECF1CCD7738250C0FEC /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
-			containerPortal = 29CDD6342E5119C700E0B663 /* Project object */;
+			containerPortal = 9752CAEE92B1D98C2994436D /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = 29CDD63B2E5119C700E0B663;
+			remoteGlobalIDString = 6143056D564C61A4930CEA72;
 			remoteInfo = Pangolin;
 		};
-		29CDD65A2E5119C800E0B663 /* PBXContainerItemProxy */ = {
+		7F451F6561FE4BDC5542E128 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
-			containerPortal = 29CDD6342E5119C700E0B663 /* Project object */;
+			containerPortal = 9752CAEE92B1D98C2994436D /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = 29CDD63B2E5119C700E0B663;
+			remoteGlobalIDString = 6143056D564C61A4930CEA72;
 			remoteInfo = Pangolin;
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		29778CD52E732073000983C2 /* CloudKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CloudKit.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/CloudKit.framework; sourceTree = DEVELOPER_DIR; };
-		29CDD63C2E5119C700E0B663 /* Pangolin.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Pangolin.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		29CDD64F2E5119C800E0B663 /* PangolinTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PangolinTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		29CDD6592E5119C800E0B663 /* PangolinUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PangolinUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		C996D48B2F4F0F9300908F5E /* Tools */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Tools; path = Pangolin/Resources/Tools; sourceTree = "<group>"; };
+		00DDC1D36638B5015B49BA22 /* BulkProcessingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BulkProcessingView.swift; sourceTree = "<group>"; };
+		010A5B83922FC98F95915E1B /* DraggableSplitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DraggableSplitter.swift; sourceTree = "<group>"; };
+		02A596FCF8EA79F240A4848F /* FlashcardsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlashcardsView.swift; sourceTree = "<group>"; };
+		091EDCBD5D29E9655B8F22B9 /* MainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainView.swift; sourceTree = "<group>"; };
+		092308F52224A524D8B4AC17 /* TranscriptWordWrapLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptWordWrapLayout.swift; sourceTree = "<group>"; };
+		0F15031DC46A09DBA22A04B7 /* SubtitleMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubtitleMatcher.swift; sourceTree = "<group>"; };
+		1AB79366C9C180F9583DB911 /* VideoPlayerWithPosterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerWithPosterView.swift; sourceTree = "<group>"; };
+		23429E992895DE201E2610C1 /* ContentTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentTransfer.swift; sourceTree = "<group>"; };
+		310B404B1B230FF1B09DD729 /* FolderTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderTransfer.swift; sourceTree = "<group>"; };
+		33232B10DCFE883C5127E91F /* TimedTranslationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimedTranslationTests.swift; sourceTree = "<group>"; };
+		33D1FFB47DD09AA360FB045A /* RemoteVideoDownloadService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteVideoDownloadService.swift; sourceTree = "<group>"; };
+		3B826334966CFA30421D4C10 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
+		3E03337D8A161B064A05393C /* SearchResultsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchResultsView.swift; sourceTree = "<group>"; };
+		403FC129208DEA29D228541A /* SmartFolderTablePane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartFolderTablePane.swift; sourceTree = "<group>"; };
+		40C2CA044D4385BE8F180BB7 /* ImportProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportProgressView.swift; sourceTree = "<group>"; };
+		460FB924FE1BD275776D10BA /* SearchEvidenceBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchEvidenceBuilder.swift; sourceTree = "<group>"; };
+		4EAC0F600D0843ED7770572A /* VideoPlayerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerViewModel.swift; sourceTree = "<group>"; };
+		4EB30D7CF0707906EAC655F7 /* ProcessingTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessingTask.swift; sourceTree = "<group>"; };
+		50BC09F91F4360B7125654F7 /* DeletionConfirmationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeletionConfirmationView.swift; sourceTree = "<group>"; };
+		569384A914040FDEA22D9202 /* CircularProgressButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CircularProgressButton.swift; sourceTree = "<group>"; };
+		59161F0FC147530F7B139E9B /* ImportFromURLSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportFromURLSheet.swift; sourceTree = "<group>"; };
+		5BE16050A3F83DBCB90E7498 /* VideoResultsTableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoResultsTableView.swift; sourceTree = "<group>"; };
+		5BEDC99BCD54F1AD69279744 /* PlatformUtilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformUtilities.swift; sourceTree = "<group>"; };
+		6291936AFC754AA338AA3C48 /* SummaryControlsInspectorPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryControlsInspectorPane.swift; sourceTree = "<group>"; };
+		65E3867F55B97D2B31E1842E /* TranscriptionControlsInspectorPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionControlsInspectorPane.swift; sourceTree = "<group>"; };
+		666AA9BB22CC33DD44EE55FF /* LibraryManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryManagerTests.swift; sourceTree = "<group>"; };
+		6824F9BCDE602C2505665766 /* URL+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "URL+Extensions.swift"; sourceTree = "<group>"; };
+		6A41882A210B40FD0B460F23 /* View+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+Extensions.swift"; sourceTree = "<group>"; };
+		6EC118B2F7135B31D5508048 /* TimedTranslation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimedTranslation.swift; sourceTree = "<group>"; };
+		6FCD6B573253D5AEE638D14D /* VideoFileStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFileStatusView.swift; sourceTree = "<group>"; };
+		6FD96B9CC3A8E47CA7E63F3F /* TranslationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranslationView.swift; sourceTree = "<group>"; };
+		7160DB97F1F9C256A9B53DA2 /* FileSystemManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSystemManager.swift; sourceTree = "<group>"; };
+		75E24246155926F87F9ACD93 /* SearchManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchManager.swift; sourceTree = "<group>"; };
+		7B24B035147F0F00E66A73A8 /* VideoPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerView.swift; sourceTree = "<group>"; };
+		842EF6A04CD045279F43F0D7 /* PangolinUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PangolinUITestsLaunchTests.swift; sourceTree = "<group>"; };
+		861A4C66A40173589AAB6E62 /* ContentRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentRowView.swift; sourceTree = "<group>"; };
+		86B611BB84647CA843D18BC3 /* NotificationNames.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationNames.swift; sourceTree = "<group>"; };
+		8796FDF9EC95EE40753861E0 /* LibraryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryManager.swift; sourceTree = "<group>"; };
+		891BCBFC27CC37FEBA9674A4 /* FlashcardsControlsInspectorPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlashcardsControlsInspectorPane.swift; sourceTree = "<group>"; };
+		89DD7E34D0188A5E58511B76 /* StoragePolicyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoragePolicyManager.swift; sourceTree = "<group>"; };
+		90BEF1F008BEA178FB54B820 /* TranscriptionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionView.swift; sourceTree = "<group>"; };
+		9505F39918347E4BA4039BC9 /* SearchPresentationModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchPresentationModels.swift; sourceTree = "<group>"; };
+		966068E6F758B9BE50FCFCE1 /* VideoThumbnailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoThumbnailView.swift; sourceTree = "<group>"; };
+		96E65EE14F17FAD0C4A95166 /* CoreDataStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreDataStack.swift; sourceTree = "<group>"; };
+		99ACA89AE7A7E00054087363 /* VideoFileManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFileManager.swift; sourceTree = "<group>"; };
+		9F9329B526137D7325808278 /* AllVideosImportDropModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AllVideosImportDropModifier.swift; sourceTree = "<group>"; };
+		A045487B2FE1283F242CCC3B /* VideoImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoImporter.swift; sourceTree = "<group>"; };
+		A1A9B81E039A968477C16F58 /* PangolinUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PangolinUITests.swift; sourceTree = "<group>"; };
+		A2FEE876C0C2B4C24C1D791C /* RemediationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemediationTests.swift; sourceTree = "<group>"; };
+		AC33176EA111CFE584E008C7 /* SummaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryView.swift; sourceTree = "<group>"; };
+		AE0F3204636BE512D5DE1195 /* Pangolin.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = Pangolin.xcdatamodel; sourceTree = "<group>"; };
+		AED33C7E1B0F16EC012EFE88 /* PangolinTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PangolinTests.swift; sourceTree = "<group>"; };
+		AFEA6C8077F01019D192E39B /* InspectorContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorContentView.swift; sourceTree = "<group>"; };
+		B1BE5070664320957B635ECC /* VideoInfoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoInfoView.swift; sourceTree = "<group>"; };
+		B2F5C0FE5D539426573705B6 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		B48AC61F9B3044E9AF10C8FE /* PangolinTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PangolinTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B667E82EE2E6FA1FF993AE85 /* FolderNavigationHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderNavigationHeader.swift; sourceTree = "<group>"; };
+		B6FC785A62810E36F1519BF8 /* ProcessingQueueManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessingQueueManager.swift; sourceTree = "<group>"; };
+		B7E1B57D048336E48879E966 /* FolderNavigationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderNavigationStore.swift; sourceTree = "<group>"; };
+		B9AF4F7D6AB775BE65B16281 /* StorageSettingsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageSettingsPane.swift; sourceTree = "<group>"; };
+		BBB8F6F646D0193937B61A73 /* Pangolin.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Pangolin.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BE120B3470BFEBFC9D670F63 /* Color+App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Color+App.swift"; sourceTree = "<group>"; };
+		BE3F76497DFE65EFEF8C56F7 /* VideoDropDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoDropDelegate.swift; sourceTree = "<group>"; };
+		C0DAB7C10ACE6D59F613BA7E /* ProcessingControlsInspectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessingControlsInspectorView.swift; sourceTree = "<group>"; };
+		C0DCE588E82ACDF77ED0947E /* PangolinUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PangolinUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C3B0CC4C85ABAAEE8DB5B335 /* CloudKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CloudKit.framework; path = System/Library/Frameworks/CloudKit.framework; sourceTree = SDKROOT; };
+		C82F9C173483A73DD7C2D0A9 /* ProcessingQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessingQueue.swift; sourceTree = "<group>"; };
+		C89494E75B3F5670DC22BCE5 /* TimedTranscriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimedTranscriptTests.swift; sourceTree = "<group>"; };
+		CA4DD32EC9273AD5C842C964 /* PangolinApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PangolinApp.swift; sourceTree = "<group>"; };
+		D0494EEFBA9CEA95212F8DA3 /* VideoModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoModel.swift; sourceTree = "<group>"; };
+		D371D926B3F7AE8BE35CC922 /* FlashcardDeck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlashcardDeck.swift; sourceTree = "<group>"; };
+		DAF1956461F145BF4A555D6F /* FolderOutlineRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderOutlineRow.swift; sourceTree = "<group>"; };
+		DBA2EF5EFABCACED3FB79E96 /* TimedTranscript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimedTranscript.swift; sourceTree = "<group>"; };
+		DDC54AB0734EFC82F6031500 /* FlashcardDeckTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlashcardDeckTests.swift; sourceTree = "<group>"; };
+		E81BE753E04BED233142777A /* LibraryContentProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryContentProvider.swift; sourceTree = "<group>"; };
+		EE429A782F01433C102B5359 /* ProcessingPopoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessingPopoverView.swift; sourceTree = "<group>"; };
+		EE9FE6DE5253A6ECFF499436 /* DetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailView.swift; sourceTree = "<group>"; };
+		EEEBFE89C280C586735C6FC7 /* HierarchicalContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HierarchicalContent.swift; sourceTree = "<group>"; };
+		F137A1C1D1623F320D619E4C /* SmartCollectionKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartCollectionKind.swift; sourceTree = "<group>"; };
+		F2A086969CAA09848469601A /* SpeechTranscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechTranscriptionService.swift; sourceTree = "<group>"; };
+		F2D9F2D0F5A0A6478889ACE4 /* FolderContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderContentView.swift; sourceTree = "<group>"; };
+		FD5A94DE51C30112B9E9813C /* TranslationControlsInspectorPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranslationControlsInspectorPane.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		29CDD6B52E51539400E0B663 /* Exceptions for "Pangolin" folder in "Pangolin" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = 29CDD63B2E5119C700E0B663 /* Pangolin */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
-/* Begin PBXFileSystemSynchronizedRootGroup section */
-		29CDD63E2E5119C700E0B663 /* Pangolin */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				29CDD6B52E51539400E0B663 /* Exceptions for "Pangolin" folder in "Pangolin" target */,
-			);
-			path = Pangolin;
-			sourceTree = "<group>";
-		};
-		29CDD6522E5119C800E0B663 /* PangolinTests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = PangolinTests;
-			sourceTree = "<group>";
-		};
-		29CDD65C2E5119C800E0B663 /* PangolinUITests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = PangolinUITests;
-			sourceTree = "<group>";
-		};
-/* End PBXFileSystemSynchronizedRootGroup section */
-
 /* Begin PBXFrameworksBuildPhase section */
-		29CDD6392E5119C700E0B663 /* Frameworks */ = {
+		481FF60C2F6D1870AC782AEC /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				C95D99B02E6EE5DB0041D37D /* MarkdownUI in Frameworks */,
-				29778CD62E732073000983C2 /* CloudKit.framework in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		29CDD64C2E5119C800E0B663 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		29CDD6562E5119C800E0B663 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
+				003AC721D036C59CA93AEDDD /* MarkdownUI in Frameworks */,
+				C36184497F2E7496D80099A1 /* CloudKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		29778CD42E732073000983C2 /* Frameworks */ = {
+		0228B3329436B85A9B317056 /* FolderContent */ = {
 			isa = PBXGroup;
 			children = (
-				29778CD52E732073000983C2 /* CloudKit.framework */,
+				9F9329B526137D7325808278 /* AllVideosImportDropModifier.swift */,
+				DAF1956461F145BF4A555D6F /* FolderOutlineRow.swift */,
+				403FC129208DEA29D228541A /* SmartFolderTablePane.swift */,
+			);
+			path = FolderContent;
+			sourceTree = "<group>";
+		};
+		1F896288C196A88BE6D2505A /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				23429E992895DE201E2610C1 /* ContentTransfer.swift */,
+				D371D926B3F7AE8BE35CC922 /* FlashcardDeck.swift */,
+				310B404B1B230FF1B09DD729 /* FolderTransfer.swift */,
+				EEEBFE89C280C586735C6FC7 /* HierarchicalContent.swift */,
+				C82F9C173483A73DD7C2D0A9 /* ProcessingQueue.swift */,
+				4EB30D7CF0707906EAC655F7 /* ProcessingTask.swift */,
+				9505F39918347E4BA4039BC9 /* SearchPresentationModels.swift */,
+				F137A1C1D1623F320D619E4C /* SmartCollectionKind.swift */,
+				DBA2EF5EFABCACED3FB79E96 /* TimedTranscript.swift */,
+				6EC118B2F7135B31D5508048 /* TimedTranslation.swift */,
+				D0494EEFBA9CEA95212F8DA3 /* VideoModel.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		270446D81F7D828713C85280 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				B2F5C0FE5D539426573705B6 /* SettingsView.swift */,
+				B9AF4F7D6AB775BE65B16281 /* StorageSettingsPane.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		2A28C9FADE99F5258D31E8BB /* Import */ = {
+			isa = PBXGroup;
+			children = (
+				0F15031DC46A09DBA22A04B7 /* SubtitleMatcher.swift */,
+				BE3F76497DFE65EFEF8C56F7 /* VideoDropDelegate.swift */,
+				A045487B2FE1283F242CCC3B /* VideoImporter.swift */,
+			);
+			path = Import;
+			sourceTree = "<group>";
+		};
+		3166820F8BA42C6BBC3BAC13 /* CoreData */ = {
+			isa = PBXGroup;
+			children = (
+				96E65EE14F17FAD0C4A95166 /* CoreDataStack.swift */,
+			);
+			path = CoreData;
+			sourceTree = "<group>";
+		};
+		3314637F8643B313ABED60D9 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				4EAC0F600D0843ED7770572A /* VideoPlayerViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		3F011B3BCFDCD02885FE7414 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				C3B0CC4C85ABAAEE8DB5B335 /* CloudKit.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
-		29CDD6332E5119C700E0B663 = {
+		77102A99AAB646CF0DE4AFA3 /* PangolinUITests */ = {
 			isa = PBXGroup;
 			children = (
-				C996D48B2F4F0F9300908F5E /* Tools */,
-				29CDD63E2E5119C700E0B663 /* Pangolin */,
-				29CDD6522E5119C800E0B663 /* PangolinTests */,
-				29CDD65C2E5119C800E0B663 /* PangolinUITests */,
-				29778CD42E732073000983C2 /* Frameworks */,
-				29CDD63D2E5119C700E0B663 /* Products */,
+				A1A9B81E039A968477C16F58 /* PangolinUITests.swift */,
+				842EF6A04CD045279F43F0D7 /* PangolinUITestsLaunchTests.swift */,
+			);
+			path = PangolinUITests;
+			sourceTree = "<group>";
+		};
+		8412CF6423CA254ADFE1CCE6 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				BBB8F6F646D0193937B61A73 /* Pangolin.app */,
+				B48AC61F9B3044E9AF10C8FE /* PangolinTests.xctest */,
+				C0DCE588E82ACDF77ED0947E /* PangolinUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A635AF8C38BB5CCE076F6C46 /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				00DDC1D36638B5015B49BA22 /* BulkProcessingView.swift */,
+				569384A914040FDEA22D9202 /* CircularProgressButton.swift */,
+				861A4C66A40173589AAB6E62 /* ContentRowView.swift */,
+				50BC09F91F4360B7125654F7 /* DeletionConfirmationView.swift */,
+				010A5B83922FC98F95915E1B /* DraggableSplitter.swift */,
+				02A596FCF8EA79F240A4848F /* FlashcardsView.swift */,
+				F2D9F2D0F5A0A6478889ACE4 /* FolderContentView.swift */,
+				B667E82EE2E6FA1FF993AE85 /* FolderNavigationHeader.swift */,
+				AFEA6C8077F01019D192E39B /* InspectorContentView.swift */,
+				EE429A782F01433C102B5359 /* ProcessingPopoverView.swift */,
+				AC33176EA111CFE584E008C7 /* SummaryView.swift */,
+				90BEF1F008BEA178FB54B820 /* TranscriptionView.swift */,
+				092308F52224A524D8B4AC17 /* TranscriptWordWrapLayout.swift */,
+				6FD96B9CC3A8E47CA7E63F3F /* TranslationView.swift */,
+				6FCD6B573253D5AEE638D14D /* VideoFileStatusView.swift */,
+				B1BE5070664320957B635ECC /* VideoInfoView.swift */,
+				1AB79366C9C180F9583DB911 /* VideoPlayerWithPosterView.swift */,
+				5BE16050A3F83DBCB90E7498 /* VideoResultsTableView.swift */,
+				966068E6F758B9BE50FCFCE1 /* VideoThumbnailView.swift */,
+				0228B3329436B85A9B317056 /* FolderContent */,
+				EF0E7FE3470DA221230CCD16 /* Inspector */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		ACB716315B893ED37348DF7D /* Managers */ = {
+			isa = PBXGroup;
+			children = (
+				7160DB97F1F9C256A9B53DA2 /* FileSystemManager.swift */,
+				E81BE753E04BED233142777A /* LibraryContentProvider.swift */,
+				8796FDF9EC95EE40753861E0 /* LibraryManager.swift */,
+				B6FC785A62810E36F1519BF8 /* ProcessingQueueManager.swift */,
+				460FB924FE1BD275776D10BA /* SearchEvidenceBuilder.swift */,
+				75E24246155926F87F9ACD93 /* SearchManager.swift */,
+				89DD7E34D0188A5E58511B76 /* StoragePolicyManager.swift */,
+				99ACA89AE7A7E00054087363 /* VideoFileManager.swift */,
+			);
+			path = Managers;
+			sourceTree = "<group>";
+		};
+		C57E2260811B202C558DD554 /* PangolinTests */ = {
+			isa = PBXGroup;
+			children = (
+				DDC54AB0734EFC82F6031500 /* FlashcardDeckTests.swift */,
+				666AA9BB22CC33DD44EE55FF /* LibraryManagerTests.swift */,
+				AED33C7E1B0F16EC012EFE88 /* PangolinTests.swift */,
+				A2FEE876C0C2B4C24C1D791C /* RemediationTests.swift */,
+				C89494E75B3F5670DC22BCE5 /* TimedTranscriptTests.swift */,
+				33232B10DCFE883C5127E91F /* TimedTranslationTests.swift */,
+			);
+			path = PangolinTests;
+			sourceTree = "<group>";
+		};
+		C74626D004E61C05E87E847F /* Extensions */ = {
+			isa = PBXGroup;
+			children = (
+				6824F9BCDE602C2505665766 /* URL+Extensions.swift */,
+				6A41882A210B40FD0B460F23 /* View+Extensions.swift */,
+			);
+			path = Extensions;
+			sourceTree = "<group>";
+		};
+		C92BA0FC792077E4B2B03850 /* Stores */ = {
+			isa = PBXGroup;
+			children = (
+				B7E1B57D048336E48879E966 /* FolderNavigationStore.swift */,
+			);
+			path = Stores;
+			sourceTree = "<group>";
+		};
+		DCAB438B96D97F3F9590F468 /* Utilities */ = {
+			isa = PBXGroup;
+			children = (
+				BE120B3470BFEBFC9D670F63 /* Color+App.swift */,
+				86B611BB84647CA843D18BC3 /* NotificationNames.swift */,
+				5BEDC99BCD54F1AD69279744 /* PlatformUtilities.swift */,
+			);
+			path = Utilities;
+			sourceTree = "<group>";
+		};
+		E28693350DD28B106090B02F /* Pangolin */ = {
+			isa = PBXGroup;
+			children = (
+				CA4DD32EC9273AD5C842C964 /* PangolinApp.swift */,
+				3166820F8BA42C6BBC3BAC13 /* CoreData */,
+				C74626D004E61C05E87E847F /* Extensions */,
+				2A28C9FADE99F5258D31E8BB /* Import */,
+				ACB716315B893ED37348DF7D /* Managers */,
+				1F896288C196A88BE6D2505A /* Models */,
+				32E26A88A7BB8D934985B233 /* Pangolin.xcdatamodeld */,
+				E7A54FA201ED4751E28CCDB7 /* Services */,
+				C92BA0FC792077E4B2B03850 /* Stores */,
+				DCAB438B96D97F3F9590F468 /* Utilities */,
+				3314637F8643B313ABED60D9 /* ViewModels */,
+				FF8A53697CD2F504E1BF71DA /* Views */,
+			);
+			path = Pangolin;
+			sourceTree = "<group>";
+		};
+		E7A54FA201ED4751E28CCDB7 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				33D1FFB47DD09AA360FB045A /* RemoteVideoDownloadService.swift */,
+				F2A086969CAA09848469601A /* SpeechTranscriptionService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		E99444EA1ABE00A753FB233B = {
+			isa = PBXGroup;
+			children = (
+				E28693350DD28B106090B02F /* Pangolin */,
+				C57E2260811B202C558DD554 /* PangolinTests */,
+				77102A99AAB646CF0DE4AFA3 /* PangolinUITests */,
+				3F011B3BCFDCD02885FE7414 /* Frameworks */,
+				8412CF6423CA254ADFE1CCE6 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		29CDD63D2E5119C700E0B663 /* Products */ = {
+		EF0E7FE3470DA221230CCD16 /* Inspector */ = {
 			isa = PBXGroup;
 			children = (
-				29CDD63C2E5119C700E0B663 /* Pangolin.app */,
-				29CDD64F2E5119C800E0B663 /* PangolinTests.xctest */,
-				29CDD6592E5119C800E0B663 /* PangolinUITests.xctest */,
+				891BCBFC27CC37FEBA9674A4 /* FlashcardsControlsInspectorPane.swift */,
+				C0DAB7C10ACE6D59F613BA7E /* ProcessingControlsInspectorView.swift */,
+				6291936AFC754AA338AA3C48 /* SummaryControlsInspectorPane.swift */,
+				65E3867F55B97D2B31E1842E /* TranscriptionControlsInspectorPane.swift */,
+				FD5A94DE51C30112B9E9813C /* TranslationControlsInspectorPane.swift */,
 			);
-			name = Products;
+			path = Inspector;
+			sourceTree = "<group>";
+		};
+		FF8A53697CD2F504E1BF71DA /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				EE9FE6DE5253A6ECFF499436 /* DetailView.swift */,
+				59161F0FC147530F7B139E9B /* ImportFromURLSheet.swift */,
+				40C2CA044D4385BE8F180BB7 /* ImportProgressView.swift */,
+				091EDCBD5D29E9655B8F22B9 /* MainView.swift */,
+				3E03337D8A161B064A05393C /* SearchResultsView.swift */,
+				3B826334966CFA30421D4C10 /* SidebarView.swift */,
+				7B24B035147F0F00E66A73A8 /* VideoPlayerView.swift */,
+				A635AF8C38BB5CCE076F6C46 /* Components */,
+				270446D81F7D828713C85280 /* Settings */,
+			);
+			path = Views;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		29CDD63B2E5119C700E0B663 /* Pangolin */ = {
+		01FC95E73DE7AE18A8684C3F /* PangolinUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 29CDD6632E5119C800E0B663 /* Build configuration list for PBXNativeTarget "Pangolin" */;
+			buildConfigurationList = 354F5525A3E21F67EBBA0109 /* Build configuration list for PBXNativeTarget "PangolinUITests" */;
 			buildPhases = (
-				29CDD6382E5119C700E0B663 /* Sources */,
-				29CDD6392E5119C700E0B663 /* Frameworks */,
-				29CDD63A2E5119C700E0B663 /* Resources */,
-				C996D48D2F4F139400908F5E /* ShellScript */,
-				C996D48E2F4F13B400908F5E /* ShellScript */,
+				BBAA15800D3B1C4528D3ACDE /* Sources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				29CDD63E2E5119C700E0B663 /* Pangolin */,
-			);
-			name = Pangolin;
-			packageProductDependencies = (
-				C95D99AF2E6EE5DB0041D37D /* MarkdownUI */,
-			);
-			productName = Pangolin;
-			productReference = 29CDD63C2E5119C700E0B663 /* Pangolin.app */;
-			productType = "com.apple.product-type.application";
-		};
-		29CDD64E2E5119C800E0B663 /* PangolinTests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 29CDD6662E5119C800E0B663 /* Build configuration list for PBXNativeTarget "PangolinTests" */;
-			buildPhases = (
-				29CDD64B2E5119C800E0B663 /* Sources */,
-				29CDD64C2E5119C800E0B663 /* Frameworks */,
-				29CDD64D2E5119C800E0B663 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				29CDD6512E5119C800E0B663 /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				29CDD6522E5119C800E0B663 /* PangolinTests */,
-			);
-			name = PangolinTests;
-			packageProductDependencies = (
-			);
-			productName = PangolinTests;
-			productReference = 29CDD64F2E5119C800E0B663 /* PangolinTests.xctest */;
-			productType = "com.apple.product-type.bundle.unit-test";
-		};
-		29CDD6582E5119C800E0B663 /* PangolinUITests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 29CDD6692E5119C800E0B663 /* Build configuration list for PBXNativeTarget "PangolinUITests" */;
-			buildPhases = (
-				29CDD6552E5119C800E0B663 /* Sources */,
-				29CDD6562E5119C800E0B663 /* Frameworks */,
-				29CDD6572E5119C800E0B663 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				29CDD65B2E5119C800E0B663 /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				29CDD65C2E5119C800E0B663 /* PangolinUITests */,
+				6E0C45F9A02F4EBBAC125BBB /* PBXTargetDependency */,
 			);
 			name = PangolinUITests;
 			packageProductDependencies = (
 			);
 			productName = PangolinUITests;
-			productReference = 29CDD6592E5119C800E0B663 /* PangolinUITests.xctest */;
+			productReference = C0DCE588E82ACDF77ED0947E /* PangolinUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		6143056D564C61A4930CEA72 /* Pangolin */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 47A3601649F7FF44D348E288 /* Build configuration list for PBXNativeTarget "Pangolin" */;
+			buildPhases = (
+				4B14BAE7337566E6CBE41226 /* Copy Downloader Runtime */,
+				F4C691A414F324B5680698BE /* Sign Downloader Runtime */,
+				2C1B64B72053E6CC46BEB871 /* Sources */,
+				481FF60C2F6D1870AC782AEC /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Pangolin;
+			packageProductDependencies = (
+				A31540D5BB20CA519BC50E0D /* MarkdownUI */,
+			);
+			productName = Pangolin;
+			productReference = BBB8F6F646D0193937B61A73 /* Pangolin.app */;
+			productType = "com.apple.product-type.application";
+		};
+		B7721A85E2BB12DC77995CA8 /* PangolinTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C6251B71A3FC73CBA3FF5D32 /* Build configuration list for PBXNativeTarget "PangolinTests" */;
+			buildPhases = (
+				2899D58D57EA631FD9273707 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				24BC3BB5B560D1CE5CFAEEDB /* PBXTargetDependency */,
+			);
+			name = PangolinTests;
+			packageProductDependencies = (
+			);
+			productName = PangolinTests;
+			productReference = B48AC61F9B3044E9AF10C8FE /* PangolinTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		29CDD6342E5119C700E0B663 /* Project object */ = {
+		9752CAEE92B1D98C2994436D /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
-				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1640;
-				LastUpgradeCheck = 2600;
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
 				TargetAttributes = {
-					29CDD63B2E5119C700E0B663 = {
-						CreatedOnToolsVersion = 16.4;
+					01FC95E73DE7AE18A8684C3F = {
+						DevelopmentTeam = N7J3BYZ94H;
+						ProvisioningStyle = Automatic;
+						TestTargetID = 6143056D564C61A4930CEA72;
 					};
-					29CDD64E2E5119C800E0B663 = {
-						CreatedOnToolsVersion = 16.4;
-						TestTargetID = 29CDD63B2E5119C700E0B663;
+					6143056D564C61A4930CEA72 = {
+						DevelopmentTeam = N7J3BYZ94H;
+						ProvisioningStyle = Automatic;
 					};
-					29CDD6582E5119C800E0B663 = {
-						CreatedOnToolsVersion = 16.4;
-						TestTargetID = 29CDD63B2E5119C700E0B663;
+					B7721A85E2BB12DC77995CA8 = {
+						DevelopmentTeam = N7J3BYZ94H;
+						ProvisioningStyle = Automatic;
 					};
 				};
 			};
-			buildConfigurationList = 29CDD6372E5119C700E0B663 /* Build configuration list for PBXProject "Pangolin" */;
+			buildConfigurationList = 6E6498B5EDFC59AF82081114 /* Build configuration list for PBXProject "Pangolin" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
-				en,
 				Base,
+				en,
 			);
-			mainGroup = 29CDD6332E5119C700E0B663;
+			mainGroup = E99444EA1ABE00A753FB233B;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				C95D99AE2E6EE5DB0041D37D /* XCRemoteSwiftPackageReference "MarkdownUI" */,
+				5363D7A53C272491340FC649 /* XCRemoteSwiftPackageReference "MarkdownUI" */,
 			);
 			preferredProjectObjectVersion = 77;
-			productRefGroup = 29CDD63D2E5119C700E0B663 /* Products */;
+			productRefGroup = 8412CF6423CA254ADFE1CCE6 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				29CDD63B2E5119C700E0B663 /* Pangolin */,
-				29CDD64E2E5119C800E0B663 /* PangolinTests */,
-				29CDD6582E5119C800E0B663 /* PangolinUITests */,
+				6143056D564C61A4930CEA72 /* Pangolin */,
+				B7721A85E2BB12DC77995CA8 /* PangolinTests */,
+				01FC95E73DE7AE18A8684C3F /* PangolinUITests */,
 			);
 		};
 /* End PBXProject section */
 
-/* Begin PBXResourcesBuildPhase section */
-		29CDD63A2E5119C700E0B663 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		29CDD64D2E5119C800E0B663 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		29CDD6572E5119C800E0B663 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXResourcesBuildPhase section */
-
 /* Begin PBXShellScriptBuildPhase section */
-		C996D48D2F4F139400908F5E /* ShellScript */ = {
+		4B14BAE7337566E6CBE41226 /* Copy Downloader Runtime */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -280,17 +563,18 @@
 			inputPaths = (
 				"$(SRCROOT)/.vendor/downloader-runtime/VERSIONS.txt",
 			);
+			name = "Copy Downloader Runtime";
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/Tools",
-				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/Tools/.copy-complete",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Tools",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Tools/.copy-complete",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -eu\n\nSRC_TOOLS=\"$SRCROOT/.vendor/downloader-runtime\"\nDST_TOOLS=\"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Resources/Tools\"\n\nif [ ! -d \"$SRC_TOOLS\" ]; then\n  echo \"No vendored downloader runtime at $SRC_TOOLS (skipping)\"\n  exit 0\nfi\n\nmkdir -p \"$DST_TOOLS\"\n\n# Remove previous contents, but don't remove the Tools directory itself\nfind \"$DST_TOOLS\" -mindepth 1 -maxdepth 1 -exec rm -rf {} \\; 2>/dev/null || true\n\n# Prefer ditto on macOS to preserve tree structure reliably\nditto \"$SRC_TOOLS\" \"$DST_TOOLS\"\n\nchmod 755 \"$DST_TOOLS/ffmpeg\" 2>/dev/null || true\nchmod 755 \"$DST_TOOLS/ffprobe\" 2>/dev/null || true\nfind \"$DST_TOOLS\" -type f \\( -path \"*/python/bin/python*\" -o -path \"*/python/bin/python*-config\" \\) -exec chmod 755 {} \\; 2>/dev/null || true\n# The app runs yt-dlp via `python -m yt_dlp`; the console script does not need to be executable.\nchmod 644 \"$DST_TOOLS/site-packages/bin/yt-dlp\" 2>/dev/null || true\n\ntouch \"$DST_TOOLS/.copy-complete\"\n";
+			shellScript = "set -eu\n\nSRC_TOOLS=\"$SRCROOT/.vendor/downloader-runtime\"\nDST_ROOT=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nDST_TOOLS=\"$DST_ROOT/Tools\"\n\nif [ ! -d \"$SRC_TOOLS\" ]; then\n  echo \"No vendored downloader runtime at $SRC_TOOLS (skipping)\"\n  exit 0\nfi\n\nmkdir -p \"$DST_TOOLS\"\n\nfind \"$DST_TOOLS\" -mindepth 1 -maxdepth 1 -exec rm -rf {} \\; 2>/dev/null || true\n\nditto \"$SRC_TOOLS\" \"$DST_TOOLS\"\n\nchmod 755 \"$DST_TOOLS/ffmpeg\" 2>/dev/null || true\nchmod 755 \"$DST_TOOLS/ffprobe\" 2>/dev/null || true\nfind \"$DST_TOOLS\" -type f \\( -path \"*/python/bin/python*\" -o -path \"*/python/bin/python*-config\" \\) -exec chmod 755 {} \\; 2>/dev/null || true\nchmod 644 \"$DST_TOOLS/site-packages/bin/yt-dlp\" 2>/dev/null || true\n\ntouch \"$DST_TOOLS/.copy-complete\"\n";
 		};
-		C996D48E2F4F13B400908F5E /* ShellScript */ = {
+		F4C691A414F324B5680698BE /* Sign Downloader Runtime */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -298,58 +582,310 @@
 			inputFileListPaths = (
 			);
 			inputPaths = (
-				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/Tools/.copy-complete",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Tools/.copy-complete",
 			);
+			name = "Sign Downloader Runtime";
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Resources/Tools/.sign-complete",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Tools/.sign-complete",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -eu\n\nRESOURCES=\"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Resources\"\nTOOLS=\"$RESOURCES/Tools\"\nif [ ! -d \"$RESOURCES\" ]; then\n  exit 0\nfi\n\nxattr -dr com.apple.quarantine \"$RESOURCES\" 2>/dev/null || true\n# Keep the console wrapper non-executable so App Store Connect doesn't treat it as a nested executable.\nchmod 644 \"$TOOLS/site-packages/bin/yt-dlp\" 2>/dev/null || true\n\nif [ \"${CODE_SIGNING_ALLOWED:-NO}\" = \"YES\" ] && [ -n \"${EXPANDED_CODE_SIGN_IDENTITY:-}\" ]; then\n  find \"$RESOURCES\" -type f | while IFS= read -r f; do\n    if /usr/bin/file -b \"$f\" | /usr/bin/grep -q \"Mach-O\"; then\n      /usr/bin/codesign --force --sign \"$EXPANDED_CODE_SIGN_IDENTITY\" --options runtime --timestamp=none \"$f\"\n    fi\n  done\nfi\n\ntouch \"$TOOLS/.sign-complete\"\n";
+			shellScript = "set -eu\n\nRESOURCE_ROOT=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nTOOLS=\"$RESOURCE_ROOT/Tools\"\nif [ ! -d \"$TOOLS\" ]; then\n  exit 0\nfi\n\nxattr -dr com.apple.quarantine \"$TOOLS\" 2>/dev/null || true\nchmod 644 \"$TOOLS/site-packages/bin/yt-dlp\" 2>/dev/null || true\n\nif [ \"${CODE_SIGNING_ALLOWED:-NO}\" = \"YES\" ] && [ -n \"${EXPANDED_CODE_SIGN_IDENTITY:-}\" ]; then\n  find \"$TOOLS\" -type f | while IFS= read -r f; do\n    if /usr/bin/file -b \"$f\" | /usr/bin/grep -q \"Mach-O\"; then\n      /usr/bin/codesign --force --sign \"$EXPANDED_CODE_SIGN_IDENTITY\" --options runtime --timestamp=none \"$f\"\n    fi\n  done\nfi\n\ntouch \"$TOOLS/.sign-complete\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		29CDD6382E5119C700E0B663 /* Sources */ = {
+		2899D58D57EA631FD9273707 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BCE45B8F2B0D9CBEA9E52DDE /* FlashcardDeckTests.swift in Sources */,
+				111AA9BB22CC33DD44EE55FF /* LibraryManagerTests.swift in Sources */,
+				3DF35C9D6B1BEC261EACA352 /* PangolinTests.swift in Sources */,
+				4AB94E061F34B472BC2CBBA8 /* RemediationTests.swift in Sources */,
+				0AA75B388DBB5E7239A80752 /* TimedTranscriptTests.swift in Sources */,
+				1022F2DF842A83309743E04B /* TimedTranslationTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		29CDD64B2E5119C800E0B663 /* Sources */ = {
+		2C1B64B72053E6CC46BEB871 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E24022C3423E6DAAB5B8BD83 /* AllVideosImportDropModifier.swift in Sources */,
+				A8BCF5998519966FA0AE9FAE /* BulkProcessingView.swift in Sources */,
+				8DCB91E528CB0CB512BD05D9 /* CircularProgressButton.swift in Sources */,
+				6085D8CD2EBDAC9AB119A3D8 /* Color+App.swift in Sources */,
+				8480F37116C7A5A3E2968430 /* ContentRowView.swift in Sources */,
+				9AE202483B909790613F7DF7 /* ContentTransfer.swift in Sources */,
+				D531CD4F6C49E7142208E230 /* CoreDataStack.swift in Sources */,
+				90C1B84CC2542DC4B6F7646C /* DeletionConfirmationView.swift in Sources */,
+				2DDBB0A4CEBA4182E651A0D9 /* DetailView.swift in Sources */,
+				32D30A3C1029DD8820B6CC7C /* DraggableSplitter.swift in Sources */,
+				134C6A6D2F93414FA95C00BF /* FileSystemManager.swift in Sources */,
+				72D7765CD0E0C808260BC3D8 /* FlashcardDeck.swift in Sources */,
+				E0368C18C803DE394FFB41AA /* FlashcardsControlsInspectorPane.swift in Sources */,
+				7720E19D0FD7B9525C2731E7 /* FlashcardsView.swift in Sources */,
+				521FACFFDF571108AEE2CBE6 /* FolderContentView.swift in Sources */,
+				15FFD2DD3D813A825A4960F5 /* FolderNavigationHeader.swift in Sources */,
+				A87115296EC7BCB4E0E4D051 /* FolderNavigationStore.swift in Sources */,
+				F9B841C4C410F7C86B8C6765 /* FolderOutlineRow.swift in Sources */,
+				45A2508BC3053408F3C51029 /* FolderTransfer.swift in Sources */,
+				644135DAA4353AD235797257 /* HierarchicalContent.swift in Sources */,
+				988401B5BCD8D919C9782DF9 /* ImportFromURLSheet.swift in Sources */,
+				A28015091F5194662393F277 /* ImportProgressView.swift in Sources */,
+				29449FC602ECDFACC844F590 /* InspectorContentView.swift in Sources */,
+				D0944E97463372EE959C8CBF /* LibraryContentProvider.swift in Sources */,
+				78C9E2382B4F3539FDB2C9C8 /* LibraryManager.swift in Sources */,
+				12669B6FB29CE3545D87D7D1 /* MainView.swift in Sources */,
+				6E2995B427F3129F0B67DCD5 /* NotificationNames.swift in Sources */,
+				9FB8418A22D7938662500206 /* Pangolin.xcdatamodeld in Sources */,
+				9EAF12DFD6C9411BF74C2836 /* PangolinApp.swift in Sources */,
+				97C6655CDFEEA705CFB94687 /* PlatformUtilities.swift in Sources */,
+				009A57343301D60C04BF279A /* ProcessingControlsInspectorView.swift in Sources */,
+				00B3CFCDA690133D196A8EF0 /* ProcessingPopoverView.swift in Sources */,
+				E0BE193BFE9526D3AF19B918 /* ProcessingQueue.swift in Sources */,
+				B3D157785A8450C59CD4C761 /* ProcessingQueueManager.swift in Sources */,
+				AB0D278195A92B0EC871679A /* ProcessingTask.swift in Sources */,
+				605B15F28A91BF0AB2B13E7E /* RemoteVideoDownloadService.swift in Sources */,
+				CF3C51EC9802684F12BCC36D /* SearchEvidenceBuilder.swift in Sources */,
+				0F41C58DED6003BD54F6C6AF /* SearchManager.swift in Sources */,
+				EBFDFC4A9483355B2ABC6FE6 /* SearchPresentationModels.swift in Sources */,
+				C10A280FEB10EF9E378BD496 /* SearchResultsView.swift in Sources */,
+				1B457B76BC0E9C27E556C133 /* SettingsView.swift in Sources */,
+				A9D2FAECEAB30BC1CB5F0B84 /* SidebarView.swift in Sources */,
+				AE5ECEDB04FCD0593AA599F8 /* SmartCollectionKind.swift in Sources */,
+				2D64A301F7A314A50EE55D34 /* SmartFolderTablePane.swift in Sources */,
+				479BB67D62B6E74B8241F339 /* SpeechTranscriptionService.swift in Sources */,
+				8CE05D483BC3AAE518A151F8 /* StoragePolicyManager.swift in Sources */,
+				E72D0163211BE06DF347B1D7 /* StorageSettingsPane.swift in Sources */,
+				FCAD5122E1D3D0ABCE29116D /* SubtitleMatcher.swift in Sources */,
+				4D4D7B161BF23E1643421A28 /* SummaryControlsInspectorPane.swift in Sources */,
+				181E418B66DFA1C1FD968271 /* SummaryView.swift in Sources */,
+				1921EE75648C8527AD2F6A3C /* TimedTranscript.swift in Sources */,
+				C50D5400D8E2727DAEF77FC0 /* TimedTranslation.swift in Sources */,
+				3922661902D5C0EE3DDA696E /* TranscriptWordWrapLayout.swift in Sources */,
+				81DB7AB699030A33F4E52764 /* TranscriptionControlsInspectorPane.swift in Sources */,
+				A8BD0147D2629F298FCCA376 /* TranscriptionView.swift in Sources */,
+				B15AAFFD0179CA028C380A88 /* TranslationControlsInspectorPane.swift in Sources */,
+				86D0F8FDF9438334D48661DC /* TranslationView.swift in Sources */,
+				56769393E12EEDD709C73B50 /* URL+Extensions.swift in Sources */,
+				41F7162C225EBB77989817C2 /* VideoDropDelegate.swift in Sources */,
+				C977B7ACA46D1D13E964AA87 /* VideoFileManager.swift in Sources */,
+				10B58336F14A243217C8E30D /* VideoFileStatusView.swift in Sources */,
+				766EF5589BC5752005D30E70 /* VideoImporter.swift in Sources */,
+				72F0399CFA145FA2E346F611 /* VideoInfoView.swift in Sources */,
+				EB485127D639337042F4F6CA /* VideoModel.swift in Sources */,
+				26DB1FB0B8894A44A3C506C8 /* VideoPlayerView.swift in Sources */,
+				D2D8ACE0495F477323ACA9BD /* VideoPlayerViewModel.swift in Sources */,
+				4533CB65CBE866864FF3BED1 /* VideoPlayerWithPosterView.swift in Sources */,
+				A6BFE4153CE06500F5F56C63 /* VideoResultsTableView.swift in Sources */,
+				AA8E9CCE19815FC923AAF711 /* VideoThumbnailView.swift in Sources */,
+				BF594089CDCDE4CB991B950B /* View+Extensions.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		29CDD6552E5119C800E0B663 /* Sources */ = {
+		BBAA15800D3B1C4528D3ACDE /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6B51438583135C2EB79E3701 /* PangolinUITests.swift in Sources */,
+				AC0187C942A60A57B2E51357 /* PangolinUITestsLaunchTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		29CDD6512E5119C800E0B663 /* PBXTargetDependency */ = {
+		24BC3BB5B560D1CE5CFAEEDB /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 29CDD63B2E5119C700E0B663 /* Pangolin */;
-			targetProxy = 29CDD6502E5119C800E0B663 /* PBXContainerItemProxy */;
+			target = 6143056D564C61A4930CEA72 /* Pangolin */;
+			targetProxy = 529E7ECF1CCD7738250C0FEC /* PBXContainerItemProxy */;
 		};
-		29CDD65B2E5119C800E0B663 /* PBXTargetDependency */ = {
+		6E0C45F9A02F4EBBAC125BBB /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 29CDD63B2E5119C700E0B663 /* Pangolin */;
-			targetProxy = 29CDD65A2E5119C800E0B663 /* PBXContainerItemProxy */;
+			target = 6143056D564C61A4930CEA72 /* Pangolin */;
+			targetProxy = 7F451F6561FE4BDC5542E128 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		29CDD6612E5119C800E0B663 /* Debug */ = {
+		20510100FEDBAC5CFBA39929 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 2;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.newindustries.pangolinUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 7;
+				TEST_TARGET_NAME = Pangolin;
+			};
+			name = Debug;
+		};
+		23ECF9A74881A260F121F02E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 2;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.newindustries.pangolinUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 7;
+				TEST_TARGET_NAME = Pangolin;
+			};
+			name = Release;
+		};
+		599EC6DE3BAEB4C2ECCCB0B6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = Pangolin;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				"ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS[sdk=iphoneos*]" = NO;
+				"ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS[sdk=iphonesimulator*]" = NO;
+				"ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS[sdk=macosx*]" = YES;
+				AUTOMATION_APPLE_EVENTS = NO;
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]" = "Pangolin/Pangolin-iOS.entitlements";
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]" = "Pangolin/Pangolin-iOS.entitlements";
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Pangolin/Pangolin-macOS.entitlements";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 3;
+				DEAD_CODE_STRIPPING = YES;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_FILE_ACCESS_DOWNLOADS_FOLDER = readwrite;
+				ENABLE_FILE_ACCESS_MOVIES_FOLDER = readwrite;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
+				ENABLE_USER_SELECTED_FILES = readwrite;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Pangolin/Info.plist;
+				"INFOPLIST_FILE[sdk=iphoneos*]" = "Pangolin/Info-iOS.plist";
+				"INFOPLIST_FILE[sdk=iphonesimulator*]" = "Pangolin/Info-iOS.plist";
+				"INFOPLIST_FILE[sdk=macosx*]" = "Pangolin/Info-macOS.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Pangolin video manager";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Pangolin uses speech recognition to generate transcripts of your video content, making it searchable and accessible.";
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+				MARKETING_VERSION = 1.0.2;
+				PRODUCT_BUNDLE_IDENTIFIER = com.newindustries.pangolin;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
+				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
+				RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = NO;
+				RUNTIME_EXCEPTION_DEBUGGING_TOOL = NO;
+				RUNTIME_EXCEPTION_DISABLE_EXECUTABLE_PAGE_PROTECTION = NO;
+				RUNTIME_EXCEPTION_DISABLE_LIBRARY_VALIDATION = NO;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+			};
+			name = Release;
+		};
+		5C7FF48CDD35E605D9308DC9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 2;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.newindustries.pangolinTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 7;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Pangolin.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Pangolin";
+			};
+			name = Debug;
+		};
+		688C36539685D0C948E2BC36 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 2;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.newindustries.pangolinTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 7;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Pangolin.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Pangolin";
+			};
+			name = Release;
+		};
+		7AA9E76AF5F3819352881161 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -357,6 +893,7 @@
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CLANG_ENABLE_OBJC_WEAK = YES;
@@ -383,7 +920,6 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = N7J3BYZ94H;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -394,8 +930,8 @@
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PREPROCESSOR_DEFINITIONS = (
-					"DEBUG=1",
 					"$(inherited)",
+					"DEBUG=1",
 				);
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
@@ -404,16 +940,92 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
 		};
-		29CDD6622E5119C800E0B663 /* Release */ = {
+		96337F02805444181B42F464 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = Pangolin;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				"ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS[sdk=iphoneos*]" = NO;
+				"ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS[sdk=iphonesimulator*]" = NO;
+				"ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS[sdk=macosx*]" = YES;
+				AUTOMATION_APPLE_EVENTS = NO;
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]" = "Pangolin/Pangolin-iOS.entitlements";
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]" = "Pangolin/Pangolin-iOS.entitlements";
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Pangolin/Pangolin-macOS.entitlements";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 3;
+				DEAD_CODE_STRIPPING = YES;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_FILE_ACCESS_DOWNLOADS_FOLDER = readwrite;
+				ENABLE_FILE_ACCESS_MOVIES_FOLDER = readwrite;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
+				ENABLE_USER_SELECTED_FILES = readwrite;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Pangolin/Info.plist;
+				"INFOPLIST_FILE[sdk=iphoneos*]" = "Pangolin/Info-iOS.plist";
+				"INFOPLIST_FILE[sdk=iphonesimulator*]" = "Pangolin/Info-iOS.plist";
+				"INFOPLIST_FILE[sdk=macosx*]" = "Pangolin/Info-macOS.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Pangolin video manager";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Pangolin uses speech recognition to generate transcripts of your video content, making it searchable and accessible.";
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+				MARKETING_VERSION = 1.0.2;
+				PRODUCT_BUNDLE_IDENTIFIER = com.newindustries.pangolin;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
+				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
+				RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = NO;
+				RUNTIME_EXCEPTION_DEBUGGING_TOOL = NO;
+				RUNTIME_EXCEPTION_DISABLE_EXECUTABLE_PAGE_PROTECTION = NO;
+				RUNTIME_EXCEPTION_DISABLE_LIBRARY_VALIDATION = NO;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+			};
+			name = Debug;
+		};
+		9B96A12F408F2B21DB46B79C /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -421,6 +1033,7 @@
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CLANG_ENABLE_OBJC_WEAK = YES;
@@ -447,7 +1060,6 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = N7J3BYZ94H;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -462,272 +1074,60 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
-			};
-			name = Release;
-		};
-		29CDD6642E5119C800E0B663 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = Pangolin;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
-				AUTOMATION_APPLE_EVENTS = NO;
-				CODE_SIGN_ENTITLEMENTS = Pangolin/Pangolin.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
-				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = N7J3BYZ94H;
-				ENABLE_APP_SANDBOX = YES;
-				ENABLE_FILE_ACCESS_DOWNLOADS_FOLDER = readwrite;
-				ENABLE_FILE_ACCESS_MOVIES_FOLDER = readwrite;
-				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
-				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
-				ENABLE_PREVIEWS = YES;
-				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
-				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
-				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
-				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
-				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
-				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
-				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = NO;
-				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
-				ENABLE_RESOURCE_ACCESS_USB = NO;
-				ENABLE_USER_SELECTED_FILES = readwrite;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Pangolin/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Pangolin video manager";
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Pangolin uses speech recognition to generate transcripts of your video content, making it searchable and accessible.";
-				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
-				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
-				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
-				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
-				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
-				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
-				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
-				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
-				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.2;
-				PRODUCT_BUNDLE_IDENTIFIER = com.newindustries.pangolin;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				REGISTER_APP_GROUPS = YES;
-				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
-				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
-				RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = NO;
-				RUNTIME_EXCEPTION_DEBUGGING_TOOL = NO;
-				RUNTIME_EXCEPTION_DISABLE_EXECUTABLE_PAGE_PROTECTION = NO;
-				RUNTIME_EXCEPTION_DISABLE_LIBRARY_VALIDATION = NO;
-				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = macosx;
-				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 7;
-			};
-			name = Debug;
-		};
-		29CDD6652E5119C800E0B663 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = Pangolin;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
-				AUTOMATION_APPLE_EVENTS = NO;
-				CODE_SIGN_ENTITLEMENTS = Pangolin/Pangolin.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
-				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = N7J3BYZ94H;
-				ENABLE_APP_SANDBOX = YES;
-				ENABLE_FILE_ACCESS_DOWNLOADS_FOLDER = readwrite;
-				ENABLE_FILE_ACCESS_MOVIES_FOLDER = readwrite;
-				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
-				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
-				ENABLE_PREVIEWS = YES;
-				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
-				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
-				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
-				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
-				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
-				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
-				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = NO;
-				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
-				ENABLE_RESOURCE_ACCESS_USB = NO;
-				ENABLE_USER_SELECTED_FILES = readwrite;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Pangolin/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Pangolin video manager";
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Pangolin uses speech recognition to generate transcripts of your video content, making it searchable and accessible.";
-				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
-				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
-				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
-				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
-				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
-				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
-				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
-				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
-				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.2;
-				PRODUCT_BUNDLE_IDENTIFIER = com.newindustries.pangolin;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				REGISTER_APP_GROUPS = YES;
-				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
-				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
-				RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = NO;
-				RUNTIME_EXCEPTION_DEBUGGING_TOOL = NO;
-				RUNTIME_EXCEPTION_DISABLE_EXECUTABLE_PAGE_PROTECTION = NO;
-				RUNTIME_EXCEPTION_DISABLE_LIBRARY_VALIDATION = NO;
-				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = macosx;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 7;
-			};
-			name = Release;
-		};
-		29CDD6672E5119C800E0B663 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
-				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = N7J3BYZ94H;
-				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.newindustries.pangolinTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = macosx;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 7;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Pangolin.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Pangolin";
-			};
-			name = Debug;
-		};
-		29CDD6682E5119C800E0B663 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
-				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = N7J3BYZ94H;
-				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.newindustries.pangolinTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = macosx;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 7;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Pangolin.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Pangolin";
-			};
-			name = Release;
-		};
-		29CDD66A2E5119C800E0B663 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
-				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = N7J3BYZ94H;
-				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.newindustries.pangolinUITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = macosx;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 7;
-				TEST_TARGET_NAME = Pangolin;
-			};
-			name = Debug;
-		};
-		29CDD66B2E5119C800E0B663 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
-				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = N7J3BYZ94H;
-				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.newindustries.pangolinUITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = auto;
-				SUPPORTED_PLATFORMS = macosx;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 7;
-				TEST_TARGET_NAME = Pangolin;
 			};
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		29CDD6372E5119C700E0B663 /* Build configuration list for PBXProject "Pangolin" */ = {
+		354F5525A3E21F67EBBA0109 /* Build configuration list for PBXNativeTarget "PangolinUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				29CDD6612E5119C800E0B663 /* Debug */,
-				29CDD6622E5119C800E0B663 /* Release */,
+				20510100FEDBAC5CFBA39929 /* Debug */,
+				23ECF9A74881A260F121F02E /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
+			defaultConfigurationName = Debug;
 		};
-		29CDD6632E5119C800E0B663 /* Build configuration list for PBXNativeTarget "Pangolin" */ = {
+		47A3601649F7FF44D348E288 /* Build configuration list for PBXNativeTarget "Pangolin" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				29CDD6642E5119C800E0B663 /* Debug */,
-				29CDD6652E5119C800E0B663 /* Release */,
+				96337F02805444181B42F464 /* Debug */,
+				599EC6DE3BAEB4C2ECCCB0B6 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
+			defaultConfigurationName = Debug;
 		};
-		29CDD6662E5119C800E0B663 /* Build configuration list for PBXNativeTarget "PangolinTests" */ = {
+		6E6498B5EDFC59AF82081114 /* Build configuration list for PBXProject "Pangolin" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				29CDD6672E5119C800E0B663 /* Debug */,
-				29CDD6682E5119C800E0B663 /* Release */,
+				7AA9E76AF5F3819352881161 /* Debug */,
+				9B96A12F408F2B21DB46B79C /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
+			defaultConfigurationName = Debug;
 		};
-		29CDD6692E5119C800E0B663 /* Build configuration list for PBXNativeTarget "PangolinUITests" */ = {
+		C6251B71A3FC73CBA3FF5D32 /* Build configuration list for PBXNativeTarget "PangolinTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				29CDD66A2E5119C800E0B663 /* Debug */,
-				29CDD66B2E5119C800E0B663 /* Release */,
+				5C7FF48CDD35E605D9308DC9 /* Debug */,
+				688C36539685D0C948E2BC36 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
+			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		C95D99AE2E6EE5DB0041D37D /* XCRemoteSwiftPackageReference "MarkdownUI" */ = {
+		5363D7A53C272491340FC649 /* XCRemoteSwiftPackageReference "MarkdownUI" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/gonzalezreal/MarkdownUI";
 			requirement = {
@@ -738,12 +1138,25 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		C95D99AF2E6EE5DB0041D37D /* MarkdownUI */ = {
+		A31540D5BB20CA519BC50E0D /* MarkdownUI */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = C95D99AE2E6EE5DB0041D37D /* XCRemoteSwiftPackageReference "MarkdownUI" */;
+			package = 5363D7A53C272491340FC649 /* XCRemoteSwiftPackageReference "MarkdownUI" */;
 			productName = MarkdownUI;
 		};
 /* End XCSwiftPackageProductDependency section */
+
+/* Begin XCVersionGroup section */
+		32E26A88A7BB8D934985B233 /* Pangolin.xcdatamodeld */ = {
+			isa = XCVersionGroup;
+			children = (
+				AE0F3204636BE512D5DE1195 /* Pangolin.xcdatamodel */,
+			);
+			currentVersion = AE0F3204636BE512D5DE1195 /* Pangolin.xcdatamodel */;
+			path = Pangolin.xcdatamodeld;
+			sourceTree = "<group>";
+			versionGroupType = wrapper.xcdatamodel;
+		};
+/* End XCVersionGroup section */
 	};
-	rootObject = 29CDD6342E5119C700E0B663 /* Project object */;
+	rootObject = 9752CAEE92B1D98C2994436D /* Project object */;
 }

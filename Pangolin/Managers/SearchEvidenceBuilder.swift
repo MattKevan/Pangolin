@@ -107,7 +107,7 @@ enum SearchEvidenceBuilder {
         let libraryManager = LibraryManager.shared
         var evidence: [SearchEvidence] = []
 
-        if let timedURL = libraryManager.timedTranscriptURL(for: video),
+        if let timedURL = libraryManager.existingTimedTranscriptURL(for: video),
            FileManager.default.fileExists(atPath: timedURL.path),
            let transcript = try? libraryManager.readTimedTranscript(from: timedURL) {
             let entries = transcript.makeChunkIndex(maxWordsPerChunk: 18).allEntries
@@ -161,7 +161,7 @@ enum SearchEvidenceBuilder {
         let normalizedLanguageCode = languageCode?.isEmpty == true ? nil : languageCode
 
         if let normalizedLanguageCode,
-           let timedURL = libraryManager.timedTranslationURL(for: video, languageCode: normalizedLanguageCode),
+           let timedURL = libraryManager.existingTimedTranslationURL(for: video, languageCode: normalizedLanguageCode),
            FileManager.default.fileExists(atPath: timedURL.path),
            let timedTranslation = try? libraryManager.readTimedTranslation(from: timedURL) {
             let entries = timedTranslation.makeChunkIndex().allEntries

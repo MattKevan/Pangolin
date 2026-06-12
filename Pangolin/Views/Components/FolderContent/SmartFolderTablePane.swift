@@ -102,7 +102,7 @@ private struct SmartCollectionHeader: View {
 
     private var backgroundMaterial: some View {
         #if os(macOS)
-        Color(NSColor.controlBackgroundColor)
+        Color.appSecondaryBackground
         #else
         Color(.secondarySystemGroupedBackground)
         #endif

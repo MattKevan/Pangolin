@@ -83,15 +83,9 @@ extension Video {
         return libraryPath.appendingPathComponent("Videos").appendingPathComponent(relativePath)
     }
     
-    // Check if video file is accessible
-    var isVideoFileAccessible: Bool {
-        Task {
-            let status = await VideoFileManager.shared.isVideoFileAccessible(self)
-            return status == .local
-        }
-        // Synchronous fallback - just check if file exists
-        guard let fileURL = fileURL else { return false }
-        return FileManager.default.fileExists(atPath: fileURL.path)
+    func isVideoFileAccessible() async -> Bool {
+        let status = await VideoFileManager.shared.isVideoFileAccessible(self)
+        return status == .local
     }
     
     // Get video file status asynchronously
@@ -134,9 +128,14 @@ extension Video {
     }
     
     var thumbnailURL: URL? {
-        guard let library = library,
-              let libraryPath = library.url,
-              let thumbnailPath = thumbnailPath else { return nil }
+        guard let thumbnailPath = thumbnailPath else { return nil }
+        if let ubiquitousRoot = FileManager.default.url(forUbiquityContainerIdentifier: VideoFileManager.shared.cloudContainerIdentifier) {
+            let cloudURL = ubiquitousRoot.appendingPathComponent("Thumbnails").appendingPathComponent(thumbnailPath)
+            if FileManager.default.fileExists(atPath: cloudURL.path) {
+                return cloudURL
+            }
+        }
+        guard let libraryPath = library?.url else { return nil }
         return libraryPath.appendingPathComponent("Thumbnails").appendingPathComponent(thumbnailPath)
     }
 }
@@ -177,10 +176,15 @@ extension Folder {
 extension Subtitle {
     // Computed properties
     var fileURL: URL? {
+        guard let relativePath = relativePath else { return nil }
+        if let ubiquitousRoot = FileManager.default.url(forUbiquityContainerIdentifier: VideoFileManager.shared.cloudContainerIdentifier) {
+            let cloudURL = ubiquitousRoot.appendingPathComponent("Subtitles").appendingPathComponent(relativePath)
+            if FileManager.default.fileExists(atPath: cloudURL.path) {
+                return cloudURL
+            }
+        }
         guard let video = video,
-              let library = video.library,
-              let libraryPath = library.url,
-              let relativePath = relativePath else { return nil }
+              let libraryPath = video.library?.url else { return nil }
         return libraryPath.appendingPathComponent("Subtitles").appendingPathComponent(relativePath)
     }
     
@@ -263,8 +267,8 @@ enum ContentType: Hashable {
     
     var id: UUID {
         switch self {
-        case .folder(let folder): return folder.id!
-        case .video(let video): return video.id!
+        case .folder(let folder): return folder.id ?? UUID()
+        case .video(let video): return video.id ?? UUID()
         }
     }
     

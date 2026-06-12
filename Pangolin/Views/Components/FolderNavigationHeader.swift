@@ -101,11 +101,7 @@ struct FolderNavigationHeader: View {
     }
     
     private var backgroundMaterial: some View {
-        #if os(macOS)
-        Color(NSColor.controlBackgroundColor)
-        #else
-        Color(.secondarySystemGroupedBackground)
-        #endif
+        Color.appSecondaryBackground
     }
     
     private var separatorColor: Color {

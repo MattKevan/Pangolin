@@ -234,66 +234,73 @@ class VideoImporter: ObservableObject {
     }
     
     private func importSubtitle(from url: URL, for video: Video, to library: Library, context: NSManagedObjectContext) async throws -> Subtitle {
-        guard let libraryURL = library.url else {
+        guard let videoRelativePath = video.relativePath else {
             throw FileSystemError.invalidLibraryPath
         }
+        let videoDir = (videoRelativePath as NSString).deletingLastPathComponent
+        let fm = FileManager.default
         
-        // Start accessing security-scoped resources for both source and destination
-        let sourceAccessing = url.startAccessingSecurityScopedResource()
-        let libraryAccessing = libraryURL.startAccessingSecurityScopedResource()
-        defer {
-            if sourceAccessing {
-                url.stopAccessingSecurityScopedResource()
+        let ubiquitousRoot = fm.url(forUbiquityContainerIdentifier: VideoFileManager.shared.cloudContainerIdentifier)
+        let targetDir: URL
+        let baseURL: URL
+        
+        if let cloudRoot = ubiquitousRoot {
+            baseURL = cloudRoot.appendingPathComponent("Subtitles")
+            if videoDir.isEmpty || videoDir == "." {
+                targetDir = baseURL
+            } else {
+                targetDir = baseURL.appendingPathComponent(videoDir)
             }
-            if libraryAccessing {
-                libraryURL.stopAccessingSecurityScopedResource()
+        } else {
+            guard let libraryURL = library.url else {
+                throw FileSystemError.invalidLibraryPath
+            }
+            baseURL = libraryURL.appendingPathComponent("Subtitles")
+            if videoDir.isEmpty || videoDir == "." {
+                targetDir = baseURL
+            } else {
+                targetDir = baseURL.appendingPathComponent(videoDir)
             }
         }
         
-        // Create subtitle directory using relative path properly
-        let videoRelativePath = video.relativePath!
-        let videoDir = (videoRelativePath as NSString).deletingLastPathComponent
-        let subtitlesDir = libraryURL.appendingPathComponent("Subtitles")
-            .appendingPathComponent(videoDir)
+        try fm.createDirectory(at: targetDir, withIntermediateDirectories: true)
         
-        try FileManager.default.createDirectory(
-            at: subtitlesDir,
-            withIntermediateDirectories: true
-        )
-        
-        // Copy subtitle file with duplicate handling
         let fileName = url.lastPathComponent
-        var destinationURL = subtitlesDir.appendingPathComponent(fileName)
+        var destinationURL = targetDir.appendingPathComponent(fileName)
         
-        // Handle duplicates like we do for videos
         var counter = 1
-        while FileManager.default.fileExists(atPath: destinationURL.path) {
+        while fm.fileExists(atPath: destinationURL.path) {
             let name = url.deletingPathExtension().lastPathComponent
             let ext = url.pathExtension
             let newFileName = "\(name)_\(counter).\(ext)"
-            destinationURL = subtitlesDir.appendingPathComponent(newFileName)
+            destinationURL = targetDir.appendingPathComponent(newFileName)
             counter += 1
         }
         
-        try FileManager.default.copyItem(at: url, to: destinationURL)
+        try fm.copyItem(at: url, to: destinationURL)
         
-        // Create subtitle entity in Core Data context using entity description
+        let relativePath: String
+        let fileNameOnly = destinationURL.lastPathComponent
+        if videoDir.isEmpty || videoDir == "." {
+            relativePath = fileNameOnly
+        } else {
+            relativePath = "\(videoDir)/\(fileNameOnly)"
+        }
+        
         guard let subtitleEntityDescription = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Subtitle"] else {
             throw FileSystemError.importFailed("Could not find Subtitle entity description")
         }
         
         let subtitle = Subtitle(entity: subtitleEntityDescription, insertInto: context)
         subtitle.id = UUID()
-        subtitle.fileName = destinationURL.lastPathComponent // Use the actual copied filename
-        subtitle.relativePath = destinationURL.path
-            .replacingOccurrences(of: libraryURL.path + "/Subtitles/", with: "")
+        subtitle.fileName = fileNameOnly
+        subtitle.relativePath = relativePath
         subtitle.format = url.pathExtension
         subtitle.encoding = "UTF-8"
         subtitle.isDefault = false
         subtitle.isForced = false
         subtitle.video = video
         
-        // Detect language from filename
         let languageInfo = subtitleMatcher.detectLanguage(from: url.lastPathComponent)
         subtitle.language = languageInfo.code
         subtitle.languageName = languageInfo.name

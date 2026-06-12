@@ -251,7 +251,7 @@ class SpeechTranscriptionService: ObservableObject {
         do {
             let timedTranscript = try await MainActor.run { () throws -> TimedTranscript in
                 guard let persistedVideo = fetchVideo(with: videoID),
-                      let timedTranscriptURL = libraryManager.timedTranscriptURL(for: persistedVideo),
+                      let timedTranscriptURL = libraryManager.existingTimedTranscriptURL(for: persistedVideo),
                       FileManager.default.fileExists(atPath: timedTranscriptURL.path) else {
                     throw TranscriptionError.translationFailed("Timed transcript not found. Please transcribe this video again.")
                 }
@@ -753,7 +753,7 @@ class SpeechTranscriptionService: ObservableObject {
     ) async throws -> ResolvedFlashcardsSource {
         let transcriptData = try await MainActor.run { () throws -> (languageCode: String, entries: [FlashcardSourceEntry]) in
             guard let persistedVideo = fetchVideo(with: videoID),
-                  let timedURL = libraryManager.timedTranscriptURL(for: persistedVideo),
+                  let timedURL = libraryManager.existingTimedTranscriptURL(for: persistedVideo),
                   FileManager.default.fileExists(atPath: timedURL.path) else {
                 throw TranscriptionError.flashcardsGenerationFailed("Timed transcript not found. Please transcribe this video again.")
             }
@@ -779,7 +779,7 @@ class SpeechTranscriptionService: ObservableObject {
             guard let persistedVideo = fetchVideo(with: videoID),
                   let translatedLanguageIdentifier,
                   !translatedLanguageIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  let timedURL = libraryManager.timedTranslationURL(for: persistedVideo, languageCode: translatedLanguageIdentifier),
+                  let timedURL = libraryManager.existingTimedTranslationURL(for: persistedVideo, languageCode: translatedLanguageIdentifier),
                   FileManager.default.fileExists(atPath: timedURL.path) else {
                 return nil
             }
@@ -862,7 +862,7 @@ class SpeechTranscriptionService: ObservableObject {
         targetCount: Int,
         customPrompt: String?
     ) async throws -> [GeneratedFlashcardCandidate] {
-        let batches = flashcardBatches(from: entries, maxCharactersPerBatch: 9_000)
+        let batches = flashcardBatches(from: entries, maxCharactersPerBatch: 6_000)
         guard !batches.isEmpty else {
             throw TranscriptionError.flashcardsGenerationFailed("No content available to generate flashcards.")
         }
@@ -931,6 +931,20 @@ class SpeechTranscriptionService: ObservableObject {
         desiredCount: Int,
         customPrompt: String?
     ) async throws -> [GeneratedFlashcardCandidate] {
+        try await generateFlashcardCandidatesForBatch(
+            batch,
+            desiredCount: desiredCount,
+            customPrompt: customPrompt,
+            retryDepth: 0
+        )
+    }
+
+    private func generateFlashcardCandidatesForBatch(
+        _ batch: [FlashcardSourceEntry],
+        desiredCount: Int,
+        customPrompt: String?,
+        retryDepth: Int
+    ) async throws -> [GeneratedFlashcardCandidate] {
         let instructions = Instructions(flashcardsInstructions(from: customPrompt))
 
         let sourceLines = batch.map { "[\($0.id)] \($0.text)" }.joined(separator: "\n")
@@ -942,25 +956,67 @@ class SpeechTranscriptionService: ObservableObject {
         \(sourceLines)
         """
 
-        let responseText = try await respondWithFreshLanguageModelSession(
-            prompt: prompt,
-            instructions: instructions
-        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        let responseText: String
+        do {
+            responseText = try await respondWithFreshLanguageModelSession(
+                prompt: prompt,
+                instructions: instructions
+            ).trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            guard isLanguageModelContextWindowExceededError(error) else {
+                throw error
+            }
 
-        let jsonString: String
-        if responseText.first == "{", responseText.last == "}" {
-            jsonString = responseText
-        } else if let extracted = extractJSONObjectString(from: responseText) {
-            jsonString = extracted
-        } else {
-            throw TranscriptionError.flashcardsGenerationFailed("Model returned an invalid flashcards format.")
+            let maxRetryDepth = 6
+            guard retryDepth < maxRetryDepth else {
+                throw TranscriptionError.flashcardsGenerationFailed(
+                    "Flashcards content exceeds the model context window. Try fewer cards or a shorter custom prompt."
+                )
+            }
+
+            if batch.count > 1 {
+                let midpoint = max(1, batch.count / 2)
+                let left = Array(batch[..<midpoint])
+                let right = Array(batch[midpoint...])
+                let leftTarget = max(1, desiredCount / 2)
+                let rightTarget = max(1, desiredCount - leftTarget)
+
+                let leftCards = try await generateFlashcardCandidatesForBatch(
+                    left,
+                    desiredCount: leftTarget,
+                    customPrompt: customPrompt,
+                    retryDepth: retryDepth + 1
+                )
+                let rightCards = try await generateFlashcardCandidatesForBatch(
+                    right,
+                    desiredCount: rightTarget,
+                    customPrompt: customPrompt,
+                    retryDepth: retryDepth + 1
+                )
+
+                return Array((leftCards + rightCards).prefix(max(1, desiredCount)))
+            }
+
+            guard let only = batch.first else {
+                throw TranscriptionError.flashcardsGenerationFailed("No content available to generate flashcards.")
+            }
+            let shortenedBatch = [
+                FlashcardSourceEntry(
+                    id: only.id,
+                    startSeconds: only.startSeconds,
+                    endSeconds: only.endSeconds,
+                    text: String(only.text.prefix(max(120, only.text.count / 2)))
+                )
+            ]
+            return try await generateFlashcardCandidatesForBatch(
+                shortenedBatch,
+                desiredCount: max(1, desiredCount),
+                customPrompt: customPrompt,
+                retryDepth: retryDepth + 1
+            )
         }
 
-        guard let data = jsonString.data(using: .utf8) else {
-            throw TranscriptionError.flashcardsGenerationFailed("Could not parse flashcards output.")
-        }
-
-        let decoded = try JSONDecoder().decode(FlashcardModelResponse.self, from: data)
+        let decoded = try decodeFlashcardModelResponse(from: responseText)
         let validIDs = Set(batch.map(\.id))
         let mapped = decoded.cards.compactMap { card -> GeneratedFlashcardCandidate? in
             let front = card.front.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1001,11 +1057,107 @@ class SpeechTranscriptionService: ObservableObject {
     }
 
     private func extractJSONObjectString(from text: String) -> String? {
-        guard let start = text.firstIndex(of: "{"),
-              let end = text.lastIndex(of: "}") else {
+        let objects = extractAllJSONObjectStrings(from: text)
+        return objects.first
+    }
+
+    private func decodeFlashcardModelResponse(from responseText: String) throws -> FlashcardModelResponse {
+        let decoder = JSONDecoder()
+        let candidates = flashcardJSONCandidates(from: responseText)
+
+        for candidate in candidates {
+            guard let data = candidate.data(using: .utf8) else { continue }
+
+            if let decoded = try? decoder.decode(FlashcardModelResponse.self, from: data) {
+                return decoded
+            }
+
+            if let decodedCards = try? decoder.decode([FlashcardModelResponse.Card].self, from: data) {
+                return FlashcardModelResponse(cards: decodedCards)
+            }
+        }
+
+        throw TranscriptionError.flashcardsGenerationFailed("Model returned an invalid flashcards format.")
+    }
+
+    private func flashcardJSONCandidates(from text: String) -> [String] {
+        var candidates: [String] = []
+        var seen = Set<String>()
+
+        func append(_ candidate: String?) {
+            guard let candidate else { return }
+            let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, !seen.contains(trimmed) else { return }
+            seen.insert(trimmed)
+            candidates.append(trimmed)
+        }
+
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        append(trimmed)
+
+        if let codeBlock = extractJSONCodeBlock(from: text) {
+            append(codeBlock)
+        }
+
+        let objects = extractAllJSONObjectStrings(from: text)
+        for object in objects {
+            append(object)
+        }
+
+        return candidates
+    }
+
+    private func extractJSONCodeBlock(from text: String) -> String? {
+        guard let openFenceRange = text.range(of: "```json") ?? text.range(of: "```"),
+              let closeFenceRange = text.range(of: "```", range: openFenceRange.upperBound..<text.endIndex) else {
             return nil
         }
-        return String(text[start...end])
+        let body = text[openFenceRange.upperBound..<closeFenceRange.lowerBound]
+        return String(body)
+    }
+
+    private func extractAllJSONObjectStrings(from text: String) -> [String] {
+        var objects: [String] = []
+        var depth = 0
+        var inString = false
+        var escape = false
+        var objectStart: String.Index?
+
+        var index = text.startIndex
+        while index < text.endIndex {
+            let char = text[index]
+
+            if inString {
+                if escape {
+                    escape = false
+                } else if char == "\\" {
+                    escape = true
+                } else if char == "\"" {
+                    inString = false
+                }
+            } else {
+                if char == "\"" {
+                    inString = true
+                } else if char == "{" {
+                    if depth == 0 {
+                        objectStart = index
+                    }
+                    depth += 1
+                } else if char == "}" {
+                    if depth > 0 {
+                        depth -= 1
+                        if depth == 0, let start = objectStart {
+                            objects.append(String(text[start...index]))
+                            objectStart = nil
+                        }
+                    }
+                }
+            }
+
+            index = text.index(after: index)
+        }
+
+        return objects
     }
 
     // MARK: - Model preparation helpers (cache-aware)
@@ -2026,6 +2178,17 @@ class SpeechTranscriptionService: ObservableObject {
         return combined.contains("invalid reuse after initialization failure")
             || combined.contains("invalid reuse")
             || (combined.contains("reuse") && combined.contains("initialization failure"))
+    }
+
+    private func isLanguageModelContextWindowExceededError(_ error: Error) -> Bool {
+        let lowercasedDescription = error.localizedDescription.lowercased()
+        let lowercasedDebugDescription = String(describing: error).lowercased()
+        let combined = "\(lowercasedDescription) \(lowercasedDebugDescription)"
+
+        return combined.contains("exceededcontextwindowsize")
+            || combined.contains("context window size")
+            || combined.contains("maximum allowed context size")
+            || (combined.contains("provided") && combined.contains("tokens") && combined.contains("maximum"))
     }
 
     // MARK: - Main-thread UI helpers

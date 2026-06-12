@@ -111,6 +111,7 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
     let id: UUID
     let videoID: UUID?
     let sourceURLPath: String?
+    let sourceBookmark: Data?
     let remoteURLString: String?
     let remoteProviderRawValue: String?
     let originalRemoteURLString: String?
@@ -151,6 +152,7 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         self.id = UUID()
         self.videoID = videoID
         self.sourceURLPath = nil
+        self.sourceBookmark = nil
         self.remoteURLString = nil
         self.remoteProviderRawValue = nil
         self.originalRemoteURLString = nil
@@ -190,6 +192,11 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         self.id = UUID()
         self.videoID = nil
         self.sourceURLPath = sourceURL.path
+        #if os(macOS)
+        self.sourceBookmark = Self.bookmark(for: sourceURL)
+        #else
+        self.sourceBookmark = nil
+        #endif
         self.remoteURLString = nil
         self.remoteProviderRawValue = nil
         self.originalRemoteURLString = originalRemoteURLString
@@ -227,6 +234,7 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         self.id = UUID()
         self.videoID = nil
         self.sourceURLPath = nil
+        self.sourceBookmark = nil
         self.remoteURLString = remoteURL.absoluteString
         self.remoteProviderRawValue = provider.rawValue
         self.originalRemoteURLString = nil
@@ -255,7 +263,7 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
     // MARK: - Codable Implementation
     
     enum CodingKeys: String, CodingKey {
-        case id, videoID, sourceURLPath, remoteURLString, remoteProviderRawValue, originalRemoteURLString, remoteVideoIdentifier, destinationFolderID, libraryID, type, itemName, force, followUpTypes, preferredLocaleIdentifier, targetLocaleIdentifier, summaryCustomPrompt, flashcardsCustomPrompt, flashcardsCount, flashcardsSourceModeRawValue, status, progress, errorMessage, statusMessage
+        case id, videoID, sourceURLPath, sourceBookmark, remoteURLString, remoteProviderRawValue, originalRemoteURLString, remoteVideoIdentifier, destinationFolderID, libraryID, type, itemName, force, followUpTypes, preferredLocaleIdentifier, targetLocaleIdentifier, summaryCustomPrompt, flashcardsCustomPrompt, flashcardsCount, flashcardsSourceModeRawValue, status, progress, errorMessage, statusMessage
         case createdAt, startedAt, completedAt
     }
     
@@ -265,6 +273,7 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         id = try container.decode(UUID.self, forKey: .id)
         videoID = try container.decodeIfPresent(UUID.self, forKey: .videoID)
         sourceURLPath = try container.decodeIfPresent(String.self, forKey: .sourceURLPath)
+        sourceBookmark = try container.decodeIfPresent(Data.self, forKey: .sourceBookmark)
         remoteURLString = try container.decodeIfPresent(String.self, forKey: .remoteURLString)
         remoteProviderRawValue = try container.decodeIfPresent(String.self, forKey: .remoteProviderRawValue)
         originalRemoteURLString = try container.decodeIfPresent(String.self, forKey: .originalRemoteURLString)
@@ -296,6 +305,7 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         try container.encode(id, forKey: .id)
         try container.encodeIfPresent(videoID, forKey: .videoID)
         try container.encodeIfPresent(sourceURLPath, forKey: .sourceURLPath)
+        try container.encodeIfPresent(sourceBookmark, forKey: .sourceBookmark)
         try container.encodeIfPresent(remoteURLString, forKey: .remoteURLString)
         try container.encodeIfPresent(remoteProviderRawValue, forKey: .remoteProviderRawValue)
         try container.encodeIfPresent(originalRemoteURLString, forKey: .originalRemoteURLString)
@@ -409,4 +419,19 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         }
         return "task:\(id.uuidString):\(type.rawValue)"
     }
+
+    #if os(macOS)
+    private static func bookmark(for url: URL) -> Data? {
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer {
+            if accessing { url.stopAccessingSecurityScopedResource() }
+        }
+        guard let data = try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil) else {
+            print("⚠️ TASK: Failed to create security-scoped bookmark for \(url.path)")
+            return nil
+        }
+        print("✅ TASK: Security-scoped bookmark created for \(url.lastPathComponent)")
+        return data
+    }
+    #endif
 }

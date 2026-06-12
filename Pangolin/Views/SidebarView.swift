@@ -29,7 +29,7 @@ struct SidebarView: View {
     @State private var isInternalRootDropTargeted = false
     @State private var isExternalDropTargeted = false
 
-    private let processingQueueManager = ProcessingQueueManager.shared
+    @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
 
     private struct VisibleLibraryItem: Identifiable {
         let item: HierarchicalContentItem
@@ -170,8 +170,23 @@ struct SidebarView: View {
         .onReceive(NotificationCenter.default.publisher(for: .triggerCreateFolder)) { _ in
             createFolderFromCurrentSelection()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .NSManagedObjectContextDidSave)) { _ in
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: .NSManagedObjectContextDidSave,
+                object: libraryManager.viewContext
+            )
+        ) { _ in
             if !isDeletingFolder {
+                refreshFolders()
+            }
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: .NSManagedObjectContextObjectsDidChange,
+                object: libraryManager.viewContext
+            )
+        ) { notification in
+            if !isDeletingFolder && shouldRefreshSidebar(for: notification) {
                 refreshFolders()
             }
         }
@@ -272,6 +287,24 @@ struct SidebarView: View {
     private func refreshFolders() {
         userFolders = store.userFolders()
         syncExpandedFoldersForSelection()
+    }
+
+    private func shouldRefreshSidebar(for notification: Notification) -> Bool {
+        let changeKeys = [
+            NSInsertedObjectsKey,
+            NSUpdatedObjectsKey,
+            NSDeletedObjectsKey,
+            NSRefreshedObjectsKey
+        ]
+
+        for key in changeKeys {
+            guard let objects = notification.userInfo?[key] as? Set<NSManagedObject> else { continue }
+            if objects.contains(where: { $0 is Folder || $0 is Video || $0 is Library }) {
+                return true
+            }
+        }
+
+        return false
     }
 
     private func syncStoreSelection(oldSelection: Set<SidebarSelection>, newSelection: Set<SidebarSelection>) {

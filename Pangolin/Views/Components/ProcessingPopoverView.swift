@@ -3,7 +3,7 @@ import SwiftUI
 struct ProcessingPopoverView: View {
     @ObservedObject var processingManager: ProcessingQueueManager
     @EnvironmentObject private var libraryManager: LibraryManager
-    @StateObject private var videoFileManager = VideoFileManager.shared
+    @ObservedObject private var videoFileManager = VideoFileManager.shared
 
     let onViewAllTapped: () -> Void
 

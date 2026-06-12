@@ -1,5 +1,7 @@
 import Foundation
+#if os(macOS)
 import Darwin
+#endif
 
 enum RemoteVideoProvider: String, Codable {
     case youtube
@@ -25,6 +27,7 @@ enum RemoteVideoDownloadError: LocalizedError {
     case processControlFailed(String)
     case downloadFailed(String)
     case outputFileNotFound
+    case unsupportedOniOS
 
     var errorDescription: String? {
         switch self {
@@ -44,6 +47,8 @@ enum RemoteVideoDownloadError: LocalizedError {
             return "Download failed: \(details)"
         case .outputFileNotFound:
             return "Download completed but the output file could not be located."
+        case .unsupportedOniOS:
+            return "Remote video downloads are not available on iOS."
         }
     }
 }
@@ -63,24 +68,18 @@ struct RemoteVideoDownloadResult {
 }
 
 final class RemoteVideoDownloadService {
-    private struct DownloaderCommand {
-        let executableURL: URL
-        let baseArguments: [String]
-        let environment: [String: String]?
-        let displayName: String
-    }
 
     struct ProgressUpdate {
         let fractionCompleted: Double?
         let message: String
     }
 
-    private var currentProcess: Process?
-    private var currentProcessPaused = false
     private let fileManager = FileManager.default
-    private let progressRegex = try? NSRegularExpression(pattern: #"^\[download\]\s+(\d+(?:\.\d+)?)%"#)
+
+    // MARK: - Public API
 
     func probe(url: URL) async throws -> RemoteVideoProbeResult {
+        #if os(macOS)
         guard let provider = RemoteVideoProvider.detect(from: url) else {
             throw RemoteVideoDownloadError.unsupportedProvider
         }
@@ -118,12 +117,16 @@ final class RemoteVideoDownloadService {
         let title = extractTaggedLine(prefix: "TITLE:", from: output.stdout)
         let videoIdentifier = extractTaggedLine(prefix: "VIDEO_ID:", from: output.stdout)
         return RemoteVideoProbeResult(provider: provider, title: title, videoIdentifier: videoIdentifier)
+        #else
+        throw RemoteVideoDownloadError.unsupportedOniOS
+        #endif
     }
 
     func downloadVideo(
         from url: URL,
         progressHandler: (@Sendable (ProgressUpdate) -> Void)? = nil
     ) async throws -> RemoteVideoDownloadResult {
+        #if os(macOS)
         let probeResult = try await probe(url: url)
 
         let downloader = try resolveDownloaderCommand()
@@ -185,9 +188,13 @@ final class RemoteVideoDownloadService {
             originalURL: url,
             videoIdentifier: probeResult.videoIdentifier
         )
+        #else
+        throw RemoteVideoDownloadError.unsupportedOniOS
+        #endif
     }
 
     func pauseCurrentDownload() throws {
+        #if os(macOS)
         guard let process = currentProcess else {
             throw RemoteVideoDownloadError.processControlFailed("No active download.")
         }
@@ -200,9 +207,11 @@ final class RemoteVideoDownloadService {
             throw RemoteVideoDownloadError.processControlFailed(String(cString: strerror(errno)))
         }
         currentProcessPaused = true
+        #endif
     }
 
     func resumeCurrentDownload() throws {
+        #if os(macOS)
         guard let process = currentProcess else {
             throw RemoteVideoDownloadError.processControlFailed("No paused download.")
         }
@@ -215,11 +224,14 @@ final class RemoteVideoDownloadService {
             throw RemoteVideoDownloadError.processControlFailed(String(cString: strerror(errno)))
         }
         currentProcessPaused = false
+        #endif
     }
 
     func stopCurrentDownload() {
+        #if os(macOS)
         currentProcessPaused = false
         currentProcess?.terminate()
+        #endif
     }
 
     func isRemoteStagingURL(_ url: URL) -> Bool {
@@ -242,7 +254,12 @@ final class RemoteVideoDownloadService {
         }
     }
 
-    // MARK: - Helpers
+    // MARK: - macOS Helpers
+
+    #if os(macOS)
+    private var currentProcess: Process?
+    private var currentProcessPaused = false
+    private let progressRegex = try? NSRegularExpression(pattern: #"^\[download\]\s+(\d+(?:\.\d+)?)%"#)
 
     private struct ProcessOutput {
         let stdout: String
@@ -394,32 +411,6 @@ final class RemoteVideoDownloadService {
         return max(0.0, min(1.0, percent / 100.0))
     }
 
-    private func extractTaggedLine(prefix: String, from text: String) -> String? {
-        text
-            .split(whereSeparator: \.isNewline)
-            .map(String.init)
-            .reversed()
-            .first(where: { $0.hasPrefix(prefix) })?
-            .dropFirst(prefix.count)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .nonEmpty
-    }
-
-    private func isPlaylistURL(_ url: URL) -> Bool {
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-            return false
-        }
-
-        if components.path.lowercased() == "/playlist" {
-            return true
-        }
-
-        return components.queryItems?.contains(where: { item in
-            item.name.caseInsensitiveCompare("list") == .orderedSame &&
-            (item.value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
-        }) == true
-    }
-
     private func resolveDownloaderCommand() throws -> DownloaderCommand {
         if let embedded = resolveEmbeddedPythonDownloader() {
             return embedded
@@ -541,6 +532,42 @@ final class RemoteVideoDownloadService {
 
     private func toolsRootURL() -> URL? {
         Bundle.main.resourceURL?.appendingPathComponent("Tools", isDirectory: true)
+    }
+
+    private struct DownloaderCommand {
+        let executableURL: URL
+        let baseArguments: [String]
+        let environment: [String: String]?
+        let displayName: String
+    }
+    #endif
+
+    // MARK: - Shared Helpers
+
+    private func extractTaggedLine(prefix: String, from text: String) -> String? {
+        text
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+            .reversed()
+            .first(where: { $0.hasPrefix(prefix) })?
+            .dropFirst(prefix.count)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nonEmpty
+    }
+
+    private func isPlaylistURL(_ url: URL) -> Bool {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return false
+        }
+
+        if components.path.lowercased() == "/playlist" {
+            return true
+        }
+
+        return components.queryItems?.contains(where: { item in
+            item.name.caseInsensitiveCompare("list") == .orderedSame &&
+            (item.value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+        }) == true
     }
 
     private func makeTaskStagingDirectory() throws -> URL {

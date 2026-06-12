@@ -10,14 +10,16 @@ import SwiftUI
 
 extension View {
     func pangolinAlert<T: LocalizedError>(error: Binding<T?>) -> some View {
-        self.alert(isPresented: .constant(error.wrappedValue != nil)) {
-            Alert(
-                title: Text("Error"),
-                message: Text(error.wrappedValue?.errorDescription ?? "An unknown error occurred"),
-                dismissButton: .default(Text("OK")) {
-                    error.wrappedValue = nil
-                }
-            )
+        self.alert(
+            "Error",
+            isPresented: .constant(error.wrappedValue != nil),
+            presenting: error.wrappedValue
+        ) { _ in
+            Button("OK") {
+                error.wrappedValue = nil
+            }
+        } message: { err in
+            Text(err.errorDescription ?? "An unknown error occurred")
         }
     }
 }

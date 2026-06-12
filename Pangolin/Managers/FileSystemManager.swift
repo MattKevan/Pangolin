@@ -18,6 +18,7 @@ class FileSystemManager {
     static let shared = FileSystemManager()
     
     private let fileManager = FileManager.default
+    private let cloudContainerIdentifier = "iCloud.com.newindustries.pangolin"
     private let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
@@ -25,6 +26,24 @@ class FileSystemManager {
     }()
     
     private init() {}
+
+    static func mediaRelativePath(for videoURL: URL, libraryURL: URL, cloudRootURL: URL?) -> String {
+        let localVideosRoot = libraryURL.appendingPathComponent("Videos", isDirectory: true)
+        let localPrefix = localVideosRoot.path + "/"
+        if videoURL.path.hasPrefix(localPrefix) {
+            return String(videoURL.path.dropFirst(localPrefix.count))
+        }
+
+        if let cloudRootURL {
+            let cloudVideosRoot = cloudRootURL.appendingPathComponent("Media/Videos", isDirectory: true)
+            let cloudPrefix = cloudVideosRoot.path + "/"
+            if videoURL.path.hasPrefix(cloudPrefix) {
+                return String(videoURL.path.dropFirst(cloudPrefix.count))
+            }
+        }
+
+        return videoURL.lastPathComponent
+    }
     
     // MARK: - Video File Operations
     
@@ -71,9 +90,26 @@ class FileSystemManager {
         // Handle duplicates
         destinationURL = try uniqueURL(for: destinationURL)
         
+        // Diagnostic logging
+        print("📁 FS: sourceURL: \(sourceURL.path)")
+        print("📁 FS: destinationURL: \(destinationURL.path)")
+        print("📁 FS: destDir exists: \(fileManager.fileExists(atPath: videosDir.path))")
+        if let attrs = try? fileManager.attributesOfItem(atPath: videosDir.path) {
+            print("📁 FS: destDir permissions: \(attrs[.posixPermissions] ?? "unknown")")
+        }
+        print("📁 FS: source exists: \(fileManager.fileExists(atPath: sourceURL.path))")
+        print("📁 FS: source isReadable: \(fileManager.isReadableFile(atPath: sourceURL.path))")
+        
         // Copy or move file
         if copyFile {
-            try fileManager.copyItem(at: sourceURL, to: destinationURL)
+            do {
+                try fileManager.copyItem(at: sourceURL, to: destinationURL)
+            } catch {
+                let nsError = error as NSError
+                print("❌ FS: copyItem failed — domain: \(nsError.domain), code: \(nsError.code)")
+                print("❌ FS: underlying error: \(nsError.userInfo[NSUnderlyingErrorKey] ?? "none")")
+                throw error
+            }
         } else {
             try fileManager.moveItem(at: sourceURL, to: destinationURL)
         }
@@ -231,63 +267,68 @@ class FileSystemManager {
             throw FileSystemError.invalidLibraryPath
         }
         
-        // Start accessing security-scoped resources for both video and library
-        let videoAccessing = videoURL.startAccessingSecurityScopedResource()
-        let libraryAccessing = libraryURL.startAccessingSecurityScopedResource()
-        defer {
-            if videoAccessing {
-                videoURL.stopAccessingSecurityScopedResource()
-            }
-            if libraryAccessing {
-                libraryURL.stopAccessingSecurityScopedResource()
-            }
-        }
-        
         let asset = AVURLAsset(url: videoURL)
         let imageGenerator = AVAssetImageGenerator(asset: asset)
         imageGenerator.appliesPreferredTrackTransform = true
-        imageGenerator.maximumSize = CGSize(width: 1280, height: 720) // High quality 16:9 aspect ratio
+        imageGenerator.maximumSize = CGSize(width: 1280, height: 720)
         
-        // Generate thumbnail at 10% of video duration, or 5 seconds, whichever is smaller
         let duration = try await asset.load(.duration)
         let durationSeconds = CMTimeGetSeconds(duration)
         let thumbnailTime = CMTime(seconds: min(durationSeconds * 0.1, 5.0), preferredTimescale: 600)
         
         do {
             let cgImage = try await imageGenerator.image(at: thumbnailTime).image
-            
-            // Create thumbnail directory structure
-            let videoRelativePath = videoURL.path.replacingOccurrences(of: libraryURL.path + "/Videos/", with: "")
-            let thumbnailDir = libraryURL.appendingPathComponent("Thumbnails")
-                .appendingPathComponent(URL(fileURLWithPath: videoRelativePath).deletingLastPathComponent().path)
-            
-            try fileManager.createDirectory(at: thumbnailDir, withIntermediateDirectories: true)
-            
-            // Save thumbnail as JPEG
-            let thumbnailFileName = URL(fileURLWithPath: videoRelativePath).deletingPathExtension().lastPathComponent + ".jpg"
-            let thumbnailURL = thumbnailDir.appendingPathComponent(thumbnailFileName)
-            
-            #if os(macOS)
-            let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-            if let tiffData = nsImage.tiffRepresentation,
-               let bitmapRep = NSBitmapImageRep(data: tiffData),
-               let jpegData = bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) {
-                try jpegData.write(to: thumbnailURL)
+
+            let ubiquitousRoot = fileManager.url(forUbiquityContainerIdentifier: cloudContainerIdentifier)
+            let videoRelativePath = Self.mediaRelativePath(
+                for: videoURL,
+                libraryURL: libraryURL,
+                cloudRootURL: ubiquitousRoot
+            )
+            let thumbnailRelativePath = URL(fileURLWithPath: videoRelativePath).deletingPathExtension().lastPathComponent + ".jpg"
+            let thumbnailSubDir = URL(fileURLWithPath: videoRelativePath).deletingLastPathComponent().path
+
+            if let cloudRoot = ubiquitousRoot {
+                let cloudDir: URL
+                if thumbnailSubDir.isEmpty || thumbnailSubDir == "." {
+                    cloudDir = cloudRoot.appendingPathComponent("Thumbnails")
+                } else {
+                    cloudDir = cloudRoot.appendingPathComponent("Thumbnails").appendingPathComponent(thumbnailSubDir)
+                }
+                try fileManager.createDirectory(at: cloudDir, withIntermediateDirectories: true)
+                let cloudURL = cloudDir.appendingPathComponent(thumbnailRelativePath)
+                try writeJPEG(cgImage: cgImage, to: cloudURL)
+                return thumbnailSubDir.isEmpty || thumbnailSubDir == "." ? thumbnailRelativePath : "\(thumbnailSubDir)/\(thumbnailRelativePath)"
             }
-            #else
-            let uiImage = UIImage(cgImage: cgImage)
-            if let jpegData = uiImage.jpegData(compressionQuality: 0.8) {
-                try jpegData.write(to: thumbnailURL)
-            }
-            #endif
             
-            // Return relative path for thumbnail
-            return thumbnailURL.path.replacingOccurrences(of: libraryURL.path + "/Thumbnails/", with: "")
+            let localDir = libraryURL.appendingPathComponent("Thumbnails").appendingPathComponent(thumbnailSubDir)
+            try fileManager.createDirectory(at: localDir, withIntermediateDirectories: true)
+            let localURL = localDir.appendingPathComponent(thumbnailRelativePath)
+            try writeJPEG(cgImage: cgImage, to: localURL)
+            return localURL.path.replacingOccurrences(of: libraryURL.path + "/Thumbnails/", with: "")
             
         } catch {
             print("Failed to generate thumbnail for \(videoURL.lastPathComponent): \(error)")
             return nil
         }
+    }
+
+    private func writeJPEG(cgImage: CGImage, to url: URL) throws {
+        #if os(macOS)
+        let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+        guard let tiffData = nsImage.tiffRepresentation,
+              let bitmapRep = NSBitmapImageRep(data: tiffData),
+              let jpegData = bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) else {
+            throw FileSystemError.importFailed("Could not create JPEG data")
+        }
+        try jpegData.write(to: url)
+        #else
+        let uiImage = UIImage(cgImage: cgImage)
+        guard let jpegData = uiImage.jpegData(compressionQuality: 0.8) else {
+            throw FileSystemError.importFailed("Could not create JPEG data")
+        }
+        try jpegData.write(to: url)
+        #endif
     }
 
     func generateThumbnail(for video: Video, in library: Library) async throws -> String? {
@@ -309,10 +350,8 @@ class FileSystemManager {
             print("Found \(videoCount) videos without thumbnails")
             
             for video in videosWithoutThumbnails {
-                guard let videoURL = video.fileURL else { continue }
-                
                 do {
-                    let thumbnailPath = try await generateThumbnail(for: videoURL, in: library)
+                    let thumbnailPath = try await generateThumbnail(for: video, in: library)
                     video.thumbnailPath = thumbnailPath
                 } catch {
                     print("Failed to generate thumbnail for \(video.fileName ?? "Unknown Video"): \(error)")
@@ -342,12 +381,9 @@ class FileSystemManager {
             let videoCount = allVideos.count
             print("Rebuilding thumbnails for \(videoCount) videos")
             
-            for (index, video) in allVideos.enumerated() {
-                guard let videoURL = video.fileURL else { continue }
-                _ = index
-                
+            for video in allVideos {
                 do {
-                    let thumbnailPath = try await generateThumbnail(for: videoURL, in: library)
+                    let thumbnailPath = try await generateThumbnail(for: video, in: library)
                     video.thumbnailPath = thumbnailPath
                 } catch {
                     print("Failed to rebuild thumbnail for \(video.fileName ?? "Unknown Video"): \(error)")
