@@ -14,23 +14,16 @@ struct PangolinApp: App {
     var body: some Scene {
         #if os(macOS)
         WindowGroup {
-            ZStack {
-                MainView(libraryManager: libraryManager)
-                    .environmentObject(libraryManager)
-                    .environmentObject(videoFileManager)
-                    .allowsHitTesting(libraryManager.isLibraryOpen)
-
-                if !libraryManager.isLibraryOpen {
-                    StartupOverlayView(
-                        error: libraryManager.error,
-                        loadingProgress: libraryManager.loadingProgress,
-                        retryAction: retryLibraryOpen,
-                        resetAction: resetCorruptedLibrary
-                    )
-                    .transition(.opacity)
-                }
-            }
-            .animation(.easeOut(duration: 0.2), value: libraryManager.isLibraryOpen)
+            MainView(
+                libraryManager: libraryManager,
+                isStartingUp: libraryManager.currentLibrary == nil && hasAttemptedStartup,
+                startupError: libraryManager.error,
+                startupLoadingProgress: libraryManager.loadingProgress,
+                retryAction: retryLibraryOpen,
+                resetAction: resetCorruptedLibrary
+            )
+            .environmentObject(libraryManager)
+            .environmentObject(videoFileManager)
             .onAppear {
                 if !hasAttemptedStartup {
                     startLibraryStartup()
@@ -50,13 +43,13 @@ struct PangolinApp: App {
                     triggerImportVideos()
                 }
                 .keyboardShortcut("I", modifiers: .command)
-                .disabled(!libraryManager.isLibraryOpen)
+                .disabled(libraryManager.currentLibrary == nil)
 
                 Button("Import from URL...") {
                     triggerImportFromURL()
                 }
                 .keyboardShortcut("I", modifiers: [.command, .shift])
-                .disabled(!libraryManager.isLibraryOpen)
+                .disabled(libraryManager.currentLibrary == nil)
             }
 
             CommandGroup(after: .undoRedo) {
@@ -64,7 +57,7 @@ struct PangolinApp: App {
                     triggerSearch()
                 }
                 .keyboardShortcut("f", modifiers: .command)
-                .disabled(!libraryManager.isLibraryOpen)
+                .disabled(libraryManager.currentLibrary == nil)
 
                 Divider()
 
@@ -72,14 +65,14 @@ struct PangolinApp: App {
                     triggerRename()
                 }
                 .keyboardShortcut(.return)
-                .disabled(!libraryManager.isLibraryOpen || !hasRenameableSelection())
+                .disabled(libraryManager.currentLibrary == nil)
             }
 
             CommandMenu("Video") {
                 Button("Generate Thumbnails") {
                     generateThumbnails()
                 }
-                .disabled(!libraryManager.isLibraryOpen)
+                .disabled(libraryManager.currentLibrary == nil)
             }
         }
         Settings {
@@ -90,23 +83,16 @@ struct PangolinApp: App {
         }
         #else
         WindowGroup {
-            ZStack {
-                MainView(libraryManager: libraryManager)
-                    .environmentObject(libraryManager)
-                    .environmentObject(videoFileManager)
-                    .allowsHitTesting(libraryManager.isLibraryOpen)
-
-                if !libraryManager.isLibraryOpen {
-                    StartupOverlayView(
-                        error: libraryManager.error,
-                        loadingProgress: libraryManager.loadingProgress,
-                        retryAction: retryLibraryOpen,
-                        resetAction: resetCorruptedLibrary
-                    )
-                    .transition(.opacity)
-                }
-            }
-            .animation(.easeOut(duration: 0.2), value: libraryManager.isLibraryOpen)
+            MainView(
+                libraryManager: libraryManager,
+                isStartingUp: libraryManager.currentLibrary == nil && hasAttemptedStartup,
+                startupError: libraryManager.error,
+                startupLoadingProgress: libraryManager.loadingProgress,
+                retryAction: retryLibraryOpen,
+                resetAction: resetCorruptedLibrary
+            )
+            .environmentObject(libraryManager)
+            .environmentObject(videoFileManager)
             .onAppear {
                 if !hasAttemptedStartup {
                     startLibraryStartup()
@@ -163,10 +149,6 @@ struct PangolinApp: App {
         }
     }
 
-    private func hasRenameableSelection() -> Bool {
-        return libraryManager.isLibraryOpen
-    }
-
     private func triggerSearch() {
         NotificationCenter.default.post(name: .triggerSearch, object: nil)
     }
@@ -181,98 +163,5 @@ struct PangolinApp: App {
 
     private func triggerImportFromURL() {
         NotificationCenter.default.post(name: .triggerImportFromURL, object: nil)
-    }
-}
-
-private struct StartupOverlayView: View {
-    let error: LibraryError?
-    let loadingProgress: Double
-    let retryAction: () -> Void
-    let resetAction: () -> Void
-
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.22)
-                .ignoresSafeArea()
-
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .ignoresSafeArea()
-
-            StartupStatusView(
-                error: error,
-                loadingProgress: loadingProgress,
-                retryAction: retryAction,
-                resetAction: resetAction
-            )
-            .padding(.horizontal, 28)
-            .padding(.vertical, 24)
-            .background(.thickMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.16), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.24), radius: 28, x: 0, y: 14)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        .allowsHitTesting(true)
-    }
-}
-
-private struct StartupStatusView: View {
-    let error: LibraryError?
-    let loadingProgress: Double
-    let retryAction: () -> Void
-    let resetAction: () -> Void
-
-    var body: some View {
-        VStack(spacing: 16) {
-            if let error {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 42))
-                    .foregroundColor(.red)
-
-                Text("Couldn’t Open Library")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-
-                Text(error.localizedDescription)
-                    .multilineTextAlignment(.center)
-                    .foregroundColor(.secondary)
-
-                if let recovery = error.recoverySuggestion {
-                    Text(recovery)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-
-                HStack(spacing: 10) {
-                    Button("Retry", action: retryAction)
-                        .buttonStyle(.borderedProminent)
-
-                    if case .databaseCorrupted = error {
-                        Button("Reset Library", action: resetAction)
-                            .buttonStyle(.bordered)
-                    }
-                }
-            } else {
-                ProgressView()
-                    .controlSize(.large)
-                Text("Opening Library…")
-                    .font(.headline)
-                Text("Loading your cloud-backed library.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                if loadingProgress > 0 {
-                    ProgressView(value: min(max(loadingProgress, 0), 1))
-                        .progressViewStyle(.linear)
-                        .frame(width: 280)
-                }
-            }
-        }
-        .padding(24)
-        .frame(maxWidth: 520)
     }
 }

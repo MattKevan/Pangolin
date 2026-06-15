@@ -10,6 +10,12 @@ struct MainView: View {
     @StateObject private var searchManager = SearchManager()
     @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
     
+    let isStartingUp: Bool
+    let startupError: LibraryError?
+    let startupLoadingProgress: Double
+    let retryAction: () -> Void
+    let resetAction: () -> Void
+    
     @State private var showingImportPicker = false
     @State private var showingURLImportSheet = false
     
@@ -18,8 +24,20 @@ struct MainView: View {
     @State private var isSearchFieldPresented = false
     @FocusState private var isSearchFieldFocused: Bool
     
-    init(libraryManager: LibraryManager) {
+    init(
+        libraryManager: LibraryManager,
+        isStartingUp: Bool = false,
+        startupError: LibraryError? = nil,
+        startupLoadingProgress: Double = 0,
+        retryAction: @escaping () -> Void = {},
+        resetAction: @escaping () -> Void = {}
+    ) {
         self._folderStore = StateObject(wrappedValue: FolderNavigationStore(libraryManager: libraryManager))
+        self.isStartingUp = isStartingUp
+        self.startupError = startupError
+        self.startupLoadingProgress = startupLoadingProgress
+        self.retryAction = retryAction
+        self.resetAction = resetAction
     }
     
     var body: some View { rootView }
@@ -66,13 +84,22 @@ struct MainView: View {
 
     @ViewBuilder
     private var configuredDetailColumn: some View {
-        let baseDetailColumn = DetailColumnView()
-            .environmentObject(folderStore)
-            .environmentObject(searchManager)
-            .environmentObject(libraryManager)
-            .environmentObject(transcriptionService)
+        if isStartingUp {
+            StartupInlineView(
+                error: startupError,
+                loadingProgress: startupLoadingProgress,
+                retryAction: retryAction,
+                resetAction: resetAction
+            )
             .navigationSplitViewColumnWidth(min: 420, ideal: 760)
-            .toolbar {
+        } else {
+            let baseDetailColumn = DetailColumnView()
+                .environmentObject(folderStore)
+                .environmentObject(searchManager)
+                .environmentObject(libraryManager)
+                .environmentObject(transcriptionService)
+                .navigationSplitViewColumnWidth(min: 420, ideal: 760)
+                .toolbar {
                 if !folderStore.isSearchMode {
                     // Normal Mode: Standard toolbar items
                     ToolbarItemGroup(placement: .navigation) {
@@ -164,23 +191,24 @@ struct MainView: View {
                 }
             }
 
-        if folderStore.isSearchMode {
-            baseDetailColumn
-                .searchable(
-                    text: $searchManager.searchText,
-                    isPresented: $isSearchFieldPresented,
-                    placement: .toolbarPrincipal,
-                    prompt: "Search videos, transcripts, and summaries"
-                )
-                .searchFocused($isSearchFieldFocused)
-                .onSubmit(of: .search) {
-                    guard folderStore.isSearchMode else { return }
-                    let trimmedQuery = searchManager.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmedQuery.isEmpty else { return }
-                    searchManager.performManualSearch()
-                }
-        } else {
-            baseDetailColumn
+            if folderStore.isSearchMode {
+                baseDetailColumn
+                    .searchable(
+                        text: $searchManager.searchText,
+                        isPresented: $isSearchFieldPresented,
+                        placement: .toolbarPrincipal,
+                        prompt: "Search videos, transcripts, and summaries"
+                    )
+                    .searchFocused($isSearchFieldFocused)
+                    .onSubmit(of: .search) {
+                        guard folderStore.isSearchMode else { return }
+                        let trimmedQuery = searchManager.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !trimmedQuery.isEmpty else { return }
+                        searchManager.performManualSearch()
+                    }
+            } else {
+                baseDetailColumn
+            }
         }
     }
     
@@ -335,7 +363,7 @@ private struct RootAlertModifier: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        if libraryManager.isLibraryOpen {
+        if libraryManager.currentLibrary != nil {
             content.pangolinAlert(error: $libraryManager.error)
         } else {
             content
@@ -396,5 +424,64 @@ private extension View {
         } else {
             self
         }
+    }
+}
+
+// MARK: - Inline Startup View
+
+private struct StartupInlineView: View {
+    let error: LibraryError?
+    let loadingProgress: Double
+    let retryAction: () -> Void
+    let resetAction: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            if let error {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 42))
+                    .foregroundColor(.red)
+
+                Text("Couldn't Open Library")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+
+                Text(error.localizedDescription)
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(.secondary)
+
+                if let recovery = error.recoverySuggestion {
+                    Text(recovery)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+
+                HStack(spacing: 10) {
+                    Button("Retry", action: retryAction)
+                        .buttonStyle(.borderedProminent)
+
+                    if case .databaseCorrupted = error {
+                        Button("Reset Library", action: resetAction)
+                            .buttonStyle(.bordered)
+                    }
+                }
+            } else {
+                ProgressView()
+                    .controlSize(.large)
+                Text("Opening Library…")
+                    .font(.headline)
+                Text("Loading your cloud-backed library.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                if loadingProgress > 0 {
+                    ProgressView(value: min(max(loadingProgress, 0), 1))
+                        .progressViewStyle(.linear)
+                        .frame(width: 280)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
