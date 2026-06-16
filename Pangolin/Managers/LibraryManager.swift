@@ -1028,4 +1028,30 @@ extension LibraryManager {
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(FlashcardDeck.self, from: Data(contentsOf: url))
     }
+
+    @MainActor
+    func clearGeneratedTextArtifacts(for video: Video) async throws {
+        let fileManager = FileManager.default
+
+        let removableURLs = [
+            existingTranscriptURL(for: video),
+            existingTimedTranscriptURL(for: video),
+            existingSummaryURL(for: video)
+        ].compactMap { $0 } + translationURLs(for: video)
+
+        for url in removableURLs where fileManager.fileExists(atPath: url.path) {
+            try fileManager.removeItem(at: url)
+        }
+
+        video.transcriptText = nil
+        video.transcriptLanguage = nil
+        video.transcriptDateGenerated = nil
+        video.translatedText = nil
+        video.translatedLanguage = nil
+        video.translationDateGenerated = nil
+        video.transcriptSummary = nil
+        video.summaryDateGenerated = nil
+
+        try viewContext?.save()
+    }
 }

@@ -76,6 +76,11 @@ struct ProjectSectionSnapshot: Identifiable, Equatable {
     }
 }
 
+struct VideoNeighbors {
+    let previous: Video?
+    let next: Video?
+}
+
 @MainActor
 class FolderNavigationStore: ObservableObject {
     // MARK: - Core State
@@ -573,6 +578,17 @@ class FolderNavigationStore: ObservableObject {
         selectedVideo = video
     }
 
+    func videoNeighbors(for video: Video) -> VideoNeighbors {
+        let candidates = videoNavigationCandidates(containing: video)
+        guard let currentIndex = candidates.firstIndex(where: { $0.objectID == video.objectID }) else {
+            return VideoNeighbors(previous: nil, next: nil)
+        }
+
+        let previous = currentIndex > 0 ? candidates[currentIndex - 1] : nil
+        let next = currentIndex < candidates.index(before: candidates.endIndex) ? candidates[currentIndex + 1] : nil
+        return VideoNeighbors(previous: previous, next: next)
+    }
+
     func clearProjectVideoSelection() {
         guard !selectedProjectVideoIDs.isEmpty else { return }
         selectedProjectVideoIDs = []
@@ -861,6 +877,26 @@ class FolderNavigationStore: ObservableObject {
             videos.append(contentsOf: descendantVideos(in: child))
         }
         return videos.sorted(by: projectDisplaySortOrder)
+    }
+
+    private func videoNavigationCandidates(containing video: Video) -> [Video] {
+        let folderCandidates = flatContent.compactMap {
+            if case .video(let candidate) = $0 { return candidate }
+            return nil
+        }
+
+        if folderCandidates.contains(where: { $0.objectID == video.objectID }) {
+            return folderCandidates
+        }
+
+        if let selectedProject {
+            let projectCandidates = projectVideos(in: selectedProject)
+            if projectCandidates.contains(where: { $0.objectID == video.objectID }) {
+                return projectCandidates
+            }
+        }
+
+        return []
     }
 
     private func continueWatchingSortOrder(_ lhs: Video, _ rhs: Video) -> Bool {

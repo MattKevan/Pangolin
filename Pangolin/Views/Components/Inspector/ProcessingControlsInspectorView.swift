@@ -10,12 +10,8 @@ struct ProcessingControlsInspectorView: View {
                 switch tab {
                 case .transcript:
                     TranscriptionControlsInspectorPane(video: video)
-                case .translation:
-                    TranslationControlsInspectorPane(video: video)
                 case .summary:
                     SummaryControlsInspectorPane(video: video)
-                case .flashcards:
-                    FlashcardsControlsInspectorPane(video: video)
                 }
             }
             .padding(14)

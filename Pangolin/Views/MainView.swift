@@ -603,7 +603,7 @@ private struct PhoneCollectionTabView: View {
     var body: some View {
         Group {
             if let selectedVideo = folderStore.selectedVideo,
-               folderStore.currentDetailSurface == .videoDetail {
+               folderStore.currentDetailSurface == .videoDetail || folderStore.currentDestination?.stableKey.hasPrefix("video:") == true {
                 DetailView(video: selectedVideo)
                     .environmentObject(folderStore)
                     .environmentObject(libraryManager)

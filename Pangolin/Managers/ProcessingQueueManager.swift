@@ -68,6 +68,9 @@ class ProcessingQueueManager: ObservableObject {
     private let videoFileManager = VideoFileManager.shared
     private let importer = VideoImporter()
     private let remoteDownloadService = RemoteVideoDownloadService()
+    private var videoPagePreferences: VideoPagePreferences {
+        VideoPagePreferences()
+    }
 
     @Published var queue: [ProcessingTask] = []
     @Published var isPaused: Bool = false
@@ -740,7 +743,6 @@ class ProcessingQueueManager: ObservableObject {
         }
 
         enqueueAutoTranslationIfNeeded(afterTranscriptionFor: video)
-        enqueueAutoFlashcardsIfNeeded(afterTranscriptionFor: video)
     }
 
     private func executeTranslation(_ task: ProcessingTask) async throws {
@@ -1023,29 +1025,12 @@ class ProcessingQueueManager: ObservableObject {
     }
 
     private func enqueueAutoTranslationIfNeeded(afterTranscriptionFor video: Video) {
-        guard shouldAutoTranslateToSystemLanguage(for: video) else {
+        guard videoPagePreferences.isAutoTranslateEnabled,
+              shouldAutoTranslateToSystemLanguage(for: video) else {
             return
         }
-        enqueueTranslation(for: [video], targetLocale: .autoupdatingCurrent, force: true)
-    }
-
-    private func enqueueAutoFlashcardsIfNeeded(afterTranscriptionFor video: Video) {
-        guard let transcriptText = video.transcriptText,
-              !transcriptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return
-        }
-
-        if shouldAutoTranslateToSystemLanguage(for: video) {
-            enqueueTranslation(for: [video], targetLocale: .autoupdatingCurrent, force: true)
-        }
-
-        enqueueFlashcards(
-            for: [video],
-            force: true,
-            count: 12,
-            sourceMode: .autoSystemLanguage,
-            customPrompt: nil
-        )
+        let targetLocale = preferredAutoTranslationLocale()
+        enqueueTranslation(for: [video], targetLocale: targetLocale, force: true)
     }
 
     private func shouldAutoTranslateToSystemLanguage(for video: Video) -> Bool {
@@ -1086,5 +1071,14 @@ class ProcessingQueueManager: ObservableObject {
             ?? locale.identifier.split(separator: "-").first.map(String.init)
             ?? locale.identifier.split(separator: "_").first.map(String.init)
         return code?.lowercased()
+    }
+
+    private func preferredAutoTranslationLocale() -> Locale? {
+        if let storedIdentifier = videoPagePreferences.preferredTranslationLocaleIdentifier,
+           !storedIdentifier.isEmpty {
+            return Locale(identifier: storedIdentifier)
+        }
+
+        return .autoupdatingCurrent
     }
 }

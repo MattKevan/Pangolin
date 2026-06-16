@@ -9,33 +9,26 @@ import SwiftUI
 
 enum InspectorTab: CaseIterable, Hashable {
     case transcript
-    case translation
     case summary
-    case flashcards
     
     var title: String {
         switch self {
         case .transcript: return "Transcript"
-        case .translation: return "Translation"
         case .summary: return "Summary"
-        case .flashcards: return "Flashcards"
         }
     }
     
     var systemImage: String {
         switch self {
         case .transcript: return "doc.text"
-        case .translation: return "globe.badge.chevron.backward"
         case .summary: return "doc.text.below.ecg"
-        case .flashcards: return "rectangle.stack.badge.play"
         }
     }
 
     var supportsRightControlsInspector: Bool {
         switch self {
-        case .transcript, .translation, .summary, .flashcards:
+        case .transcript, .summary:
             return true
-        
         }
     }
 }
@@ -83,22 +76,11 @@ struct InspectorContentView: View {
                     .environmentObject(libraryManager)
                     .environmentObject(transcriptionService)
                     .background(.clear)
-            case .translation:
-                TranslationView(video: selected, playerViewModel: playerViewModel)
-                    .environmentObject(libraryManager)
-                    .environmentObject(transcriptionService)
-                    .background(.clear)
             case .summary:
                 SummaryView(video: selected)
                     .environmentObject(libraryManager)
                     .environmentObject(transcriptionService)
                     .background(.clear)
-            case .flashcards:
-                FlashcardsView(video: selected, playerViewModel: playerViewModel)
-                    .environmentObject(libraryManager)
-                    .environmentObject(transcriptionService)
-                    .background(.clear)
-
             }
         } else {
             ContentUnavailableView(

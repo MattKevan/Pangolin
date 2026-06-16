@@ -390,6 +390,113 @@ enum VideoFormat: String, CaseIterable {
     }
 }
 
+struct VideoPagePreferences {
+    static let autoTranslateEnabledKey = "videoPageAutoTranslateEnabled"
+    static let preferredTranslationLocaleIdentifierKey = "videoPagePreferredTranslationLocaleIdentifier"
+
+    private let userDefaults: UserDefaults
+
+    init(userDefaults: UserDefaults = .standard) {
+        self.userDefaults = userDefaults
+    }
+
+    var isAutoTranslateEnabled: Bool {
+        get {
+            guard userDefaults.object(forKey: Self.autoTranslateEnabledKey) != nil else {
+                return true
+            }
+            return userDefaults.bool(forKey: Self.autoTranslateEnabledKey)
+        }
+        nonmutating set {
+            userDefaults.set(newValue, forKey: Self.autoTranslateEnabledKey)
+        }
+    }
+
+    var preferredTranslationLocaleIdentifier: String? {
+        get {
+            let value = userDefaults.string(forKey: Self.preferredTranslationLocaleIdentifierKey)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let value, !value.isEmpty else { return nil }
+            return value
+        }
+        nonmutating set {
+            let normalized = newValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let normalized, !normalized.isEmpty {
+                userDefaults.set(normalized, forKey: Self.preferredTranslationLocaleIdentifierKey)
+            } else {
+                userDefaults.removeObject(forKey: Self.preferredTranslationLocaleIdentifierKey)
+            }
+        }
+    }
+
+    func resolvedPreferredTranslationLocale(from supportedLocales: [Locale], systemLocale: Locale = .current) -> Locale? {
+        let identifiers = supportedLocales.map(\.identifier)
+        guard let resolvedIdentifier = Self.resolvedPreferredTranslationLocaleIdentifier(
+            storedIdentifier: preferredTranslationLocaleIdentifier,
+            supportedLocaleIdentifiers: identifiers,
+            systemLocaleIdentifier: systemLocale.identifier
+        ) else {
+            return nil
+        }
+
+        return supportedLocales.first(where: { $0.identifier == resolvedIdentifier })
+    }
+
+    static func resolvedPreferredTranslationLocaleIdentifier(
+        storedIdentifier: String?,
+        supportedLocaleIdentifiers: [String],
+        systemLocaleIdentifier: String
+    ) -> String? {
+        guard !supportedLocaleIdentifiers.isEmpty else { return nil }
+
+        if let storedIdentifier,
+           let exactOrEquivalent = exactOrEquivalentMatch(
+                for: storedIdentifier,
+                within: supportedLocaleIdentifiers
+           ) {
+            return exactOrEquivalent
+        }
+
+        if let systemMatch = exactOrEquivalentMatch(
+            for: systemLocaleIdentifier,
+            within: supportedLocaleIdentifiers
+        ) {
+            return systemMatch
+        }
+
+        return supportedLocaleIdentifiers.first
+    }
+
+    private static func exactOrEquivalentMatch(
+        for identifier: String,
+        within supportedLocaleIdentifiers: [String]
+    ) -> String? {
+        if let exactMatch = supportedLocaleIdentifiers.first(where: { $0.caseInsensitiveCompare(identifier) == .orderedSame }) {
+            return exactMatch
+        }
+
+        guard let expectedLanguageCode = normalizedLanguageCode(for: identifier) else {
+            return nil
+        }
+
+        return supportedLocaleIdentifiers.first {
+            normalizedLanguageCode(for: $0) == expectedLanguageCode
+        }
+    }
+
+    private static func normalizedLanguageCode(for identifier: String) -> String? {
+        let locale = Locale(identifier: identifier)
+        if let languageCode = locale.language.languageCode?.identifier {
+            return languageCode.lowercased()
+        }
+
+        return identifier
+            .split(whereSeparator: { $0 == "-" || $0 == "_" })
+            .first
+            .map { String($0).lowercased() }
+    }
+}
+
 // MARK: - Library Descriptor (for multiple libraries)
 struct LibraryDescriptor: Codable, Identifiable {
     let id: UUID
