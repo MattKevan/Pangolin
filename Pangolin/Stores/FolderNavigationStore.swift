@@ -12,6 +12,7 @@ import Combine
 // MARK: - Sidebar Routing Types
 enum LibrarySidebarDestination: Hashable, Identifiable {
     case search
+    case projects
     case smartCollection(SmartCollectionKind)
     case folder(Folder)
     case video(Video)
@@ -22,6 +23,8 @@ enum LibrarySidebarDestination: Hashable, Identifiable {
         switch self {
         case .search:
             return "search"
+        case .projects:
+            return "projects"
         case .smartCollection(let kind):
             return "smart:\(kind.rawValue)"
         case .folder(let folder):
@@ -50,6 +53,8 @@ typealias SidebarSelection = LibrarySidebarDestination
 
 enum LibraryDetailSurface: Equatable {
     case searchResults
+    case projectsGrid
+    case projectDetail
     case smartCollectionTable(SmartCollectionKind)
     case videoDetail
     case empty
@@ -78,6 +83,7 @@ class FolderNavigationStore: ObservableObject {
             }
         }
     }
+    @Published var selectedProject: Folder?
     @Published var selectedTopLevelFolder: Folder?
     @Published var selectedVideo: Video?
     @Published var pendingSearchSeekRequest: SearchSeekRequest?
@@ -109,12 +115,28 @@ class FolderNavigationStore: ObservableObject {
             return .searchResults
         }
 
+        if case .projects = currentDestination {
+            if selectedVideo != nil {
+                return .videoDetail
+            }
+
+            if selectedProject != nil {
+                return .projectDetail
+            }
+
+            return .projectsGrid
+        }
+
         if let kind = currentSmartCollection {
             return .smartCollectionTable(kind)
         }
 
         if selectedVideo != nil {
             return .videoDetail
+        }
+
+        if selectedProject != nil {
+            return .projectDetail
         }
 
         return .empty
@@ -177,13 +199,22 @@ class FolderNavigationStore: ObservableObject {
         case .search:
             // Don't change currentFolderID when in search mode
             // Content will be managed by SearchManager
+            if selectedProject != nil {
+                selectedProject = nil
+            }
             if selectedVideo != nil {
                 selectedVideo = nil
             }
             break
+        case .projects:
+            applyProjectsSelection()
         case .smartCollection:
             applySmartCollectionSelection()
         case .folder(let folder):
+            if folder.isProject {
+                openProject(folder)
+                return
+            }
             // When revealing a video's location, revealVideoLocation(_:) sets
             // selectedTopLevelFolder/currentFolderID/navigationPath explicitly.
             // Avoid clobbering that state from this sidebar selection callback.
@@ -206,9 +237,35 @@ class FolderNavigationStore: ObservableObject {
         }
     }
 
+    private func applyProjectsSelection() {
+        if !navigationPath.isEmpty {
+            navigationPath = NavigationPath()
+        }
+
+        if selectedProject != nil {
+            selectedProject = nil
+        }
+
+        if currentFolderID != nil {
+            currentFolderID = nil
+        }
+
+        if selectedTopLevelFolder != nil {
+            selectedTopLevelFolder = nil
+        }
+
+        if selectedVideo != nil {
+            selectedVideo = nil
+        }
+    }
+
     private func applySmartCollectionSelection() {
         if !navigationPath.isEmpty {
             navigationPath = NavigationPath()
+        }
+
+        if selectedProject != nil {
+            selectedProject = nil
         }
 
         if selectedTopLevelFolder != nil {
@@ -229,6 +286,9 @@ class FolderNavigationStore: ObservableObject {
         }
 
         let topLevelFolder = topLevelAncestor(for: folder)
+        if selectedProject?.objectID != topLevelFolder.objectID {
+            selectedProject = topLevelFolder
+        }
         if selectedTopLevelFolder?.id != topLevelFolder.id {
             selectedTopLevelFolder = topLevelFolder
         }
@@ -256,7 +316,11 @@ class FolderNavigationStore: ObservableObject {
     func activateSearch() {
         selectedSidebarItem = .search
     }
-    
+
+    func selectProjects() {
+        selectedSidebarItem = .projects
+    }
+
     func selectAllVideos() {
         selectedSidebarItem = .smartCollection(.allVideos)
     }
@@ -269,6 +333,12 @@ class FolderNavigationStore: ObservableObject {
 
         if case .search = currentDestination {
             // Search results are driven by SearchManager; keep existing folder content state intact.
+            return
+        }
+
+        if case .projects = currentDestination {
+            self.hierarchicalContent = []
+            self.flatContent = []
             return
         }
 
@@ -382,6 +452,7 @@ class FolderNavigationStore: ObservableObject {
 
     private func ensureInitialSelectionIfNeeded() {
         guard selectedSidebarItem == nil,
+              selectedProject == nil,
               selectedTopLevelFolder == nil,
               currentFolderID == nil,
               !isSearchMode,
@@ -389,7 +460,7 @@ class FolderNavigationStore: ObservableObject {
             return
         }
 
-        selectedSidebarItem = .smartCollection(.allVideos)
+        selectedSidebarItem = .projects
     }
 
     private func applySidebarFolderSelectionWithoutCallback(_ folder: Folder, clearSelectedVideo: Bool) {
@@ -400,16 +471,47 @@ class FolderNavigationStore: ObservableObject {
         selectedSidebarItem = targetSelection
         applyFolderSelection(folder, clearSelectedVideo: clearSelectedVideo)
     }
-    
-    func userFolders() -> [Folder] {
+
+    private func backfillProjectMetadataIfNeeded(for projects: [Folder], in context: NSManagedObjectContext) {
+        var didChange = false
+
+        for project in projects where project.isProject {
+            let trimmedTitle = project.projectTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if trimmedTitle.isEmpty {
+                project.projectTitle = project.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+                didChange = true
+            }
+
+            let trimmedThumbnailPath = project.projectThumbnailPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if trimmedThumbnailPath.isEmpty, let thumbnailPath = project.resolvedProjectThumbnailPath {
+                project.projectThumbnailPath = thumbnailPath
+                didChange = true
+            }
+        }
+
+        guard didChange else { return }
+
+        do {
+            try context.save()
+        } catch {
+            errorMessage = "Failed to update project metadata: \(error.localizedDescription)"
+            context.rollback()
+        }
+    }
+
+    func projects() -> [Folder] {
         guard let context = libraryManager.viewContext, let library = libraryManager.currentLibrary else { return [] }
         let request = Folder.fetchRequest()
         request.predicate = NSPredicate(format: "library == %@ AND isTopLevel == YES AND isSmartFolder == NO", library)
         request.sortDescriptors = [NSSortDescriptor(keyPath: \Folder.name, ascending: true)]
         do {
-            return try context.fetch(request)
+            let folders = try context.fetch(request)
+            backfillProjectMetadataIfNeeded(for: folders, in: context)
+            return folders.sorted {
+                $0.resolvedProjectTitle.localizedCaseInsensitiveCompare($1.resolvedProjectTitle) == .orderedAscending
+            }
         } catch {
-            errorMessage = "Failed to load user folders: \(error.localizedDescription)"
+            errorMessage = "Failed to load projects: \(error.localizedDescription)"
             return []
         }
     }
@@ -466,8 +568,16 @@ class FolderNavigationStore: ObservableObject {
             navigationPath = NavigationPath()
         }
 
-        if selectedTopLevelFolder != nil {
-            selectedTopLevelFolder = nil
+        if let topLevelFolder = video.folder.map(topLevelAncestor(for:)) {
+            selectedProject = topLevelFolder
+            selectedTopLevelFolder = topLevelFolder
+        } else {
+            if selectedProject != nil {
+                selectedProject = nil
+            }
+            if selectedTopLevelFolder != nil {
+                selectedTopLevelFolder = nil
+            }
         }
 
         if currentFolderID != nil {
@@ -476,6 +586,35 @@ class FolderNavigationStore: ObservableObject {
 
         if selectedSidebarItem != nil {
             selectedSidebarItem = nil
+        }
+    }
+
+    func openProject(_ project: Folder) {
+        guard project.isProject else { return }
+
+        if selectionKey(selectedSidebarItem) != selectionKey(.projects) {
+            suppressNextSidebarSelectionChange = true
+            selectedSidebarItem = .projects
+        }
+
+        if selectedProject?.objectID != project.objectID {
+            selectedProject = project
+        }
+
+        if selectedTopLevelFolder?.objectID != project.objectID {
+            selectedTopLevelFolder = project
+        }
+
+        if currentFolderID != project.id {
+            currentFolderID = project.id
+        }
+
+        if selectedVideo != nil {
+            selectedVideo = nil
+        }
+
+        if !navigationPath.isEmpty {
+            navigationPath = NavigationPath()
         }
     }
 
@@ -520,6 +659,7 @@ class FolderNavigationStore: ObservableObject {
             suppressNextSidebarSelectionChange = true
         }
         selectedSidebarItem = targetSidebarSelection
+        selectedProject = top
         selectedTopLevelFolder = top
         currentFolderID = folder.id
 
@@ -561,6 +701,9 @@ class FolderNavigationStore: ObservableObject {
         let folder = Folder(entity: folderEntityDescription, insertInto: context)
         folder.id = UUID()
         folder.name = trimmedName
+        folder.projectTitle = (parentFolderID == nil) ? trimmedName : nil
+        folder.projectProvider = nil
+        folder.projectThumbnailPath = nil
         folder.isTopLevel = (parentFolderID == nil)
         folder.dateCreated = Date()
         folder.dateModified = Date()
@@ -577,10 +720,14 @@ class FolderNavigationStore: ObservableObject {
                     if !parentFolder.isSmartFolder {
                         folder.parentFolder = parentFolder
                         folder.isTopLevel = false
+                        folder.projectTitle = nil
+                        folder.projectProvider = nil
+                        folder.projectThumbnailPath = nil
                         print("📁 STORE: Set parent folder to: \(parentFolder.name ?? "nil")")
                     } else {
                         print("📁 STORE: Parent is a smart folder, creating as top-level instead")
                         folder.isTopLevel = true
+                        folder.projectTitle = trimmedName
                     }
                 }
             } catch {
@@ -765,7 +912,7 @@ class FolderNavigationStore: ObservableObject {
         
         do {
             if let folder = try context.fetch(request).first {
-                return folder.name ?? "Untitled"
+                return folder.isProject ? folder.resolvedProjectTitle : (folder.name ?? "Untitled")
             }
         } catch {}
         
@@ -835,7 +982,14 @@ class FolderNavigationStore: ObservableObject {
             folderRequest.predicate = NSPredicate(format: "id == %@", id as CVarArg)
             
             if let folder = try context.fetch(folderRequest).first {
+                let previousName = folder.name
                 folder.name = trimmedName
+                if folder.isProject {
+                    let existingTitle = folder.projectTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    if existingTitle.isEmpty || existingTitle == (previousName ?? "") {
+                        folder.projectTitle = trimmedName
+                    }
+                }
                 folder.dateModified = Date()
                 await libraryManager.save()
                 return

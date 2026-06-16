@@ -143,6 +143,10 @@ extension Video {
 // MARK: - Folder Extensions
 extension Folder {
     // Computed properties
+    var isProject: Bool {
+        isTopLevel && !isSmartFolder
+    }
+
     var childFoldersArray: [Folder] {
         guard let children = childFolders else { return [] }
         return children.compactMap { $0 as? Folder }.sorted { 
@@ -155,6 +159,46 @@ extension Folder {
         return videos.compactMap { $0 as? Video }.sorted { 
             ($0.title ?? "").localizedCompare($1.title ?? "") == .orderedAscending 
         }
+    }
+
+    var sectionsArray: [Folder] {
+        childFoldersArray
+    }
+
+    var resolvedProjectTitle: String {
+        let trimmedTitle = projectTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedTitle.isEmpty {
+            return trimmedTitle
+        }
+
+        let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmedName.isEmpty ? "Untitled Project" : trimmedName
+    }
+
+    var resolvedProjectProvider: String {
+        let trimmedProvider = projectProvider?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmedProvider
+    }
+
+    var resolvedProjectThumbnailPath: String? {
+        let trimmedPath = projectThumbnailPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedPath.isEmpty {
+            return trimmedPath
+        }
+
+        return firstDescendantThumbnailPath
+    }
+
+    var projectThumbnailURL: URL? {
+        guard let thumbnailPath = resolvedProjectThumbnailPath else { return nil }
+        if let ubiquitousRoot = FileManager.default.url(forUbiquityContainerIdentifier: VideoFileManager.shared.cloudContainerIdentifier) {
+            let cloudURL = ubiquitousRoot.appendingPathComponent("Thumbnails").appendingPathComponent(thumbnailPath)
+            if FileManager.default.fileExists(atPath: cloudURL.path) {
+                return cloudURL
+            }
+        }
+        guard let libraryPath = library?.url else { return nil }
+        return libraryPath.appendingPathComponent("Thumbnails").appendingPathComponent(thumbnailPath)
     }
     
     var itemCount: Int {
@@ -169,6 +213,23 @@ extension Folder {
             }
         } ?? 0
         return directVideos + childVideos
+    }
+
+    private var firstDescendantThumbnailPath: String? {
+        for video in videosArray {
+            let trimmedPath = video.thumbnailPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !trimmedPath.isEmpty {
+                return trimmedPath
+            }
+        }
+
+        for childFolder in childFoldersArray {
+            if let childThumbnailPath = childFolder.firstDescendantThumbnailPath {
+                return childThumbnailPath
+            }
+        }
+
+        return nil
     }
 }
 

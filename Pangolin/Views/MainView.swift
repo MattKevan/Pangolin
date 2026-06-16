@@ -386,6 +386,12 @@ private struct DetailColumnView: View {
                     .environmentObject(searchManager)
                     .environmentObject(folderStore)
                     .environmentObject(libraryManager)
+            case .projectsGrid:
+                ProjectsGridView()
+                    .environmentObject(folderStore)
+            case .projectDetail:
+                ProjectDetailPlaceholderView()
+                    .environmentObject(folderStore)
             case .smartCollectionTable(_):
                 FolderContentView()
                     .environmentObject(folderStore)

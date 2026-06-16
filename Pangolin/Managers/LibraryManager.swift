@@ -211,6 +211,9 @@ class LibraryManager: ObservableObject {
         let folder = Folder(entity: folderEntityDescription, insertInto: context)
         folder.id = UUID()
         folder.name = trimmedName
+        folder.projectTitle = trimmedName
+        folder.projectProvider = nil
+        folder.projectThumbnailPath = nil
         folder.isTopLevel = true
         folder.dateCreated = Date()
         folder.dateModified = Date()

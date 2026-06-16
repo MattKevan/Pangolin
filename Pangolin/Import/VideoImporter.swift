@@ -425,6 +425,9 @@ class VideoImporter: ObservableObject {
         let folder = Folder(entity: folderEntityDescription, insertInto: context)
         folder.id = UUID()
         folder.name = node.name
+        folder.projectTitle = parent == nil ? node.name : nil
+        folder.projectProvider = nil
+        folder.projectThumbnailPath = nil
         folder.dateCreated = Date()
         folder.dateModified = Date()
         folder.library = library
