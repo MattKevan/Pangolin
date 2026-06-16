@@ -367,13 +367,16 @@ class VideoImporter: ObservableObject {
                 var isDirectory: ObjCBool = false
                 if FileManager.default.fileExists(atPath: item.path, isDirectory: &isDirectory) {
                     if isDirectory.boolValue {
-                        // Subfolder - recursively build tree with security scope
+                        // Project detail only supports one section level, so each immediate
+                        // child folder becomes a section and deeper descendants are flattened
+                        // into that section's video list.
                         let childAccessing = item.startAccessingSecurityScopedResource()
-                        let childNode = buildFolderTree(from: item)
+                        var childNode = FolderNode(url: item, name: item.lastPathComponent)
+                        childNode.videoFiles = findVideoFiles(in: item)
                         if childAccessing {
                             item.stopAccessingSecurityScopedResource()
                         }
-                        if !childNode.videoFiles.isEmpty || !childNode.children.isEmpty {
+                        if !childNode.videoFiles.isEmpty {
                             node.children.append(childNode)
                         }
                     } else if isVideoFile(item) {
@@ -442,7 +445,6 @@ class VideoImporter: ObservableObject {
             if let childFolder = await createFolderFromNode(childNode, parent: parentFolder, library: library, context: context) {
                 createdFolders[childNode.url.path] = childFolder
                 saveContextIfNeeded(context)
-                await addChildFolders(for: childNode, parentFolder: childFolder, library: library, context: context, createdFolders: &createdFolders)
             }
         }
     }

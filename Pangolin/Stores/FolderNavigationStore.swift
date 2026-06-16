@@ -65,6 +65,17 @@ enum FolderDeletionMode {
     case deleteAllVideos
 }
 
+struct ProjectSectionSnapshot: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let videos: [Video]
+    let sourceFolder: Folder?
+
+    static func == (lhs: ProjectSectionSnapshot, rhs: ProjectSectionSnapshot) -> Bool {
+        lhs.id == rhs.id
+    }
+}
+
 @MainActor
 class FolderNavigationStore: ObservableObject {
     // MARK: - Core State
@@ -86,7 +97,10 @@ class FolderNavigationStore: ObservableObject {
     @Published var selectedProject: Folder?
     @Published var selectedTopLevelFolder: Folder?
     @Published var selectedVideo: Video?
+    @Published var selectedProjectVideoIDs = Set<UUID>()
+    @Published var projectSearchQuery = ""
     @Published var pendingSearchSeekRequest: SearchSeekRequest?
+    @Published private(set) var projectSelectionAnchorID: UUID?
     
     // Reactive data sources for the UI
     @Published var hierarchicalContent: [HierarchicalContentItem] = []
@@ -162,6 +176,7 @@ class FolderNavigationStore: ObservableObject {
     private var contextSaveCancellable: AnyCancellable?
     private var isRevealingVideoLocation = false
     private var suppressNextSidebarSelectionChange = false
+    private let fallbackProjectSectionTitle = "Videos"
     
     init(libraryManager: LibraryManager) {
         self.libraryManager = libraryManager
@@ -241,8 +256,11 @@ class FolderNavigationStore: ObservableObject {
         if !navigationPath.isEmpty {
             navigationPath = NavigationPath()
         }
+        clearProjectDetailState(clearProject: true)
+    }
 
-        if selectedProject != nil {
+    private func clearProjectDetailState(clearProject: Bool = false) {
+        if clearProject, selectedProject != nil {
             selectedProject = nil
         }
 
@@ -256,6 +274,18 @@ class FolderNavigationStore: ObservableObject {
 
         if selectedVideo != nil {
             selectedVideo = nil
+        }
+
+        if !selectedProjectVideoIDs.isEmpty {
+            selectedProjectVideoIDs = []
+        }
+
+        if projectSelectionAnchorID != nil {
+            projectSelectionAnchorID = nil
+        }
+
+        if !projectSearchQuery.isEmpty {
+            projectSearchQuery = ""
         }
     }
 
@@ -298,6 +328,9 @@ class FolderNavigationStore: ObservableObject {
         }
         if clearSelectedVideo && selectedVideo != nil {
             selectedVideo = nil
+        }
+        if !selectedProjectVideoIDs.isEmpty {
+            selectedProjectVideoIDs = []
         }
     }
 
@@ -540,6 +573,148 @@ class FolderNavigationStore: ObservableObject {
         selectedVideo = video
     }
 
+    func clearProjectVideoSelection() {
+        guard !selectedProjectVideoIDs.isEmpty else { return }
+        selectedProjectVideoIDs = []
+        projectSelectionAnchorID = nil
+    }
+
+    func selectProjectVideo(
+        _ video: Video,
+        in orderedVideos: [Video],
+        extendingSelection: Bool,
+        rangeSelecting: Bool
+    ) {
+        guard let videoID = video.id else { return }
+
+        if rangeSelecting,
+           let anchorID = projectSelectionAnchorID ?? selectedProjectVideoIDs.first,
+           let anchorIndex = orderedVideos.firstIndex(where: { $0.id == anchorID }),
+           let selectedIndex = orderedVideos.firstIndex(where: { $0.id == videoID }) {
+            let lowerBound = min(anchorIndex, selectedIndex)
+            let upperBound = max(anchorIndex, selectedIndex)
+            selectedProjectVideoIDs = Set(orderedVideos[lowerBound...upperBound].compactMap(\.id))
+            return
+        }
+
+        if extendingSelection {
+            if selectedProjectVideoIDs.contains(videoID) {
+                selectedProjectVideoIDs.remove(videoID)
+            } else {
+                selectedProjectVideoIDs.insert(videoID)
+            }
+            projectSelectionAnchorID = videoID
+            return
+        }
+
+        selectedProjectVideoIDs = [videoID]
+        projectSelectionAnchorID = videoID
+    }
+
+    func project(with id: UUID) -> Folder? {
+        guard let context = libraryManager.viewContext,
+              let library = libraryManager.currentLibrary else { return nil }
+        let request = Folder.fetchRequest()
+        request.fetchLimit = 1
+        request.predicate = NSPredicate(
+            format: "library == %@ AND id == %@ AND isTopLevel == YES AND isSmartFolder == NO",
+            library,
+            id as CVarArg
+        )
+        return try? context.fetch(request).first
+    }
+
+    func video(with id: UUID) -> Video? {
+        guard let context = libraryManager.viewContext,
+              let library = libraryManager.currentLibrary else { return nil }
+        let request = Video.fetchRequest()
+        request.fetchLimit = 1
+        request.predicate = NSPredicate(format: "library == %@ AND id == %@", library, id as CVarArg)
+        return try? context.fetch(request).first
+    }
+
+    func projectSections(for project: Folder, matching query: String? = nil) -> [ProjectSectionSnapshot] {
+        let trimmedQuery = (query ?? projectSearchQuery).trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedQuery = trimmedQuery.isEmpty ? nil : trimmedQuery.localizedLowercase
+
+        var sections: [ProjectSectionSnapshot] = []
+
+        for section in project.sectionsArray {
+            let videos = descendantVideos(in: section)
+                .filter { matchesProjectQuery($0, query: normalizedQuery) }
+
+            guard !videos.isEmpty else { continue }
+
+            sections.append(
+                ProjectSectionSnapshot(
+                    id: section.id?.uuidString ?? section.objectID.uriRepresentation().absoluteString,
+                    title: resolvedFolderName(section, fallback: "Untitled Section"),
+                    videos: videos,
+                    sourceFolder: section
+                )
+            )
+        }
+
+        let directVideos = project.videosArray.filter { matchesProjectQuery($0, query: normalizedQuery) }
+        if !directVideos.isEmpty {
+            sections.append(
+                ProjectSectionSnapshot(
+                    id: "project-root-\(project.id?.uuidString ?? project.objectID.uriRepresentation().absoluteString)",
+                    title: fallbackProjectSectionTitle,
+                    videos: directVideos,
+                    sourceFolder: nil
+                )
+            )
+        }
+
+        return sections
+    }
+
+    func projectVideos(in project: Folder, matching query: String? = nil) -> [Video] {
+        projectSections(for: project, matching: query).flatMap(\.videos)
+    }
+
+    func totalDuration(for project: Folder, matching query: String? = nil) -> TimeInterval {
+        projectVideos(in: project, matching: query).reduce(0) { $0 + $1.duration }
+    }
+
+    func continueWatchingVideo(in project: Folder) -> Video? {
+        let videos = projectVideos(in: project)
+        let inProgress = videos.filter { $0.watchStatus == .inProgress }
+
+        if let mostRecentInProgress = inProgress.sorted(by: continueWatchingSortOrder).first {
+            return mostRecentInProgress
+        }
+
+        return videos.first
+    }
+
+    func openProjectVideo(_ video: Video, in project: Folder? = nil) {
+        if let project {
+            openProject(project)
+        } else if let folder = video.folder {
+            let topLevelFolder = topLevelAncestor(for: folder)
+            if topLevelFolder.isProject {
+                openProject(topLevelFolder)
+            }
+        }
+
+        selectedVideo = video
+        if let videoID = video.id {
+            selectedProjectVideoIDs = [videoID]
+            projectSelectionAnchorID = videoID
+        } else {
+            selectedProjectVideoIDs = []
+            projectSelectionAnchorID = nil
+        }
+    }
+
+    func downloadAllVideos(in project: Folder) {
+        let videos = projectVideos(in: project)
+        guard !videos.isEmpty else { return }
+        ProcessingQueueManager.shared.enqueueEnsureLocalAvailability(for: videos)
+    }
+
     func openFromSearchCitation(_ video: Video, seekTo seconds: TimeInterval?, source: SearchMatchSource?) {
         if video.folder != nil {
             revealVideoLocation(video)
@@ -584,6 +759,14 @@ class FolderNavigationStore: ObservableObject {
             currentFolderID = nil
         }
 
+        if let videoID = video.id {
+            selectedProjectVideoIDs = [videoID]
+            projectSelectionAnchorID = videoID
+        } else {
+            selectedProjectVideoIDs = []
+            projectSelectionAnchorID = nil
+        }
+
         if selectedSidebarItem != nil {
             selectedSidebarItem = nil
         }
@@ -609,9 +792,7 @@ class FolderNavigationStore: ObservableObject {
             currentFolderID = project.id
         }
 
-        if selectedVideo != nil {
-            selectedVideo = nil
-        }
+        clearProjectDetailState()
 
         if !navigationPath.isEmpty {
             navigationPath = NavigationPath()
@@ -662,9 +843,103 @@ class FolderNavigationStore: ObservableObject {
         selectedProject = top
         selectedTopLevelFolder = top
         currentFolderID = folder.id
+        if let videoID = video.id {
+            selectedProjectVideoIDs = [videoID]
+            projectSelectionAnchorID = videoID
+        } else {
+            selectedProjectVideoIDs = []
+            projectSelectionAnchorID = nil
+        }
 
         // Outline mode represents hierarchy in-column, so we don't use stack-like back path here.
         navigationPath = NavigationPath()
+    }
+
+    private func descendantVideos(in folder: Folder) -> [Video] {
+        var videos = folder.videosArray
+        for child in folder.childFoldersArray {
+            videos.append(contentsOf: descendantVideos(in: child))
+        }
+        return videos.sorted(by: projectDisplaySortOrder)
+    }
+
+    private func continueWatchingSortOrder(_ lhs: Video, _ rhs: Video) -> Bool {
+        let lhsLastPlayed = lhs.lastPlayed ?? .distantPast
+        let rhsLastPlayed = rhs.lastPlayed ?? .distantPast
+        if lhsLastPlayed != rhsLastPlayed {
+            return lhsLastPlayed > rhsLastPlayed
+        }
+
+        return projectDisplaySortOrder(lhs, rhs)
+    }
+
+    private func projectDisplaySortOrder(_ lhs: Video, _ rhs: Video) -> Bool {
+        let lhsFileName = projectSortFileName(for: lhs)
+        let rhsFileName = projectSortFileName(for: rhs)
+        let naturalComparison = lhsFileName.localizedStandardCompare(rhsFileName)
+        if naturalComparison != .orderedSame {
+            return naturalComparison == .orderedAscending
+        }
+
+        return resolvedVideoTitle(lhs).localizedCaseInsensitiveCompare(resolvedVideoTitle(rhs)) == .orderedAscending
+    }
+
+    private func projectSortFileName(for video: Video) -> String {
+        let trimmedFileName = video.fileName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedFileName.isEmpty {
+            return trimmedFileName
+        }
+
+        return resolvedVideoTitle(video)
+    }
+
+    var showsProjectBackButton: Bool {
+        currentDetailSurface == .projectDetail && currentDestination == .projects && selectedProject != nil
+    }
+
+    var showsVideoBackButton: Bool {
+        currentDetailSurface == .videoDetail
+    }
+
+    func navigateBackFromDetail() {
+        if selectedVideo != nil {
+            selectedVideo = nil
+            return
+        }
+
+        guard currentDestination == .projects, selectedProject != nil else { return }
+
+        if selectionKey(selectedSidebarItem) != selectionKey(.projects) {
+            suppressNextSidebarSelectionChange = true
+            selectedSidebarItem = .projects
+        }
+
+        clearProjectDetailState(clearProject: true)
+    }
+
+    private func matchesProjectQuery(_ video: Video, query: String?) -> Bool {
+        guard let query, !query.isEmpty else { return true }
+        let title = resolvedVideoTitle(video).localizedLowercase
+        if title.contains(query) {
+            return true
+        }
+        let fileName = (video.fileName ?? "").localizedLowercase
+        return fileName.contains(query)
+    }
+
+    private func resolvedVideoTitle(_ video: Video) -> String {
+        let trimmedTitle = video.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedTitle.isEmpty {
+            return trimmedTitle
+        }
+
+        let trimmedFileName = video.fileName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmedFileName.isEmpty ? "Untitled Video" : trimmedFileName
+    }
+
+    private func resolvedFolderName(_ folder: Folder, fallback: String) -> String {
+        let trimmedName = folder.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmedName.isEmpty ? fallback : trimmedName
     }
     
     // MARK: - Folder Management

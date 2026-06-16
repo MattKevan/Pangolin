@@ -90,6 +90,120 @@ struct ProjectsStoreTests {
         await manager.closeCurrentLibrary()
     }
 
+    @Test("Project detail aggregates and continue watching resolve from project content")
+    @MainActor
+    func projectDetailAggregatesAndContinueWatching() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Commerce", in: context, parent: nil, library: library)
+        let section = try makeFolder(named: "Module 1", in: context, parent: project, library: library)
+        _ = try makeVideo(
+            title: "Intro",
+            thumbnailPath: nil,
+            in: context,
+            folder: section,
+            library: library,
+            duration: 300,
+            playbackPosition: 120,
+            lastPlayed: Date()
+        )
+        _ = try makeVideo(
+            title: "Setup",
+            thumbnailPath: nil,
+            in: context,
+            folder: section,
+            library: library,
+            duration: 600,
+            playbackPosition: 0,
+            lastPlayed: nil
+        )
+        try context.save()
+
+        let store = FolderNavigationStore(libraryManager: manager)
+
+        #expect(store.projectVideos(in: project).count == 2)
+        #expect(store.totalDuration(for: project) == 900)
+        #expect(store.continueWatchingVideo(in: project)?.title == "Intro")
+
+        await manager.closeCurrentLibrary()
+    }
+
+    @Test("Project sections flatten nested folders and expose root videos as fallback section")
+    @MainActor
+    func projectSectionsFlattenNestedFoldersAndRootVideos() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
+        let module = try makeFolder(named: "Module 1", in: context, parent: project, library: library)
+        let nested = try makeFolder(named: "Deep Folder", in: context, parent: module, library: library)
+        _ = try makeVideo(title: "Nested Lesson", thumbnailPath: nil, in: context, folder: nested, library: library)
+        _ = try makeVideo(title: "Loose Video", thumbnailPath: nil, in: context, folder: project, library: library)
+        try context.save()
+
+        let store = FolderNavigationStore(libraryManager: manager)
+        let sections = store.projectSections(for: project)
+
+        #expect(sections.count == 2)
+        #expect(sections.first?.title == "Module 1")
+        #expect(sections.first?.videos.first?.title == "Nested Lesson")
+        #expect(sections.last?.title == "Videos")
+        #expect(sections.last?.videos.first?.title == "Loose Video")
+
+        await manager.closeCurrentLibrary()
+    }
+
+    @Test("Project search filters only inside the active project")
+    @MainActor
+    func projectSearchFiltersOnlyActiveProject() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let activeProject = try makeFolder(named: "Active", in: context, parent: nil, library: library)
+        let activeSection = try makeFolder(named: "Section", in: context, parent: activeProject, library: library)
+        _ = try makeVideo(title: "Alpha Lesson", thumbnailPath: nil, in: context, folder: activeSection, library: library)
+
+        let otherProject = try makeFolder(named: "Other", in: context, parent: nil, library: library)
+        let otherSection = try makeFolder(named: "Section", in: context, parent: otherProject, library: library)
+        _ = try makeVideo(title: "Alpha Elsewhere", thumbnailPath: nil, in: context, folder: otherSection, library: library)
+        try context.save()
+
+        let store = FolderNavigationStore(libraryManager: manager)
+        let results = store.projectSections(for: activeProject, matching: "alpha")
+
+        #expect(results.count == 1)
+        #expect(results.first?.videos.count == 1)
+        #expect(results.first?.videos.first?.folder?.parentFolder?.objectID == activeProject.objectID)
+
+        await manager.closeCurrentLibrary()
+    }
+
+    @Test("Project videos sort by filename using natural numeric order")
+    @MainActor
+    func projectVideosSortByFilenameUsingNaturalNumericOrder() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Numbered", in: context, parent: nil, library: library)
+        let section = try makeFolder(named: "Module", in: context, parent: project, library: library)
+        _ = try makeVideo(title: "Ten", thumbnailPath: nil, in: context, folder: section, library: library, fileName: "10 - Lesson.mp4")
+        _ = try makeVideo(title: "Two", thumbnailPath: nil, in: context, folder: section, library: library, fileName: "2 - Lesson.mp4")
+        _ = try makeVideo(title: "Nine", thumbnailPath: nil, in: context, folder: section, library: library, fileName: "9 - Lesson.mp4")
+        try context.save()
+
+        let store = FolderNavigationStore(libraryManager: manager)
+        let videos = try #require(store.projectSections(for: project).first?.videos)
+
+        #expect(videos.map(\.fileName) == ["2 - Lesson.mp4", "9 - Lesson.mp4", "10 - Lesson.mp4"])
+
+        await manager.closeCurrentLibrary()
+    }
+
     @MainActor
     private func makeLibraryContext() async throws -> (LibraryManager, NSManagedObjectContext, URL) {
         let manager = LibraryManager.shared
@@ -149,7 +263,11 @@ struct ProjectsStoreTests {
         thumbnailPath: String?,
         in context: NSManagedObjectContext,
         folder: Folder,
-        library: Library
+        library: Library,
+        duration: TimeInterval = 120,
+        playbackPosition: Double = 0,
+        lastPlayed: Date? = nil,
+        fileName: String? = nil
     ) throws -> Video {
         guard let videoEntity = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Video"] else {
             throw TestFailure("Missing Video entity")
@@ -158,10 +276,12 @@ struct ProjectsStoreTests {
         let video = Video(entity: videoEntity, insertInto: context)
         video.id = UUID()
         video.title = title
-        video.fileName = "\(title).mp4"
+        video.fileName = fileName ?? "\(title).mp4"
         video.thumbnailPath = thumbnailPath
         video.dateAdded = Date()
-        video.duration = 120
+        video.duration = duration
+        video.playbackPosition = playbackPosition
+        video.lastPlayed = lastPlayed
         video.fileSize = 1_024
         video.folder = folder
         video.library = library

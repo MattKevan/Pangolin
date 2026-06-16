@@ -4,6 +4,20 @@ import SwiftUI
 import CoreData
 
 struct MainView: View {
+    #if os(iOS)
+    private enum PhoneTab: Hashable {
+        case projects
+        case allVideos
+        case favourites
+        case search
+    }
+
+    private enum PhoneProjectsRoute: Hashable {
+        case project(UUID)
+        case video(UUID)
+    }
+    #endif
+
     @EnvironmentObject var libraryManager: LibraryManager
     @EnvironmentObject var videoFileManager: VideoFileManager
     @StateObject private var folderStore: FolderNavigationStore
@@ -23,6 +37,10 @@ struct MainView: View {
     @State private var showTaskPopover = false
     @State private var isSearchFieldPresented = false
     @FocusState private var isSearchFieldFocused: Bool
+    #if os(iOS)
+    @State private var phoneSelectedTab: PhoneTab = .projects
+    @State private var phoneProjectsPath: [PhoneProjectsRoute] = []
+    #endif
     
     init(
         libraryManager: LibraryManager,
@@ -48,7 +66,7 @@ struct MainView: View {
 
     private var rootView: some View {
         RootContainerView(
-            content: rootNavigationSplitView,
+            content: rootShellView,
             folderStore: folderStore,
             searchManager: searchManager,
             libraryManager: libraryManager,
@@ -58,6 +76,19 @@ struct MainView: View {
             handleVideoImport: handleVideoImport,
             handleURLImport: handleURLImport
         )
+    }
+
+    @ViewBuilder
+    private var rootShellView: some View {
+        #if os(iOS)
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            phoneRootView
+        } else {
+            rootNavigationSplitView
+        }
+        #else
+        rootNavigationSplitView
+        #endif
     }
 
     private var rootNavigationSplitView: some View {
@@ -103,6 +134,15 @@ struct MainView: View {
                 if !folderStore.isSearchMode {
                     // Normal Mode: Standard toolbar items
                     ToolbarItemGroup(placement: .navigation) {
+                        if folderStore.showsProjectBackButton || folderStore.showsVideoBackButton {
+                            Button {
+                                folderStore.navigateBackFromDetail()
+                            } label: {
+                                Image(systemName: "chevron.left")
+                            }
+                            .help("Back")
+                        }
+
                         Button {
                             showingImportPicker = true
                         } label: {
@@ -211,6 +251,106 @@ struct MainView: View {
             }
         }
     }
+
+    #if os(iOS)
+    private var phoneRootView: some View {
+        TabView(selection: $phoneSelectedTab) {
+            Tab("Projects", systemImage: "square.grid.2x2", value: .projects) {
+                NavigationStack(path: $phoneProjectsPath) {
+                    ProjectsGridView { project in
+                        openPhoneProject(project)
+                    }
+                    .environmentObject(folderStore)
+                    .navigationDestination(for: PhoneProjectsRoute.self) { route in
+                        switch route {
+                        case .project(let projectID):
+                            if let project = folderStore.project(with: projectID) {
+                                ProjectDetailView(
+                                    project: project,
+                                    showsPhoneToolbar: true,
+                                    opensVideoOnSingleTap: true
+                                )
+                                .environmentObject(folderStore)
+                            } else {
+                                ContentUnavailableView(
+                                    "Project unavailable",
+                                    systemImage: "square.grid.2x2",
+                                    description: Text("The selected project could not be loaded.")
+                                )
+                            }
+                        case .video(let videoID):
+                            if let video = folderStore.video(with: videoID) {
+                                DetailView(video: video)
+                                    .environmentObject(folderStore)
+                                    .environmentObject(libraryManager)
+                                    .environmentObject(transcriptionService)
+                            } else {
+                                ContentUnavailableView(
+                                    "Video unavailable",
+                                    systemImage: "video",
+                                    description: Text("The selected video could not be loaded.")
+                                )
+                            }
+                        }
+                    }
+                    .onChange(of: folderStore.selectedVideo?.id) { _, newValue in
+                        guard phoneSelectedTab == .projects,
+                              let videoID = newValue,
+                              !phoneProjectsPath.contains(.video(videoID)),
+                              folderStore.selectedProject != nil else { return }
+                        phoneProjectsPath.append(.video(videoID))
+                    }
+                }
+            }
+
+            Tab("All videos", systemImage: "list.bullet", value: .allVideos) {
+                NavigationStack {
+                    PhoneCollectionTabView(
+                        title: "All videos",
+                        onAppear: { folderStore.selectedSidebarItem = .smartCollection(.allVideos) }
+                    )
+                    .environmentObject(folderStore)
+                    .environmentObject(libraryManager)
+                    .environmentObject(transcriptionService)
+                }
+            }
+
+            Tab("Favourites", systemImage: "heart", value: .favourites) {
+                NavigationStack {
+                    PhoneCollectionTabView(
+                        title: "Favourites",
+                        onAppear: { folderStore.selectedSidebarItem = .smartCollection(.favorites) }
+                    )
+                    .environmentObject(folderStore)
+                    .environmentObject(libraryManager)
+                    .environmentObject(transcriptionService)
+                }
+            }
+
+            Tab("Search", systemImage: "magnifyingglass", value: .search) {
+                NavigationStack {
+                    SearchResultsView()
+                        .environmentObject(searchManager)
+                        .environmentObject(folderStore)
+                        .environmentObject(libraryManager)
+                        .navigationTitle("Search")
+                }
+                .searchable(
+                    text: $searchManager.searchText,
+                    placement: .automatic,
+                    prompt: "Search videos, transcripts, and summaries"
+                )
+            }
+        }
+        .tabBarMinimizeBehavior(.onScrollDown)
+        .onAppear {
+            syncPhoneTabSelection()
+        }
+        .onChange(of: phoneSelectedTab) { _, _ in
+            syncPhoneTabSelection()
+        }
+    }
+    #endif
     
     
     private func hasTranscript(_ video: Video) -> Bool {
@@ -260,6 +400,29 @@ struct MainView: View {
         }
         try await processingQueueManager.enqueueRemoteImport(url: url, library: library, context: context)
     }
+
+    #if os(iOS)
+    private func openPhoneProject(_ project: Folder) {
+        folderStore.openProject(project)
+        guard let projectID = project.id else { return }
+        if phoneProjectsPath.last != .project(projectID) {
+            phoneProjectsPath.append(.project(projectID))
+        }
+    }
+
+    private func syncPhoneTabSelection() {
+        switch phoneSelectedTab {
+        case .projects:
+            folderStore.selectProjects()
+        case .allVideos:
+            folderStore.selectAllVideos()
+        case .favourites:
+            folderStore.selectedSidebarItem = .smartCollection(.favorites)
+        case .search:
+            folderStore.activateSearch()
+        }
+    }
+    #endif
 }
 
 private struct RootContainerView<Content: View>: View {
@@ -390,8 +553,16 @@ private struct DetailColumnView: View {
                 ProjectsGridView()
                     .environmentObject(folderStore)
             case .projectDetail:
-                ProjectDetailPlaceholderView()
-                    .environmentObject(folderStore)
+                if let selectedProject = folderStore.selectedProject {
+                    ProjectDetailView(project: selectedProject)
+                        .environmentObject(folderStore)
+                } else {
+                    ContentUnavailableView(
+                        "No project selected",
+                        systemImage: "square.grid.2x2",
+                        description: Text("Choose a project from the grid.")
+                    )
+                }
             case .smartCollectionTable(_):
                 FolderContentView()
                     .environmentObject(folderStore)
@@ -419,6 +590,35 @@ private struct DetailColumnView: View {
         }
     }
 }
+
+#if os(iOS)
+private struct PhoneCollectionTabView: View {
+    @EnvironmentObject private var folderStore: FolderNavigationStore
+    @EnvironmentObject private var libraryManager: LibraryManager
+    @EnvironmentObject private var transcriptionService: SpeechTranscriptionService
+
+    let title: String
+    let onAppear: () -> Void
+
+    var body: some View {
+        Group {
+            if let selectedVideo = folderStore.selectedVideo,
+               folderStore.currentDetailSurface == .videoDetail {
+                DetailView(video: selectedVideo)
+                    .environmentObject(folderStore)
+                    .environmentObject(libraryManager)
+                    .environmentObject(transcriptionService)
+            } else {
+                FolderContentView()
+                    .environmentObject(folderStore)
+                    .environmentObject(libraryManager)
+            }
+        }
+        .navigationTitle(title)
+        .onAppear(perform: onAppear)
+    }
+}
+#endif
 
 // MARK: - View Modifier helper to conditionally inject context
 
