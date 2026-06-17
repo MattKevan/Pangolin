@@ -46,7 +46,6 @@ struct SearchResultsView: View {
 
                     if searchManager.isSearching && !hasResults {
                         LoadingStateView()
-                            .background(.regularMaterial)
                     } else if shouldShowMinimumCharactersHint {
                         SearchHintStateView(
                             title: "Keep typing",
@@ -85,6 +84,9 @@ private struct LoadingStateView: View {
             Text("Searching...")
                 .foregroundColor(.secondary)
         }
+        .padding(.horizontal, 28)
+        .padding(.vertical, 22)
+        .pangolinGlassRoundedRect(cornerRadius: 24, interactive: true)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
@@ -165,9 +167,9 @@ private struct SearchAnswerPanel: View {
             }
         }
         .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .pangolinGlassRoundedRect(cornerRadius: 18)
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(Color.secondary.opacity(0.15), lineWidth: 1)
         )
     }

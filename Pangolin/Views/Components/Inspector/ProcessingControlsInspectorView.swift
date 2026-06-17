@@ -17,8 +17,5 @@ struct ProcessingControlsInspectorView: View {
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        #if os(macOS)
-        .background(Color.appWindowBackground)
-        #endif
     }
 }

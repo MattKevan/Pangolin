@@ -173,21 +173,20 @@ struct SummaryControlsInspectorPane: View {
                             Button("Open settings") {
                                 openAppleIntelligenceSettings()
                             }
-                            .buttonStyle(.bordered)
+                            .pangolinGlassButton()
                             .controlSize(.small)
                         }
 
                         Button("Retry") {
                             runSummarization(force: true)
                         }
-                        .buttonStyle(.borderedProminent)
+                        .pangolinGlassButton(prominent: true)
                         .controlSize(.small)
                         .disabled(!canGenerateSummary)
                     }
                 }
                 .padding(10)
-                .background(Color.orange.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .pangolinGlassRoundedRect(cornerRadius: 12, tint: .orange)
             }
 
             summaryCustomizationControls
@@ -210,7 +209,7 @@ struct SummaryControlsInspectorPane: View {
                 } label: {
                     Label("Copy rendered", systemImage: "doc.on.doc")
                 }
-                .buttonStyle(.bordered)
+                .pangolinGlassButton()
                 .controlSize(.small)
 
                 Button {
@@ -219,7 +218,7 @@ struct SummaryControlsInspectorPane: View {
                 } label: {
                     Label("Copy markdown", systemImage: "chevron.left.slash.chevron.right")
                 }
-                .buttonStyle(.bordered)
+                .pangolinGlassButton()
                 .controlSize(.small)
 
                 if didCopyRendered {
@@ -248,7 +247,7 @@ struct SummaryControlsInspectorPane: View {
             Text("Summarise")
                 .frame(maxWidth: .infinity)
         }
-        .buttonStyle(.borderedProminent)
+        .pangolinGlassButton(prominent: true)
         .controlSize(.large)
         .disabled(!canGenerateSummary || isSummarizing)
     }
@@ -273,8 +272,7 @@ struct SummaryControlsInspectorPane: View {
             LineSpacedTextEditor(text: selectedPromptBinding, lineSpacing: 4)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(minHeight: 88)
-                .background(Color.secondary.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .pangolinGlassRoundedRect(cornerRadius: 12)
                 .disabled(isSummarizing)
                 .padding(2)
         }

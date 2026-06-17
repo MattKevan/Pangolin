@@ -145,19 +145,7 @@ struct DetailView: View {
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                Button {
-                    toggleFavorite(video: selectedVideo)
-                } label: {
-                    Image(systemName: selectedVideo.isFavorite ? "heart.fill" : "heart")
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    handlePrimaryAction()
-                } label: {
-                    Image(systemName: actionButtonSymbolName)
-                }
-                .buttonStyle(.plain)
+                headerActionButtons(for: selectedVideo)
             }
             .frame(maxWidth: 760)
             .frame(maxWidth: .infinity)
@@ -206,8 +194,61 @@ struct DetailView: View {
             )
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
-            .background(.ultraThinMaterial)
         }
+    }
+
+    @ViewBuilder
+    private func headerActionButtons(for selectedVideo: Video) -> some View {
+        if #available(iOS 26.0, macOS 26.0, *) {
+            GlassEffectContainer(spacing: 12) {
+                HStack(spacing: 12) {
+                    headerActionButton(
+                        systemImage: selectedVideo.isFavorite ? "heart.fill" : "heart",
+                        accessibilityLabel: selectedVideo.isFavorite ? "Remove favorite" : "Add favorite"
+                    ) {
+                        toggleFavorite(video: selectedVideo)
+                    }
+
+                    headerActionButton(
+                        systemImage: actionButtonSymbolName,
+                        accessibilityLabel: "More actions"
+                    ) {
+                        handlePrimaryAction()
+                    }
+                }
+            }
+        } else {
+            HStack(spacing: 12) {
+                headerActionButton(
+                    systemImage: selectedVideo.isFavorite ? "heart.fill" : "heart",
+                    accessibilityLabel: selectedVideo.isFavorite ? "Remove favorite" : "Add favorite"
+                ) {
+                    toggleFavorite(video: selectedVideo)
+                }
+
+                headerActionButton(
+                    systemImage: actionButtonSymbolName,
+                    accessibilityLabel: "More actions"
+                ) {
+                    handlePrimaryAction()
+                }
+            }
+        }
+    }
+
+    private func headerActionButton(
+        systemImage: String,
+        accessibilityLabel: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 17, weight: .semibold))
+                .frame(width: 46, height: 46)
+        }
+        .pangolinGlassButton()
+        .buttonBorderShape(.capsule)
+        .accessibilityLabel(accessibilityLabel)
     }
 
     private var preferredTranslationLocaleIdentifier: String {
@@ -291,8 +332,7 @@ struct DetailView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(Color.secondary.opacity(0.12))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .pangolinGlassRoundedRect(cornerRadius: 16, interactive: true)
         .frame(minWidth: 260, idealWidth: 320)
     }
 
@@ -335,8 +375,7 @@ struct DetailView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(Color.secondary.opacity(0.12))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .pangolinGlassRoundedRect(cornerRadius: 16, interactive: true)
     }
 
     private var canShowControlsInspector: Bool {
@@ -469,6 +508,9 @@ struct VideoPageTabPicker: View {
         }
         .pickerStyle(.segmented)
         .labelsHidden()
+        .padding(6)
+        .frame(maxWidth: 340, alignment: .leading)
+        .pangolinGlassRoundedRect(cornerRadius: 22, interactive: true)
     }
 }
 
@@ -481,10 +523,7 @@ struct VideoPageNavigationBar: View {
     var body: some View {
         HStack {
             if let previousTitle {
-                Button(action: onPrevious) {
-                    Label(previousTitle, systemImage: "chevron.left")
-                }
-                .buttonStyle(.bordered)
+                navigationButton(title: previousTitle, systemImage: "chevron.left", trailingIcon: false, action: onPrevious)
             } else {
                 Color.clear
                     .frame(width: 1, height: 1)
@@ -493,15 +532,39 @@ struct VideoPageNavigationBar: View {
             Spacer()
 
             if let nextTitle {
-                Button(action: onNext) {
-                    Label(nextTitle, systemImage: "chevron.right")
-                }
-                .buttonStyle(.bordered)
+                navigationButton(title: nextTitle, systemImage: "chevron.right", trailingIcon: true, action: onNext)
             } else {
                 Color.clear
                     .frame(width: 1, height: 1)
             }
         }
+    }
+
+    private func navigationButton(
+        title: String,
+        systemImage: String,
+        trailingIcon: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                if !trailingIcon {
+                    Image(systemName: systemImage)
+                }
+
+                Text(title)
+                    .font(.headline.weight(.semibold))
+
+                if trailingIcon {
+                    Image(systemName: systemImage)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .frame(minWidth: 148)
+        }
+        .pangolinGlassButton()
+        .buttonBorderShape(.capsule)
     }
 }
 

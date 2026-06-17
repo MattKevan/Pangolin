@@ -105,8 +105,7 @@ struct TranscriptionControlsInspectorPane: View {
             }
         }
         .padding(12)
-        .background(Color.secondary.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .pangolinGlassRoundedRect(cornerRadius: 16)
     }
 
     @ViewBuilder
@@ -134,7 +133,7 @@ struct TranscriptionControlsInspectorPane: View {
                 Text("Transcribe again")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
+            .pangolinGlassButton(prominent: true)
             .controlSize(.large)
             .disabled(!canStartTranscription)
 
@@ -148,7 +147,7 @@ struct TranscriptionControlsInspectorPane: View {
                 Text(hasMatchingTranslation ? "Translate again" : "Translate now")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
+            .pangolinGlassButton()
             .controlSize(.large)
             .disabled(!canStartTranslation)
 
@@ -158,7 +157,7 @@ struct TranscriptionControlsInspectorPane: View {
                 Text("Copy")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
+            .pangolinGlassButton()
             .controlSize(.large)
             .disabled(preferredDisplayText.isEmpty)
 
@@ -170,7 +169,7 @@ struct TranscriptionControlsInspectorPane: View {
                 Text("Clear")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
+            .pangolinGlassButton()
             .controlSize(.large)
             .disabled(!hasGeneratedContent)
         }
@@ -207,8 +206,7 @@ struct TranscriptionControlsInspectorPane: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
-            .background(Color.secondary.opacity(0.12))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .pangolinGlassRoundedRect(cornerRadius: 12, interactive: true)
         }
         .disabled(locales.isEmpty)
     }
