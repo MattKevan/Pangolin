@@ -3,7 +3,7 @@
 //  Pangolin
 //
 
-import Foundation
+import SwiftUI
 
 enum VideoResizeHandle: CaseIterable, Hashable {
     case topLeading
@@ -232,5 +232,102 @@ enum VideoFloatingLayout {
 
     private static func validRatio(_ aspectRatio: CGFloat) -> CGFloat {
         aspectRatio.isFinite && aspectRatio > 0 ? aspectRatio : fallbackAspectRatio
+    }
+}
+
+@MainActor
+final class FloatingVideoState: ObservableObject {
+    @Published private(set) var isFloating = false
+    @Published private(set) var frame = CGRect.zero
+    @Published private(set) var videoID: UUID?
+
+    func reset(for videoID: UUID) {
+        guard self.videoID != videoID else { return }
+
+        self.videoID = videoID
+        isFloating = false
+        frame = .zero
+    }
+
+    func prepareDefaultFrame(
+        in bounds: CGRect,
+        inlineWidth: CGFloat,
+        aspectRatio: CGFloat
+    ) {
+        guard frame == .zero else {
+            clamp(to: bounds, aspectRatio: aspectRatio)
+            return
+        }
+
+        frame = VideoFloatingLayout.defaultFrame(
+            in: bounds,
+            inlineWidth: inlineWidth,
+            aspectRatio: aspectRatio
+        )
+    }
+
+    func updateVisibleFraction(_ visibleFraction: Double) {
+        isFloating = VideoFloatingLayout.shouldFloat(
+            isFloating: isFloating,
+            visibleFraction: visibleFraction
+        )
+    }
+
+    func move(
+        by translation: CGSize,
+        in bounds: CGRect,
+        aspectRatio: CGFloat
+    ) {
+        setFrame(
+            frame.offsetBy(dx: translation.width, dy: translation.height),
+            in: bounds,
+            aspectRatio: aspectRatio
+        )
+    }
+
+    func setFrame(
+        _ frame: CGRect,
+        in bounds: CGRect,
+        aspectRatio: CGFloat
+    ) {
+        self.frame = VideoFloatingLayout.fittedFrame(
+            frame,
+            aspectRatio: aspectRatio,
+            in: bounds
+        )
+    }
+
+    func resize(
+        from frame: CGRect,
+        handle: VideoResizeHandle,
+        translation: CGSize,
+        in bounds: CGRect,
+        aspectRatio: CGFloat
+    ) {
+        self.frame = VideoFloatingLayout.resizedFrame(
+            from: frame,
+            handle: handle,
+            translation: translation,
+            aspectRatio: aspectRatio,
+            in: bounds
+        )
+    }
+
+    func clamp(to bounds: CGRect, aspectRatio: CGFloat) {
+        guard frame != .zero else { return }
+
+        setFrame(frame, in: bounds, aspectRatio: aspectRatio)
+    }
+
+    func resetPlacement(
+        in bounds: CGRect,
+        inlineWidth: CGFloat,
+        aspectRatio: CGFloat
+    ) {
+        frame = VideoFloatingLayout.defaultFrame(
+            in: bounds,
+            inlineWidth: inlineWidth,
+            aspectRatio: aspectRatio
+        )
     }
 }

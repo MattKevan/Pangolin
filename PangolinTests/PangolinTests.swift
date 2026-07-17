@@ -251,3 +251,100 @@ struct VideoFloatingLayoutTests {
         #expect(abs(frame.width / frame.height - 16.0 / 9.0) < 0.000_001)
     }
 }
+
+@Suite("Floating video state")
+@MainActor
+struct FloatingVideoStateTests {
+    private let bounds = CGRect(x: 0, y: 0, width: 1_200, height: 800)
+    private let aspectRatio: CGFloat = 16.0 / 9.0
+
+    @Test("Visibility thresholds float and dock without resetting placement")
+    func visibilityThresholdsPreservePlacement() {
+        let videoID = UUID()
+        let state = FloatingVideoState()
+
+        state.reset(for: videoID)
+        state.prepareDefaultFrame(
+            in: bounds,
+            inlineWidth: 760,
+            aspectRatio: aspectRatio
+        )
+        let preparedFrame = state.frame
+
+        state.updateVisibleFraction(0.20)
+        #expect(state.videoID == videoID)
+        #expect(state.isFloating)
+
+        state.updateVisibleFraction(0.40)
+        #expect(state.isFloating)
+        #expect(state.frame == preparedFrame)
+
+        state.updateVisibleFraction(0.70)
+        #expect(!state.isFloating)
+    }
+
+    @Test("A new video resets floating state and placement")
+    func newVideoResetsState() {
+        let originalVideoID = UUID()
+        let newVideoID = UUID()
+        let state = FloatingVideoState()
+
+        state.reset(for: originalVideoID)
+        state.prepareDefaultFrame(
+            in: bounds,
+            inlineWidth: 760,
+            aspectRatio: aspectRatio
+        )
+        state.updateVisibleFraction(0.20)
+        state.move(
+            by: CGSize(width: -120, height: 80),
+            in: bounds,
+            aspectRatio: aspectRatio
+        )
+        #expect(state.frame != .zero)
+
+        state.reset(for: newVideoID)
+
+        #expect(state.videoID == newVideoID)
+        #expect(!state.isFloating)
+        #expect(state.frame == .zero)
+    }
+
+    @Test("Setting a frame clamps it inside available bounds")
+    func setFrameClampsToBounds() {
+        let state = FloatingVideoState()
+
+        state.setFrame(
+            CGRect(x: 850, y: 580, width: 320, height: 180),
+            in: CGRect(x: 0, y: 0, width: 900, height: 600),
+            aspectRatio: aspectRatio
+        )
+
+        #expect(state.frame.maxX <= 884)
+        #expect(state.frame.maxY <= 584)
+    }
+
+    @Test("Preparation retries after transient zero bounds")
+    func preparationRetriesAfterZeroBounds() {
+        let state = FloatingVideoState()
+
+        state.prepareDefaultFrame(
+            in: .zero,
+            inlineWidth: 760,
+            aspectRatio: aspectRatio
+        )
+        #expect(state.frame == .zero)
+
+        state.prepareDefaultFrame(
+            in: bounds,
+            inlineWidth: 760,
+            aspectRatio: aspectRatio
+        )
+
+        #expect(state.frame != .zero)
+        #expect(state.frame.minX >= 16)
+        #expect(state.frame.minY == 16)
+        #expect(state.frame.maxX == 1_184)
+        #expect(state.frame.maxY <= 784)
+    }
+}
