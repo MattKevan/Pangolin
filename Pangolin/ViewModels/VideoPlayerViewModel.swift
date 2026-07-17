@@ -37,6 +37,21 @@ enum VideoPlaybackSelection {
     }
 }
 
+enum VideoPlaybackOperation {
+    struct Token: Equatable {
+        let generation: UInt
+        let videoID: UUID?
+    }
+
+    static func isCurrent(
+        _ token: Token,
+        generation: UInt,
+        videoID: UUID?
+    ) -> Bool {
+        token.generation == generation && token.videoID == videoID
+    }
+}
+
 @MainActor
 class VideoPlayerViewModel: NSObject, ObservableObject {
     @Published var player: AVPlayer?
@@ -93,7 +108,10 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         )
         buildTask?.cancel()
         loadGeneration &+= 1
-        let generation = loadGeneration
+        let token = VideoPlaybackOperation.Token(
+            generation: loadGeneration,
+            videoID: video.id
+        )
 
         if isVideoChange {
             discardPlayerForVideoChange()
@@ -120,58 +138,40 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         }
         
         buildTask = Task { @MainActor in
+            guard isCurrentOperation(token) else { return }
             resetPlayerObservers()
             do {
                 let resolvedURL = try await video.getAccessibleFileURL(downloadIfNeeded: true)
-                guard isCurrentLoad(generation) else { return }
+                guard isCurrentOperation(token) else { return }
                 do {
                     let item = try await buildPlayerItem(for: resolvedURL, with: selectedSubtitle)
-                    guard isCurrentLoad(generation) else { return }
-                    let newPlayer = AVPlayer(playerItem: item)
-                    newPlayer.volume = volume
-                    player = newPlayer
-                    observePlaybackState(for: newPlayer)
-                    
-                    // Also ensure duration is updated (in case builder didn't)
-                    await updateDuration(from: item)
-                    
-                    // Prefer a pending explicit seek target; otherwise resume if not fully watched.
-                    if let startPosition = pendingSeekForVideo ?? resumePosition(for: video) {
-                        await player?.seek(to: CMTime(seconds: startPosition, preferredTimescale: 600))
-                        currentTime = startPosition
-                    }
-                    
-                    await setupTimeObserverIfAsync()
-                    await setupNotificationsIfAsync()
-                    if shouldAutoPlay {
-                        play()
-                    }
+                    guard isCurrentOperation(token) else { return }
+                    await installLoadedItem(
+                        item,
+                        token: token,
+                        startPosition: pendingSeekForVideo ?? resumePosition(for: video),
+                        autoPlay: shouldAutoPlay
+                    )
                 } catch {
-                    guard isCurrentLoad(generation) else { return }
+                    guard isCurrentOperation(token) else { return }
                     // Fallback to simple item on failure
                     let item = AVPlayerItem(url: resolvedURL)
-                    let newPlayer = AVPlayer(playerItem: item)
-                    newPlayer.volume = volume
-                    player = newPlayer
-                    observePlaybackState(for: newPlayer)
-                    await updateDuration(from: item)
-                    if let startPosition = pendingSeekForVideo ?? resumePosition(for: video) {
-                        await player?.seek(to: CMTime(seconds: startPosition, preferredTimescale: 600))
-                        currentTime = startPosition
+                    await installLoadedItem(
+                        item,
+                        token: token,
+                        startPosition: pendingSeekForVideo ?? resumePosition(for: video),
+                        autoPlay: shouldAutoPlay
+                    )
+                    if isCurrentOperation(token) {
+                        print("⚠️ Failed to build composed player item: \(error)")
                     }
-                    await setupTimeObserverIfAsync()
-                    await setupNotificationsIfAsync()
-                    if shouldAutoPlay {
-                        play()
-                    }
-                    print("⚠️ Failed to build composed player item: \(error)")
                 }
             } catch {
-                if isCurrentLoad(generation) {
+                if isCurrentOperation(token) {
                     print("🚨 Failed to resolve playable video URL: \(error)")
                 }
             }
-            if isCurrentLoad(generation) {
+            if isCurrentOperation(token) {
                 isLoading = false
             }
         }
@@ -269,28 +269,49 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     
     func selectSubtitle(_ subtitle: Subtitle?) {
         selectedSubtitle = subtitle
-        guard let video = currentVideo, let url = video.fileURL else { return }
+        guard let video = currentVideo,
+              let url = video.fileURL,
+              let activePlayer = player else { return }
         
         let wasPlaying = isPlaying
         let current = currentTime
         
-        // Cancel any in-flight build
         buildTask?.cancel()
+        loadGeneration &+= 1
+        let token = VideoPlaybackOperation.Token(
+            generation: loadGeneration,
+            videoID: video.id
+        )
         buildTask = Task { @MainActor in
+            guard isCurrentOperation(token, expectedPlayer: activePlayer) else { return }
+            let item: AVPlayerItem
             do {
-                let item = try await buildPlayerItem(for: url, with: subtitle)
-                // Ensure duration updated for UI
-                await updateDuration(from: item)
-                player?.replaceCurrentItem(with: item)
+                item = try await buildPlayerItem(for: url, with: subtitle)
+                guard isCurrentOperation(token, expectedPlayer: activePlayer) else { return }
             } catch {
+                guard isCurrentOperation(token, expectedPlayer: activePlayer) else { return }
                 print("⚠️ Failed to rebuild player item with subtitle: \(error)")
-                let fallback = AVPlayerItem(url: url)
-                await updateDuration(from: fallback)
-                player?.replaceCurrentItem(with: fallback)
+                item = AVPlayerItem(url: url)
             }
+
+            guard isCurrentOperation(token, expectedPlayer: activePlayer) else { return }
+            updateDuration(from: item, token: token, expectedPlayer: activePlayer)
+            activePlayer.replaceCurrentItem(with: item)
+            observePlaybackState(for: activePlayer, token: token)
+            setupTimeObserver(for: activePlayer, token: token)
+            setupNotifications(for: activePlayer, token: token)
+
             // Restore time and play state
-            await player?.seek(to: CMTime(seconds: current, preferredTimescale: 600))
-            if wasPlaying { play() } else { pause() }
+            await activePlayer.seek(to: CMTime(seconds: current, preferredTimescale: 600))
+            guard isCurrentOperation(token, expectedPlayer: activePlayer) else { return }
+            if wasPlaying {
+                activePlayer.rate = playbackRate
+                activePlayer.play()
+                isPlaying = true
+            } else {
+                activePlayer.pause()
+                isPlaying = false
+            }
         }
     }
 
@@ -317,8 +338,49 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         duration = 0
     }
 
-    private func isCurrentLoad(_ generation: UInt) -> Bool {
-        loadGeneration == generation && !Task.isCancelled
+    private func isCurrentOperation(
+        _ token: VideoPlaybackOperation.Token,
+        expectedPlayer: AVPlayer? = nil
+    ) -> Bool {
+        guard !Task.isCancelled,
+              VideoPlaybackOperation.isCurrent(
+                token,
+                generation: loadGeneration,
+                videoID: currentVideo?.id
+              ) else {
+            return false
+        }
+        return expectedPlayer == nil || player === expectedPlayer
+    }
+
+    private func installLoadedItem(
+        _ item: AVPlayerItem,
+        token: VideoPlaybackOperation.Token,
+        startPosition: TimeInterval?,
+        autoPlay: Bool
+    ) async {
+        guard isCurrentOperation(token) else { return }
+
+        let newPlayer = AVPlayer(playerItem: item)
+        newPlayer.volume = volume
+        player = newPlayer
+        observePlaybackState(for: newPlayer, token: token)
+        updateDuration(from: item, token: token, expectedPlayer: newPlayer)
+
+        if let startPosition {
+            await newPlayer.seek(to: CMTime(seconds: startPosition, preferredTimescale: 600))
+            guard isCurrentOperation(token, expectedPlayer: newPlayer) else { return }
+            currentTime = startPosition
+        }
+
+        guard isCurrentOperation(token, expectedPlayer: newPlayer) else { return }
+        setupTimeObserver(for: newPlayer, token: token)
+        setupNotifications(for: newPlayer, token: token)
+        if autoPlay {
+            newPlayer.rate = playbackRate
+            newPlayer.play()
+            isPlaying = true
+        }
     }
 
     // MARK: - External Playback Options
@@ -369,9 +431,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     private func buildPlayerItem(for videoURL: URL, with subtitle: Subtitle?) async throws -> AVPlayerItem {
         // If no subtitle requested, return the plain item
         guard let subtitle, let legibleAsset = legibleAsset(for: subtitle) else {
-            let item = AVPlayerItem(url: videoURL)
-            await updateDuration(from: item)
-            return item
+            return AVPlayerItem(url: videoURL)
         }
         
         let videoAsset = AVURLAsset(url: videoURL)
@@ -395,9 +455,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
             }
         } catch {
             print("⚠️ Failed to build base composition: \(error).")
-            let item = AVPlayerItem(url: videoURL)
-            await updateDuration(from: item)
-            return item
+            return AVPlayerItem(url: videoURL)
         }
         
         // Add legible track
@@ -414,9 +472,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
             print("⚠️ No .text tracks in legible asset: \(error)")
         }
         
-        let item = AVPlayerItem(asset: composition)
-        await updateDuration(from: item)
-        return item
+        return AVPlayerItem(asset: composition)
     }
     
     private func legibleAsset(for subtitle: Subtitle) -> AVAsset? {
@@ -484,43 +540,53 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     
     // MARK: - Observers & state
     
-    private func setupTimeObserver() {
+    private func setupTimeObserver(
+        for player: AVPlayer,
+        token: VideoPlaybackOperation.Token
+    ) {
         removeTimeObserver()
-        guard let player else { return }
         let interval = CMTime(seconds: 0.1, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
         timeObserverOwner = player
-        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            guard let self else { return }
-            self.currentTime = CMTimeGetSeconds(time)
-            
-            if let duration = self.player?.currentItem?.duration {
-                self.duration = CMTimeGetSeconds(duration)
+        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self, weak player] time in
+            Task { @MainActor in
+                guard let self,
+                      let player,
+                      self.isCurrentOperation(token, expectedPlayer: player) else { return }
+                self.currentTime = CMTimeGetSeconds(time)
+
+                if let duration = player.currentItem?.duration {
+                    self.duration = CMTimeGetSeconds(duration)
+                }
+
+                self.savePlaybackPosition()
             }
-            
-            self.savePlaybackPosition()
         }
     }
     
-    private func setupNotifications() {
+    private func setupNotifications(
+        for player: AVPlayer,
+        token: VideoPlaybackOperation.Token
+    ) {
         playbackEndedCancellable?.cancel()
         playbackEndedCancellable = NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)
-            .sink { [weak self] _ in
-                self?.handlePlaybackEnded()
+            .sink { [weak self, weak player] notification in
+                Task { @MainActor in
+                    guard let self,
+                          let player,
+                          self.isCurrentOperation(token, expectedPlayer: player),
+                          notification.object as AnyObject? === player.currentItem else { return }
+                    self.handlePlaybackEnded()
+                }
             }
     }
     
-    // Helpers to call setup methods conditionally with await if the async overload exists
-    private func setupTimeObserverIfAsync() async {
-        // Call the sync version
-        setupTimeObserver()
-    }
-    
-    private func setupNotificationsIfAsync() async {
-        // Call the sync version
-        setupNotifications()
-    }
-    
-    private func updateDuration(from item: AVPlayerItem) async {
+    private func updateDuration(
+        from item: AVPlayerItem,
+        token: VideoPlaybackOperation.Token,
+        expectedPlayer: AVPlayer
+    ) {
+        guard isCurrentOperation(token, expectedPlayer: expectedPlayer) else { return }
+
         if item.status == .readyToPlay {
             duration = CMTimeGetSeconds(item.duration)
             durationStatusCancellable?.cancel()
@@ -529,9 +595,13 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
             durationStatusCancellable?.cancel()
             durationStatusCancellable = item.publisher(for: \.status)
                 .filter { $0 == .readyToPlay }
-                .sink { [weak self, weak item] _ in
-                    if let d = item?.duration {
-                        self?.duration = CMTimeGetSeconds(d)
+                .sink { [weak self, weak item, weak expectedPlayer] _ in
+                    Task { @MainActor in
+                        guard let self,
+                              let expectedPlayer,
+                              self.isCurrentOperation(token, expectedPlayer: expectedPlayer),
+                              let item else { return }
+                        self.duration = CMTimeGetSeconds(item.duration)
                     }
                 }
         }
@@ -590,12 +660,20 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         return position
     }
 
-    private func observePlaybackState(for player: AVPlayer) {
+    private func observePlaybackState(
+        for player: AVPlayer,
+        token: VideoPlaybackOperation.Token
+    ) {
         playerStateCancellable?.cancel()
         playerStateCancellable = player.publisher(for: \.timeControlStatus)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] status in
-                self?.isPlaying = (status == .playing)
+            .sink { [weak self, weak player] status in
+                Task { @MainActor in
+                    guard let self,
+                          let player,
+                          self.isCurrentOperation(token, expectedPlayer: player) else { return }
+                    self.isPlaying = (status == .playing)
+                }
             }
         isPlaying = player.timeControlStatus == .playing
     }

@@ -83,6 +83,29 @@ struct VideoPlaybackSelectionTests {
         #expect(!VideoPlaybackSelection.isVideoChange(from: firstID, to: firstID))
         #expect(!VideoPlaybackSelection.isVideoChange(from: nil, to: firstID))
     }
+
+    @Test("Superseded playback operations cannot mutate the current video")
+    func playbackOperationTokensRejectSupersededWork() {
+        let firstID = UUID()
+        let secondID = UUID()
+        let firstLoad = VideoPlaybackOperation.Token(generation: 1, videoID: firstID)
+
+        #expect(VideoPlaybackOperation.isCurrent(
+            firstLoad,
+            generation: 1,
+            videoID: firstID
+        ))
+        #expect(!VideoPlaybackOperation.isCurrent(
+            firstLoad,
+            generation: 2,
+            videoID: firstID
+        ))
+        #expect(!VideoPlaybackOperation.isCurrent(
+            firstLoad,
+            generation: 1,
+            videoID: secondID
+        ))
+    }
 }
 
 @Suite("Video floating layout")
