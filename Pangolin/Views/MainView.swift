@@ -64,11 +64,30 @@ struct MainView: View {
     var body: some View {
         rootView
             .onAppear {
-                floatingVideoState.reset(for: folderStore.selectedVideo?.id)
+                synchronizeVideoSelection()
             }
-            .onChange(of: folderStore.selectedVideo?.id) { _, selectedVideoID in
-                floatingVideoState.reset(for: selectedVideoID)
+            .onChange(of: folderStore.selectedVideo?.id) { _, _ in
+                synchronizeVideoSelection()
             }
+    }
+
+    private func synchronizeVideoSelection() {
+        let selectedVideo = folderStore.selectedVideo
+        floatingVideoState.reset(for: selectedVideo?.id)
+
+        switch VideoPlaybackSelection.action(
+            selectedID: selectedVideo?.id,
+            loadedID: playerViewModel.currentVideo?.id
+        ) {
+        case .load:
+            if let selectedVideo {
+                playerViewModel.loadVideo(selectedVideo)
+            }
+        case .clear:
+            playerViewModel.clearLoadedVideo()
+        case .none:
+            break
+        }
     }
 
     private var transcriptionService: SpeechTranscriptionService {

@@ -51,18 +51,13 @@ struct DetailView: View {
             if let initial = video, store.selectedVideo == nil {
                 store.selectVideo(initial)
             }
-            if let selected = effectiveSelectedVideo,
-               (playerViewModel.currentVideo?.id != selected.id || playerViewModel.player == nil) {
-                playerViewModel.loadVideo(selected)
+            if let selected = effectiveSelectedVideo {
                 applyPendingSearchSeekIfNeeded(for: selected)
             }
         }
         .onChange(of: store.selectedVideo?.id) { _, _ in
             if let selected = effectiveSelectedVideo {
-                playerViewModel.loadVideo(selected)
                 applyPendingSearchSeekIfNeeded(for: selected)
-            } else {
-                playerViewModel.clearLoadedVideo()
             }
         }
         .onChange(of: selectedInspectorTab) { _, newValue in

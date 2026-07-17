@@ -15,6 +15,19 @@ import AppKit
 import AVKit
 #endif
 
+enum VideoPlaybackSelection {
+    enum Action: Equatable {
+        case load
+        case clear
+        case none
+    }
+
+    static func action(selectedID: UUID?, loadedID: UUID?) -> Action {
+        guard let selectedID else { return .clear }
+        return selectedID == loadedID ? .none : .load
+    }
+}
+
 @MainActor
 class VideoPlayerViewModel: NSObject, ObservableObject {
     @Published var player: AVPlayer?

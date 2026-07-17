@@ -34,6 +34,21 @@ struct PangolinTests {
     }
 }
 
+@Suite("Video playback selection")
+struct VideoPlaybackSelectionTests {
+    @Test("New selections load, repeated selections do nothing, and clearing stops playback")
+    func selectionActionsAreDeduplicated() {
+        let firstID = UUID()
+        let secondID = UUID()
+
+        #expect(VideoPlaybackSelection.action(selectedID: firstID, loadedID: nil) == .load)
+        #expect(VideoPlaybackSelection.action(selectedID: firstID, loadedID: firstID) == .none)
+        #expect(VideoPlaybackSelection.action(selectedID: secondID, loadedID: firstID) == .load)
+        #expect(VideoPlaybackSelection.action(selectedID: nil, loadedID: secondID) == .clear)
+        #expect(VideoPlaybackSelection.action(selectedID: nil, loadedID: nil) == .clear)
+    }
+}
+
 @Suite("Video floating layout")
 struct VideoFloatingLayoutTests {
     @Test("Floating state uses separate float and dock thresholds")
