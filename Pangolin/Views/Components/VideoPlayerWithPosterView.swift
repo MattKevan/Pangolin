@@ -10,9 +10,6 @@ import SwiftUI
 struct VideoPlayerWithPosterView: View {
     let video: Video?
     @ObservedObject var viewModel: VideoPlayerViewModel
-    #if os(macOS)
-    @State private var posterDismissedForSelection = false
-    #endif
     
     var body: some View {
         ZStack {
@@ -42,21 +39,18 @@ struct VideoPlayerWithPosterView: View {
         .onHover { hovering in
             if hovering {
                 withAnimation(.easeInOut(duration: 0.15)) {
-                    posterDismissedForSelection = true
+                    dismissPoster()
                 }
             }
         }
-        .onChange(of: video?.id) { _, _ in
-            posterDismissedForSelection = false
-        }
         .onChange(of: viewModel.isPlaying) { _, isPlaying in
             if isPlaying {
-                posterDismissedForSelection = true
+                dismissPoster()
             }
         }
         .onChange(of: viewModel.currentTime) { _, newTime in
             if newTime > posterStartThreshold {
-                posterDismissedForSelection = true
+                dismissPoster()
             }
         }
         #endif
@@ -67,9 +61,15 @@ struct VideoPlayerWithPosterView: View {
 
     private var shouldShowPoster: Bool {
         guard let selectedVideo = video else { return false }
+        guard let videoID = selectedVideo.id else { return false }
         guard !viewModel.isPlaying else { return false }
-        guard !posterDismissedForSelection else { return false }
+        guard !viewModel.isPosterDismissed(for: videoID) else { return false }
         return isAtStart(selectedVideo)
+    }
+
+    private func dismissPoster() {
+        guard let videoID = video?.id else { return }
+        viewModel.dismissPoster(for: videoID)
     }
 
     private func isAtStart(_ video: Video) -> Bool {

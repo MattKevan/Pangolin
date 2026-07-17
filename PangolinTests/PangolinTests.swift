@@ -120,6 +120,59 @@ struct VideoPlaybackSelectionTests {
     }
 }
 
+@Suite("Video poster presentation")
+struct VideoPosterPresentationTests {
+    @Test("Dismissal survives replacement of the same video's player surface")
+    func dismissalSurvivesSameVideoSurfaceReplacement() {
+        let videoID = UUID()
+        var state = VideoPosterPresentationState()
+
+        state.prepare(for: videoID)
+        state.dismiss(for: videoID)
+        state.prepare(for: videoID)
+
+        #expect(state.isDismissed(for: videoID))
+    }
+
+    @Test("Loading a different video resets poster dismissal")
+    func differentVideoResetsDismissal() {
+        let firstID = UUID()
+        let secondID = UUID()
+        var state = VideoPosterPresentationState()
+
+        state.prepare(for: firstID)
+        state.dismiss(for: firstID)
+        state.prepare(for: secondID)
+
+        #expect(!state.isDismissed(for: secondID))
+        #expect(!state.isDismissed(for: firstID))
+    }
+
+    @Test("Clearing playback resets poster dismissal")
+    func clearingResetsDismissal() {
+        let videoID = UUID()
+        var state = VideoPosterPresentationState()
+
+        state.prepare(for: videoID)
+        state.dismiss(for: videoID)
+        state.clear()
+
+        #expect(!state.isDismissed(for: videoID))
+    }
+
+    @Test("Stale surfaces cannot dismiss a newly selected video's poster")
+    func staleDismissalIsIgnored() {
+        let oldID = UUID()
+        let currentID = UUID()
+        var state = VideoPosterPresentationState()
+
+        state.prepare(for: currentID)
+        state.dismiss(for: oldID)
+
+        #expect(!state.isDismissed(for: currentID))
+    }
+}
+
 @Suite("Video floating layout")
 struct VideoFloatingLayoutTests {
     @Test("Visible fraction measures vertical intersection and clamps to valid fractions")

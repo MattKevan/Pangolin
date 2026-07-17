@@ -56,6 +56,31 @@ enum VideoPlaybackOperation {
     }
 }
 
+struct VideoPosterPresentationState: Equatable {
+    private(set) var videoID: UUID?
+    private(set) var isDismissed = false
+
+    mutating func prepare(for videoID: UUID) {
+        guard self.videoID != videoID else { return }
+        self.videoID = videoID
+        isDismissed = false
+    }
+
+    mutating func dismiss(for videoID: UUID) {
+        guard self.videoID == videoID else { return }
+        isDismissed = true
+    }
+
+    mutating func clear() {
+        videoID = nil
+        isDismissed = false
+    }
+
+    func isDismissed(for videoID: UUID) -> Bool {
+        self.videoID == videoID && isDismissed
+    }
+}
+
 @MainActor
 class VideoPlayerViewModel: NSObject, ObservableObject {
     @Published var player: AVPlayer?
@@ -72,6 +97,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     @Published var currentVideo: Video?
     @Published var isExternalPlaybackActive = false
     @Published private(set) var videoAspectRatio = VideoFloatingLayout.fallbackAspectRatio
+    @Published private(set) var posterPresentation = VideoPosterPresentationState()
 
     #if os(macOS)
     weak var playerView: AVPlayerView?
@@ -123,6 +149,11 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         }
 
         videoAspectRatio = VideoFloatingLayout.aspectRatio(for: video.resolution)
+        if let videoID = video.id {
+            posterPresentation.prepare(for: videoID)
+        } else {
+            posterPresentation.clear()
+        }
         currentVideo = video
         beginLoading(token)
         let shouldAutoPlay = autoPlay
@@ -197,6 +228,14 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         } else {
             play()
         }
+    }
+
+    func dismissPoster(for videoID: UUID) {
+        posterPresentation.dismiss(for: videoID)
+    }
+
+    func isPosterDismissed(for videoID: UUID) -> Bool {
+        posterPresentation.isDismissed(for: videoID)
     }
     
     func seek(to time: TimeInterval) {
@@ -340,6 +379,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         loadingOperation = nil
         isLoading = false
         videoAspectRatio = VideoFloatingLayout.fallbackAspectRatio
+        posterPresentation.clear()
     }
 
     private func discardPlayerForVideoChange() {
