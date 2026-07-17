@@ -56,6 +56,8 @@ struct VideoFloatingLayoutTests {
         #expect(abs(VideoFloatingLayout.aspectRatio(for: "1080X1920") - 9.0 / 16.0) < 0.000_001)
         #expect(abs(VideoFloatingLayout.aspectRatio(for: "invalid") - 16.0 / 9.0) < 0.000_001)
         #expect(abs(VideoFloatingLayout.aspectRatio(for: nil) - 16.0 / 9.0) < 0.000_001)
+        #expect(abs(VideoFloatingLayout.aspectRatio(for: "1e308x1e-308") - 16.0 / 9.0) < 0.000_001)
+        #expect(abs(VideoFloatingLayout.aspectRatio(for: "1e-308x1e308") - 16.0 / 9.0) < 0.000_001)
     }
 
     @Test("Default frame starts at the top right and fits the inline width")
@@ -90,8 +92,8 @@ struct VideoFloatingLayoutTests {
         )
 
         #expect(abs(frame.width / frame.height - 16.0 / 9.0) < 0.000_001)
-        #expect(frame.maxX == 1_100)
-        #expect(frame.minY == 16)
+        #expect(abs(frame.maxX - 1_100) < 0.000_001)
+        #expect(abs(frame.minY - 16) < 0.000_001)
 
         let mixedAxisFrame = VideoFloatingLayout.resizedFrame(
             from: CGRect(x: 400, y: 16, width: 400, height: 225),
@@ -102,6 +104,136 @@ struct VideoFloatingLayoutTests {
         )
         let expectedWidth = 400 + 50 * (16.0 / 9.0)
         #expect(abs(mixedAxisFrame.width - expectedWidth) < 0.000_001)
+    }
+
+    @Test(
+        "Every resize handle preserves its opposite anchor",
+        arguments: VideoResizeHandle.allCases
+    )
+    func everyResizeHandlePreservesOppositeAnchor(handle: VideoResizeHandle) {
+        let source = CGRect(x: 400, y: 300, width: 400, height: 225)
+        let translation: CGSize
+        let expectedAnchor: CGPoint
+
+        switch handle {
+        case .topLeading:
+            translation = CGSize(width: -80, height: -50)
+            expectedAnchor = CGPoint(x: source.maxX, y: source.maxY)
+        case .topTrailing:
+            translation = CGSize(width: 80, height: -50)
+            expectedAnchor = CGPoint(x: source.minX, y: source.maxY)
+        case .bottomLeading:
+            translation = CGSize(width: -80, height: 50)
+            expectedAnchor = CGPoint(x: source.maxX, y: source.minY)
+        case .bottomTrailing:
+            translation = CGSize(width: 80, height: 50)
+            expectedAnchor = CGPoint(x: source.minX, y: source.minY)
+        }
+
+        let frame = VideoFloatingLayout.resizedFrame(
+            from: source,
+            handle: handle,
+            translation: translation,
+            aspectRatio: 16.0 / 9.0,
+            in: CGRect(x: 0, y: 0, width: 1_400, height: 1_000)
+        )
+
+        #expect(abs(frame.width / frame.height - 16.0 / 9.0) < 0.000_001)
+        switch handle {
+        case .topLeading:
+            #expect(abs(frame.maxX - expectedAnchor.x) < 0.000_001)
+            #expect(abs(frame.maxY - expectedAnchor.y) < 0.000_001)
+        case .topTrailing:
+            #expect(abs(frame.minX - expectedAnchor.x) < 0.000_001)
+            #expect(abs(frame.maxY - expectedAnchor.y) < 0.000_001)
+        case .bottomLeading:
+            #expect(abs(frame.maxX - expectedAnchor.x) < 0.000_001)
+            #expect(abs(frame.minY - expectedAnchor.y) < 0.000_001)
+        case .bottomTrailing:
+            #expect(abs(frame.minX - expectedAnchor.x) < 0.000_001)
+            #expect(abs(frame.minY - expectedAnchor.y) < 0.000_001)
+        }
+    }
+
+    @Test("Resizing respects containment and minimum width")
+    func resizingConstraints() {
+        let bounds = CGRect(x: 0, y: 0, width: 900, height: 600)
+        let grownFrame = VideoFloatingLayout.resizedFrame(
+            from: CGRect(x: 100, y: 100, width: 400, height: 225),
+            handle: .bottomTrailing,
+            translation: CGSize(width: 10_000, height: 10_000),
+            aspectRatio: 16.0 / 9.0,
+            in: bounds
+        )
+        #expect(grownFrame.minX >= 16 - 0.000_001)
+        #expect(grownFrame.minY >= 16 - 0.000_001)
+        #expect(grownFrame.maxX <= 884 + 0.000_001)
+        #expect(grownFrame.maxY <= 584 + 0.000_001)
+        #expect(abs(grownFrame.width / grownFrame.height - 16.0 / 9.0) < 0.000_001)
+
+        let minimumFrame = VideoFloatingLayout.fittedFrame(
+            CGRect(x: 100, y: 100, width: 80, height: 45),
+            aspectRatio: 16.0 / 9.0,
+            in: bounds
+        )
+        #expect(abs(minimumFrame.width - 240) < 0.000_001)
+
+        let constrainedBounds = CGRect(x: 0, y: 0, width: 200, height: 200)
+        let constrainedFrame = VideoFloatingLayout.fittedFrame(
+            CGRect(x: 16, y: 16, width: 80, height: 45),
+            aspectRatio: 16.0 / 9.0,
+            in: constrainedBounds
+        )
+        #expect(constrainedFrame.width < 240)
+        #expect(constrainedFrame.minX >= -0.000_001)
+        #expect(constrainedFrame.minY >= -0.000_001)
+        #expect(constrainedFrame.maxX <= constrainedBounds.maxX + 0.000_001)
+        #expect(constrainedFrame.maxY <= constrainedBounds.maxY + 0.000_001)
+    }
+
+    @Test("Zero and undersized bounds produce safe frames")
+    func zeroAndUndersizedBounds() {
+        let zeroDefault = VideoFloatingLayout.defaultFrame(
+            in: .zero,
+            inlineWidth: 760,
+            aspectRatio: 16.0 / 9.0
+        )
+        let offsetZeroFitted = VideoFloatingLayout.fittedFrame(
+            CGRect(x: 10, y: 10, width: 400, height: 225),
+            aspectRatio: 16.0 / 9.0,
+            in: CGRect(x: 50, y: 50, width: 0, height: 0)
+        )
+        for frame in [zeroDefault, offsetZeroFitted] {
+            #expect(abs(frame.minX) < 0.000_001)
+            #expect(abs(frame.minY) < 0.000_001)
+            #expect(abs(frame.width) < 0.000_001)
+            #expect(abs(frame.height) < 0.000_001)
+        }
+
+        for bounds in [
+            CGRect(x: 0, y: 0, width: 20, height: 20),
+            CGRect(x: 0, y: 0, width: 20, height: 100),
+            CGRect(x: 0, y: 0, width: 100, height: 20)
+        ] {
+            let frames = [
+                VideoFloatingLayout.defaultFrame(
+                    in: bounds,
+                    inlineWidth: 760,
+                    aspectRatio: 16.0 / 9.0
+                ),
+                VideoFloatingLayout.fittedFrame(
+                    CGRect(x: 80, y: 80, width: 400, height: 225),
+                    aspectRatio: 16.0 / 9.0,
+                    in: bounds
+                )
+            ]
+            for frame in frames {
+                #expect(frame.minX >= bounds.minX - 0.000_001)
+                #expect(frame.minY >= bounds.minY - 0.000_001)
+                #expect(frame.maxX <= bounds.maxX + 0.000_001)
+                #expect(frame.maxY <= bounds.maxY + 0.000_001)
+            }
+        }
     }
 
     @Test("Fitting keeps an oversized-positioned frame reachable")

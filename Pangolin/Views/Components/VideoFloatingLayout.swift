@@ -43,7 +43,12 @@ enum VideoFloatingLayout {
             return fallbackAspectRatio
         }
 
-        return CGFloat(width) / CGFloat(height)
+        let ratio = CGFloat(width) / CGFloat(height)
+        guard ratio.isFinite, ratio > 0 else {
+            return fallbackAspectRatio
+        }
+
+        return ratio
     }
 
     static func defaultFrame(
@@ -52,7 +57,9 @@ enum VideoFloatingLayout {
         aspectRatio: CGFloat
     ) -> CGRect {
         let ratio = validRatio(aspectRatio)
-        let availableBounds = bounds.insetBy(dx: edgeInset, dy: edgeInset)
+        let availableBounds = availableBounds(in: bounds)
+        guard !availableBounds.isEmpty else { return .zero }
+
         let proposedWidth = max(inlineWidth * initialWidthScale, minimumWidth)
         let size = fittedSize(
             proposedWidth: proposedWidth,
@@ -74,7 +81,10 @@ enum VideoFloatingLayout {
         in bounds: CGRect
     ) -> CGRect {
         let ratio = validRatio(aspectRatio)
-        let availableBounds = bounds.insetBy(dx: edgeInset, dy: edgeInset)
+        let availableBounds = availableBounds(in: bounds)
+        guard !availableBounds.isEmpty else { return .zero }
+
+        let frame = frame.standardized
         let proposedWidth = frame.width.isFinite && frame.width > 0
             ? max(frame.width, minimumWidth)
             : minimumWidth
@@ -100,7 +110,8 @@ enum VideoFloatingLayout {
     ) -> CGRect {
         let ratio = validRatio(aspectRatio)
         let start = fittedFrame(frame, aspectRatio: ratio, in: bounds)
-        let availableBounds = bounds.insetBy(dx: edgeInset, dy: edgeInset)
+        let availableBounds = availableBounds(in: bounds)
+        guard !start.isEmpty, !availableBounds.isEmpty else { return .zero }
 
         let horizontalDelta: CGFloat
         switch handle {
@@ -186,10 +197,37 @@ enum VideoFloatingLayout {
         aspectRatio: CGFloat,
         in bounds: CGRect
     ) -> CGSize {
+        guard !bounds.isEmpty else { return .zero }
+
         let maximumWidth = max(0, min(bounds.width, bounds.height * aspectRatio))
         let minimumAllowedWidth = min(minimumWidth, maximumWidth)
         let width = min(max(proposedWidth, minimumAllowedWidth), maximumWidth)
         return CGSize(width: width, height: width / aspectRatio)
+    }
+
+    private static func availableBounds(in bounds: CGRect) -> CGRect {
+        let physicalBounds = bounds.standardized
+        guard physicalBounds.minX.isFinite,
+              physicalBounds.minY.isFinite,
+              physicalBounds.width.isFinite,
+              physicalBounds.height.isFinite,
+              physicalBounds.width > 0,
+              physicalBounds.height > 0 else {
+            return .zero
+        }
+
+        let horizontalInset = min(edgeInset, physicalBounds.width / 2)
+        let verticalInset = min(edgeInset, physicalBounds.height / 2)
+        let width = max(0, physicalBounds.width - horizontalInset * 2)
+        let height = max(0, physicalBounds.height - verticalInset * 2)
+        guard width > 0, height > 0 else { return .zero }
+
+        return CGRect(
+            x: physicalBounds.minX + horizontalInset,
+            y: physicalBounds.minY + verticalInset,
+            width: width,
+            height: height
+        )
     }
 
     private static func validRatio(_ aspectRatio: CGFloat) -> CGFloat {
