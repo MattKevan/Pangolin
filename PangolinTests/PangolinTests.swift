@@ -44,30 +44,22 @@ struct VideoPlaybackSelectionTests {
         #expect(VideoPlaybackSelection.action(
             selectedID: firstID,
             isVideoDetailActive: true,
-            loadedID: nil,
-            hasPlayer: false,
-            isLoading: false
+            loadedID: nil
         ) == .load)
         #expect(VideoPlaybackSelection.action(
             selectedID: firstID,
             isVideoDetailActive: true,
-            loadedID: firstID,
-            hasPlayer: true,
-            isLoading: false
+            loadedID: firstID
         ) == .none)
         #expect(VideoPlaybackSelection.action(
             selectedID: secondID,
             isVideoDetailActive: true,
-            loadedID: firstID,
-            hasPlayer: true,
-            isLoading: false
+            loadedID: firstID
         ) == .load)
         #expect(VideoPlaybackSelection.action(
             selectedID: nil,
             isVideoDetailActive: true,
-            loadedID: secondID,
-            hasPlayer: true,
-            isLoading: false
+            loadedID: secondID
         ) == .clear)
     }
 
@@ -78,30 +70,18 @@ struct VideoPlaybackSelectionTests {
         #expect(VideoPlaybackSelection.action(
             selectedID: videoID,
             isVideoDetailActive: false,
-            loadedID: videoID,
-            hasPlayer: true,
-            isLoading: false
+            loadedID: videoID
         ) == .clear)
     }
 
-    @Test("A failed same-video load can retry without duplicating an in-flight load")
-    func sameVideoRetryWaitsForFailedLoad() {
-        let videoID = UUID()
+    @Test("Switching videos discards stale playback while re-presenting the same video does not")
+    func stalePlaybackIsDiscardedOnlyForVideoChanges() {
+        let firstID = UUID()
+        let secondID = UUID()
 
-        #expect(VideoPlaybackSelection.action(
-            selectedID: videoID,
-            isVideoDetailActive: true,
-            loadedID: videoID,
-            hasPlayer: false,
-            isLoading: true
-        ) == .none)
-        #expect(VideoPlaybackSelection.action(
-            selectedID: videoID,
-            isVideoDetailActive: true,
-            loadedID: videoID,
-            hasPlayer: false,
-            isLoading: false
-        ) == .load)
+        #expect(VideoPlaybackSelection.isVideoChange(from: firstID, to: secondID))
+        #expect(!VideoPlaybackSelection.isVideoChange(from: firstID, to: firstID))
+        #expect(!VideoPlaybackSelection.isVideoChange(from: nil, to: firstID))
     }
 }
 

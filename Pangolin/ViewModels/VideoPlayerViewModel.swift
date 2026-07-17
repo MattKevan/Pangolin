@@ -25,13 +25,15 @@ enum VideoPlaybackSelection {
     static func action(
         selectedID: UUID?,
         isVideoDetailActive: Bool,
-        loadedID: UUID?,
-        hasPlayer: Bool,
-        isLoading: Bool
+        loadedID: UUID?
     ) -> Action {
         guard isVideoDetailActive, let selectedID else { return .clear }
-        guard selectedID == loadedID else { return .load }
-        return hasPlayer || isLoading ? .none : .load
+        return selectedID == loadedID ? .none : .load
+    }
+
+    static func isVideoChange(from loadedID: UUID?, to selectedID: UUID?) -> Bool {
+        guard let loadedID else { return false }
+        return loadedID != selectedID
     }
 }
 
@@ -65,6 +67,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     private var playerStateCancellable: AnyCancellable?
     private var buildTask: Task<Void, Never>?
     private var pendingSeek: (videoID: UUID?, seconds: TimeInterval)?
+    private var loadGeneration: UInt = 0
     
     override init() {
         super.init()
@@ -84,6 +87,18 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     }()
     
     func loadVideo(_ video: Video, autoPlay: Bool = false) {
+        let isVideoChange = VideoPlaybackSelection.isVideoChange(
+            from: currentVideo?.id,
+            to: video.id
+        )
+        buildTask?.cancel()
+        loadGeneration &+= 1
+        let generation = loadGeneration
+
+        if isVideoChange {
+            discardPlayerForVideoChange()
+        }
+
         videoAspectRatio = VideoFloatingLayout.aspectRatio(for: video.resolution)
         currentVideo = video
         isLoading = true
@@ -104,14 +119,14 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
             availableSubtitles = []
         }
         
-        // Cancel any in-flight build
-        buildTask?.cancel()
         buildTask = Task { @MainActor in
             resetPlayerObservers()
             do {
                 let resolvedURL = try await video.getAccessibleFileURL(downloadIfNeeded: true)
+                guard isCurrentLoad(generation) else { return }
                 do {
                     let item = try await buildPlayerItem(for: resolvedURL, with: selectedSubtitle)
+                    guard isCurrentLoad(generation) else { return }
                     let newPlayer = AVPlayer(playerItem: item)
                     newPlayer.volume = volume
                     player = newPlayer
@@ -132,6 +147,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
                         play()
                     }
                 } catch {
+                    guard isCurrentLoad(generation) else { return }
                     // Fallback to simple item on failure
                     let item = AVPlayerItem(url: resolvedURL)
                     let newPlayer = AVPlayer(playerItem: item)
@@ -151,9 +167,13 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
                     print("⚠️ Failed to build composed player item: \(error)")
                 }
             } catch {
-                print("🚨 Failed to resolve playable video URL: \(error)")
+                if isCurrentLoad(generation) {
+                    print("🚨 Failed to resolve playable video URL: \(error)")
+                }
             }
-            isLoading = false
+            if isCurrentLoad(generation) {
+                isLoading = false
+            }
         }
     }
     
@@ -276,6 +296,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
 
     func clearLoadedVideo() {
         buildTask?.cancel()
+        loadGeneration &+= 1
         resetPlayerObservers()
         player?.pause()
         player = nil
@@ -285,6 +306,19 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         duration = 0
         isLoading = false
         videoAspectRatio = VideoFloatingLayout.fallbackAspectRatio
+    }
+
+    private func discardPlayerForVideoChange() {
+        resetPlayerObservers()
+        player?.pause()
+        player = nil
+        isPlaying = false
+        currentTime = 0
+        duration = 0
+    }
+
+    private func isCurrentLoad(_ generation: UInt) -> Bool {
+        loadGeneration == generation && !Task.isCancelled
     }
 
     // MARK: - External Playback Options

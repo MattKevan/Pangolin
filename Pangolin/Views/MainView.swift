@@ -83,9 +83,7 @@ struct MainView: View {
         switch VideoPlaybackSelection.action(
             selectedID: selectedVideo?.id,
             isVideoDetailActive: isVideoDetailActive,
-            loadedID: playerViewModel.currentVideo?.id,
-            hasPlayer: playerViewModel.player != nil,
-            isLoading: playerViewModel.isLoading
+            loadedID: playerViewModel.currentVideo?.id
         ) {
         case .load:
             if let activeVideo {
