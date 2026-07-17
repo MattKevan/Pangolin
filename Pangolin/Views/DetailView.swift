@@ -14,11 +14,22 @@ struct DetailView: View {
 
     let video: Video?
 
-    @StateObject private var playerViewModel = VideoPlayerViewModel()
+    @ObservedObject private var playerViewModel: VideoPlayerViewModel
+    @ObservedObject private var floatingVideoState: FloatingVideoState
     @StateObject private var searchModel = VideoPageSearchModel()
     @State private var selectedInspectorTab: InspectorTab = .transcript
     @State private var isControlsInspectorPresented = false
     @State private var isSearchVisibleOnPhone = false
+
+    init(
+        video: Video?,
+        playerViewModel: VideoPlayerViewModel,
+        floatingVideoState: FloatingVideoState
+    ) {
+        self.video = video
+        self._playerViewModel = ObservedObject(wrappedValue: playerViewModel)
+        self._floatingVideoState = ObservedObject(wrappedValue: floatingVideoState)
+    }
 
     private var effectiveSelectedVideo: Video? {
         store.selectedVideo ?? video

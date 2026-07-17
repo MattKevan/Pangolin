@@ -22,6 +22,8 @@ struct MainView: View {
     @EnvironmentObject var videoFileManager: VideoFileManager
     @StateObject private var folderStore: FolderNavigationStore
     @StateObject private var searchManager = SearchManager()
+    @StateObject private var playerViewModel = VideoPlayerViewModel()
+    @StateObject private var floatingVideoState = FloatingVideoState()
     @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
     
     let isStartingUp: Bool
@@ -59,7 +61,15 @@ struct MainView: View {
         self.resetAction = resetAction
     }
     
-    var body: some View { rootView }
+    var body: some View {
+        rootView
+            .onAppear {
+                floatingVideoState.reset(for: folderStore.selectedVideo?.id)
+            }
+            .onChange(of: folderStore.selectedVideo?.id) { _, selectedVideoID in
+                floatingVideoState.reset(for: selectedVideoID)
+            }
+    }
 
     private var transcriptionService: SpeechTranscriptionService {
         processingQueueManager.transcriptionService
@@ -151,7 +161,10 @@ struct MainView: View {
             )
             .navigationSplitViewColumnWidth(min: 420, ideal: 760)
         } else {
-            let baseDetailColumn = DetailColumnView()
+            let baseDetailColumn = DetailColumnView(
+                playerViewModel: playerViewModel,
+                floatingVideoState: floatingVideoState
+            )
                 .environmentObject(folderStore)
                 .environmentObject(searchManager)
                 .environmentObject(libraryManager)
@@ -311,7 +324,11 @@ struct MainView: View {
                             }
                         case .video(let videoID):
                             if let video = folderStore.video(with: videoID) {
-                                DetailView(video: video)
+                                DetailView(
+                                    video: video,
+                                    playerViewModel: playerViewModel,
+                                    floatingVideoState: floatingVideoState
+                                )
                                     .environmentObject(folderStore)
                                     .environmentObject(libraryManager)
                                     .environmentObject(transcriptionService)
@@ -338,7 +355,9 @@ struct MainView: View {
                 NavigationStack {
                     PhoneCollectionTabView(
                         title: "All videos",
-                        onAppear: { folderStore.selectedSidebarItem = .smartCollection(.allVideos) }
+                        onAppear: { folderStore.selectedSidebarItem = .smartCollection(.allVideos) },
+                        playerViewModel: playerViewModel,
+                        floatingVideoState: floatingVideoState
                     )
                     .environmentObject(folderStore)
                     .environmentObject(libraryManager)
@@ -350,7 +369,9 @@ struct MainView: View {
                 NavigationStack {
                     PhoneCollectionTabView(
                         title: "Favourites",
-                        onAppear: { folderStore.selectedSidebarItem = .smartCollection(.favorites) }
+                        onAppear: { folderStore.selectedSidebarItem = .smartCollection(.favorites) },
+                        playerViewModel: playerViewModel,
+                        floatingVideoState: floatingVideoState
                     )
                     .environmentObject(folderStore)
                     .environmentObject(libraryManager)
@@ -571,6 +592,8 @@ private struct DetailColumnView: View {
     @EnvironmentObject private var searchManager: SearchManager
     @EnvironmentObject private var libraryManager: LibraryManager
     @EnvironmentObject private var transcriptionService: SpeechTranscriptionService
+    @ObservedObject var playerViewModel: VideoPlayerViewModel
+    @ObservedObject var floatingVideoState: FloatingVideoState
 
     var body: some View {
         Group {
@@ -600,7 +623,11 @@ private struct DetailColumnView: View {
                     .environmentObject(libraryManager)
             case .videoDetail:
                 if let selectedVideo = folderStore.selectedVideo {
-                    DetailView(video: selectedVideo)
+                    DetailView(
+                        video: selectedVideo,
+                        playerViewModel: playerViewModel,
+                        floatingVideoState: floatingVideoState
+                    )
                         .environmentObject(folderStore)
                         .environmentObject(libraryManager)
                         .environmentObject(transcriptionService)
@@ -630,12 +657,18 @@ private struct PhoneCollectionTabView: View {
 
     let title: String
     let onAppear: () -> Void
+    @ObservedObject var playerViewModel: VideoPlayerViewModel
+    @ObservedObject var floatingVideoState: FloatingVideoState
 
     var body: some View {
         Group {
             if let selectedVideo = folderStore.selectedVideo,
                folderStore.currentDetailSurface == .videoDetail || folderStore.currentDestination?.stableKey.hasPrefix("video:") == true {
-                DetailView(video: selectedVideo)
+                DetailView(
+                    video: selectedVideo,
+                    playerViewModel: playerViewModel,
+                    floatingVideoState: floatingVideoState
+                )
                     .environmentObject(folderStore)
                     .environmentObject(libraryManager)
                     .environmentObject(transcriptionService)

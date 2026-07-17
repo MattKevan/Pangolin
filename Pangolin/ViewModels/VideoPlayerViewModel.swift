@@ -30,6 +30,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     @Published var selectedSubtitle: Subtitle?
     @Published var currentVideo: Video?
     @Published var isExternalPlaybackActive = false
+    @Published private(set) var videoAspectRatio = VideoFloatingLayout.fallbackAspectRatio
 
     #if os(macOS)
     weak var playerView: AVPlayerView?
@@ -63,6 +64,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     }()
     
     func loadVideo(_ video: Video, autoPlay: Bool = false) {
+        videoAspectRatio = VideoFloatingLayout.aspectRatio(for: video.resolution)
         currentVideo = video
         isLoading = true
         let shouldAutoPlay = autoPlay
@@ -262,6 +264,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         currentTime = 0
         duration = 0
         isLoading = false
+        videoAspectRatio = VideoFloatingLayout.fallbackAspectRatio
     }
 
     // MARK: - External Playback Options
