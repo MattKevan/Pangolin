@@ -50,6 +50,10 @@ enum VideoPlaybackOperation {
     ) -> Bool {
         token.generation == generation && token.videoID == videoID
     }
+
+    static func ownsLoading(_ token: Token, owner: Token?) -> Bool {
+        token == owner
+    }
 }
 
 @MainActor
@@ -83,6 +87,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     private var buildTask: Task<Void, Never>?
     private var pendingSeek: (videoID: UUID?, seconds: TimeInterval)?
     private var loadGeneration: UInt = 0
+    private var loadingOperation: VideoPlaybackOperation.Token?
     
     override init() {
         super.init()
@@ -119,7 +124,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
 
         videoAspectRatio = VideoFloatingLayout.aspectRatio(for: video.resolution)
         currentVideo = video
-        isLoading = true
+        beginLoading(token)
         let shouldAutoPlay = autoPlay
         currentTime = resumePosition(for: video) ?? 0
         let pendingSeekForVideo: TimeInterval? = {
@@ -138,6 +143,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         }
         
         buildTask = Task { @MainActor in
+            defer { finishLoading(token) }
             guard isCurrentOperation(token) else { return }
             resetPlayerObservers()
             do {
@@ -170,9 +176,6 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
                 if isCurrentOperation(token) {
                     print("🚨 Failed to resolve playable video URL: \(error)")
                 }
-            }
-            if isCurrentOperation(token) {
-                isLoading = false
             }
         }
     }
@@ -210,18 +213,25 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
             return
         }
 
-        let wasPlaying = isPlaying || player.rate != 0
+        let activePlayer = player
+        let token = VideoPlaybackOperation.Token(
+            generation: loadGeneration,
+            videoID: currentVideo?.id
+        )
+        let wasPlaying = isPlaying || activePlayer.rate != 0
         let targetTime = CMTime(seconds: target, preferredTimescale: 600)
 
-        player.seek(to: targetTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
-            guard let self else { return }
-            DispatchQueue.main.async {
+        activePlayer.seek(to: targetTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self, weak activePlayer] _ in
+            Task { @MainActor in
+                guard let self,
+                      let activePlayer,
+                      self.isCurrentOperation(token, expectedPlayer: activePlayer) else { return }
                 if wasPlaying {
-                    self.player?.play()
-                    self.player?.rate = self.playbackRate
+                    activePlayer.play()
+                    activePlayer.rate = self.playbackRate
                     self.isPlaying = true
                 } else {
-                    self.player?.pause()
+                    activePlayer.pause()
                     self.isPlaying = false
                 }
                 self.currentTime = target
@@ -282,7 +292,9 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
             generation: loadGeneration,
             videoID: video.id
         )
+        beginLoading(token)
         buildTask = Task { @MainActor in
+            defer { finishLoading(token) }
             guard isCurrentOperation(token, expectedPlayer: activePlayer) else { return }
             let item: AVPlayerItem
             do {
@@ -325,6 +337,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         isPlaying = false
         currentTime = 0
         duration = 0
+        loadingOperation = nil
         isLoading = false
         videoAspectRatio = VideoFloatingLayout.fallbackAspectRatio
     }
@@ -351,6 +364,17 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
             return false
         }
         return expectedPlayer == nil || player === expectedPlayer
+    }
+
+    private func beginLoading(_ token: VideoPlaybackOperation.Token) {
+        loadingOperation = token
+        isLoading = true
+    }
+
+    private func finishLoading(_ token: VideoPlaybackOperation.Token) {
+        guard VideoPlaybackOperation.ownsLoading(token, owner: loadingOperation) else { return }
+        loadingOperation = nil
+        isLoading = false
     }
 
     private func installLoadedItem(

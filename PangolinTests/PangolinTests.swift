@@ -106,6 +106,17 @@ struct VideoPlaybackSelectionTests {
             videoID: secondID
         ))
     }
+
+    @Test("A superseded load cannot clear subtitle loading state")
+    func loadingOwnershipTransfersFromLoadToSubtitle() {
+        let videoID = UUID()
+        let load = VideoPlaybackOperation.Token(generation: 1, videoID: videoID)
+        let subtitle = VideoPlaybackOperation.Token(generation: 2, videoID: videoID)
+
+        #expect(VideoPlaybackOperation.ownsLoading(load, owner: load))
+        #expect(!VideoPlaybackOperation.ownsLoading(load, owner: subtitle))
+        #expect(VideoPlaybackOperation.ownsLoading(subtitle, owner: subtitle))
+    }
 }
 
 @Suite("Video floating layout")
