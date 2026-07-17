@@ -3,6 +3,7 @@ import Foundation
 import Testing
 @testable import Pangolin
 
+@Suite(.serialized)
 struct VideoNavigationSequenceTests {
     @Test("Project video neighbors follow project section order")
     @MainActor
@@ -38,14 +39,17 @@ struct VideoNavigationSequenceTests {
 
         let library = try requireLibrary(from: manager)
         let folder = try makeFolder(named: "Folder", in: context, parent: nil, library: library)
-        let first = try makeVideo(title: "One", thumbnailPath: nil, in: context, folder: folder, library: library, fileName: "1.mp4")
-        let second = try makeVideo(title: "Two", thumbnailPath: nil, in: context, folder: folder, library: library, fileName: "2.mp4")
-        let third = try makeVideo(title: "Three", thumbnailPath: nil, in: context, folder: folder, library: library, fileName: "3.mp4")
+        let first = try makeVideo(title: "Alpha", thumbnailPath: nil, in: context, folder: folder, library: library, fileName: "1.mp4")
+        let second = try makeVideo(title: "Bravo", thumbnailPath: nil, in: context, folder: folder, library: library, fileName: "2.mp4")
+        let third = try makeVideo(title: "Charlie", thumbnailPath: nil, in: context, folder: folder, library: library, fileName: "3.mp4")
         try context.save()
 
         let store = FolderNavigationStore(libraryManager: manager)
-        store.navigateToFolder(try #require(folder.id))
-        store.selectVideo(second)
+        // Exercise the same route used when a video is opened from the library.
+        // `navigateToFolder` is a legacy path setter and intentionally does not
+        // change the active sidebar destination.
+        store.revealVideoLocation(second)
+        try await waitForFlatVideoCount(3, in: store)
 
         let neighbors = store.videoNeighbors(for: second)
         #expect(neighbors.previous?.objectID == first.objectID)
@@ -72,6 +76,118 @@ struct VideoNavigationSequenceTests {
         #expect(neighbors.next == nil)
 
         await manager.closeCurrentLibrary()
+    }
+
+    @Test("Back from a project video returns to that project after moving between videos")
+    @MainActor
+    func projectVideoBackRestoresProjectOrigin() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
+        let first = try makeVideo(title: "First", thumbnailPath: nil, in: context, folder: project, library: library)
+        let second = try makeVideo(title: "Second", thumbnailPath: nil, in: context, folder: project, library: library)
+        try context.save()
+
+        let store = FolderNavigationStore(libraryManager: manager)
+        store.openProjectVideo(first, in: project)
+        store.selectVideo(second)
+        store.navigateBackFromDetail()
+
+        #expect(store.currentDetailSurface == .projectDetail)
+        #expect(store.selectedSidebarItem == .projects)
+        #expect(store.selectedProject?.objectID == project.objectID)
+        #expect(store.selectedVideo == nil)
+
+        await manager.closeCurrentLibrary()
+    }
+
+    @Test("Back from a smart collection video restores the collection")
+    @MainActor
+    func smartCollectionVideoBackRestoresOrigin() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
+        let video = try makeVideo(title: "Favorite", thumbnailPath: nil, in: context, folder: project, library: library)
+        try context.save()
+
+        let store = FolderNavigationStore(libraryManager: manager)
+        store.selectedSidebarItem = .smartCollection(.favorites)
+        store.revealVideoLocation(video)
+        store.navigateBackFromDetail()
+
+        #expect(store.currentDestination == .smartCollection(.favorites))
+        #expect(store.currentDetailSurface == .smartCollectionTable(.favorites))
+        #expect(store.selectedVideo == nil)
+
+        await manager.closeCurrentLibrary()
+    }
+
+    @Test("Back from a search result video restores search")
+    @MainActor
+    func searchVideoBackRestoresOrigin() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
+        let video = try makeVideo(title: "Result", thumbnailPath: nil, in: context, folder: project, library: library)
+        try context.save()
+
+        let store = FolderNavigationStore(libraryManager: manager)
+        store.activateSearch()
+        store.openFromSearchCitation(video, seekTo: nil, source: nil)
+        store.navigateBackFromDetail()
+
+        #expect(store.currentDestination == .search)
+        #expect(store.currentDetailSurface == .searchResults)
+        #expect(store.selectedVideo == nil)
+
+        await manager.closeCurrentLibrary()
+    }
+
+    @Test("Back from a video without an origin falls back to Projects")
+    @MainActor
+    func originlessVideoBackFallsBackToProjects() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let video = try makeVideo(title: "Orphan", thumbnailPath: nil, in: context, folder: nil, library: library)
+        try context.save()
+
+        let store = FolderNavigationStore(libraryManager: manager)
+        store.selectedSidebarItem = nil
+        store.openVideoDetailWithoutLocation(video)
+        store.navigateBackFromDetail()
+
+        #expect(store.currentDestination == .projects)
+        #expect(store.currentDetailSurface == .projectsGrid)
+        #expect(store.selectedVideo == nil)
+
+        await manager.closeCurrentLibrary()
+    }
+
+    @MainActor
+    private func waitForFlatVideoCount(
+        _ expectedCount: Int,
+        in store: FolderNavigationStore
+    ) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+
+        while store.flatContent.filter({
+            if case .video = $0 { return true }
+            return false
+        }).count != expectedCount {
+            guard clock.now < deadline else {
+                throw NavigationTestFailure("Timed out waiting for folder videos to load")
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
     }
 
     @MainActor

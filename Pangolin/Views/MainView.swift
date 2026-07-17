@@ -32,6 +32,7 @@ struct MainView: View {
     
     @State private var showingImportPicker = false
     @State private var showingURLImportSheet = false
+    @State private var standardColumnVisibility: NavigationSplitViewVisibility = .all
     
     // Popover state for task indicator
     @State private var showTaskPopover = false
@@ -91,13 +92,39 @@ struct MainView: View {
         #endif
     }
 
+    @ViewBuilder
     private var rootNavigationSplitView: some View {
-        NavigationSplitView {
+        #if os(macOS)
+        if folderStore.showsVideoBackButton {
+            baseNavigationSplitView
+                .toolbar(removing: .sidebarToggle)
+        } else {
+            baseNavigationSplitView
+        }
+        #else
+        baseNavigationSplitView
+        #endif
+    }
+
+    private var baseNavigationSplitView: some View {
+        NavigationSplitView(columnVisibility: splitViewColumnVisibility) {
             sidebarColumn
         } detail: {
             detailColumn
         }
         .navigationSplitViewStyle(.balanced)
+    }
+
+    private var splitViewColumnVisibility: Binding<NavigationSplitViewVisibility> {
+        Binding(
+            get: {
+                folderStore.showsVideoBackButton ? .detailOnly : standardColumnVisibility
+            },
+            set: { newValue in
+                guard !folderStore.showsVideoBackButton else { return }
+                standardColumnVisibility = newValue
+            }
+        )
     }
 
     private var sidebarColumn: some View {
@@ -131,40 +158,45 @@ struct MainView: View {
                 .environmentObject(transcriptionService)
                 .navigationSplitViewColumnWidth(min: 420, ideal: 760)
                 .toolbar {
-                if !folderStore.isSearchMode {
-                    // Normal Mode: Standard toolbar items
                     ToolbarItemGroup(placement: .navigation) {
-                        if folderStore.showsProjectBackButton || folderStore.showsVideoBackButton {
+                        if folderStore.showsVideoBackButton {
                             Button {
                                 folderStore.navigateBackFromDetail()
                             } label: {
                                 Image(systemName: "chevron.left")
                             }
                             .help("Back")
-                        }
+                        } else if !folderStore.isSearchMode {
+                            if folderStore.showsProjectBackButton {
+                                Button {
+                                    folderStore.navigateBackFromDetail()
+                                } label: {
+                                    Image(systemName: "chevron.left")
+                                }
+                                .help("Back")
+                            }
 
-                        Button {
-                            showingImportPicker = true
-                        } label: {
-                            Image(systemName: "video.badge.plus")
-                        }
-                        .help("Import videos")
-                        .disabled(libraryManager.currentLibrary == nil)
+                            Button {
+                                showingImportPicker = true
+                            } label: {
+                                Image(systemName: "video.badge.plus")
+                            }
+                            .help("Import videos")
+                            .disabled(libraryManager.currentLibrary == nil)
 
-                        #if os(macOS)
-                        Button {
-                            showingURLImportSheet = true
-                        } label: {
-                            Image(systemName: "link.badge.plus")
+                            #if os(macOS)
+                            Button {
+                                showingURLImportSheet = true
+                            } label: {
+                                Image(systemName: "link.badge.plus")
+                            }
+                            .help("Import from URL")
+                            .disabled(libraryManager.currentLibrary == nil)
+                            #endif
                         }
-                        .help("Import from URL")
-                        .disabled(libraryManager.currentLibrary == nil)
-                        #endif
                     }
 
-                    // Trailing actions
                     ToolbarItemGroup(placement: .primaryAction) {
-                        // Task Queue Progress Indicator
                         if processingQueueManager.visibleActiveTaskCount > 0 || processingQueueManager.failedTasks > 0 || videoFileManager.failedTransferCount > 0 {
                             Button {
                                 showTaskPopover.toggle()
@@ -211,7 +243,6 @@ struct MainView: View {
                         }
                     }
                 }
-            }
             .onChange(of: folderStore.isSearchMode) { _, isSearchMode in
                 isSearchFieldPresented = isSearchMode
                 if isSearchMode {
@@ -489,7 +520,7 @@ private struct RootEventsModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         let configuredContent = content
-            .navigationTitle(folderStore.isSearchMode ? "" : (folderStore.selectedVideo?.title ?? libraryManager.currentLibrary?.name ?? "Pangolin"))
+            .navigationTitle(folderStore.isSearchMode || folderStore.showsVideoBackButton ? "" : (libraryManager.currentLibrary?.name ?? "Pangolin"))
             .onAppear {
                 StoragePolicyManager.shared.setProtectedSelectedVideoID(folderStore.selectedVideo?.id)
                 handleAutoTranscribe()

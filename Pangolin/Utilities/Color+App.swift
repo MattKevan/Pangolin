@@ -1,6 +1,22 @@
 import SwiftUI
 
 extension Color {
+    static var appVideoHeaderBackground: Color {
+        #if os(macOS)
+        return Color(NSColor.underPageBackgroundColor)
+        #else
+        return Color(.secondarySystemBackground)
+        #endif
+    }
+
+    static var appContentBackground: Color {
+        #if os(macOS)
+        return Color(NSColor.controlBackgroundColor)
+        #else
+        return Color(.systemBackground)
+        #endif
+    }
+
     static var appWindowBackground: Color {
         #if os(macOS)
         return Color(NSColor.windowBackgroundColor)

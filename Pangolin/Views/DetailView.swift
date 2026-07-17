@@ -1,5 +1,12 @@
 import SwiftUI
 
+enum VideoDetailLayout {
+    static let contentMaxWidth: CGFloat = 760
+    static let horizontalPadding: CGFloat = 16
+    static let compactActionSize: CGFloat = 34
+    static let minimumActionHitSize: CGFloat = 44
+}
+
 struct DetailView: View {
     @EnvironmentObject private var store: FolderNavigationStore
     @EnvironmentObject private var libraryManager: LibraryManager
@@ -104,25 +111,19 @@ struct DetailView: View {
             }
 
             VideoPageTabPicker(selectedTab: $selectedInspectorTab)
-                .padding(.horizontal, 16)
+                .frame(maxWidth: VideoDetailLayout.contentMaxWidth, alignment: .leading)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, VideoDetailLayout.horizontalPadding)
                 .padding(.top, 12)
 
             currentContent(for: selectedVideo)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(backgroundColor)
+        .background(Color.appContentBackground)
         .safeAreaInset(edge: .bottom) {
             navigationBar(for: selectedVideo)
         }
-    }
-
-    private var backgroundColor: Color {
-        #if os(macOS)
-        Color.appWindowBackground
-        #else
-        Color(.systemBackground)
-        #endif
     }
 
     @ViewBuilder
@@ -135,9 +136,8 @@ struct DetailView: View {
                 VideoPlayerWithPosterView(video: selectedVideo, viewModel: playerViewModel)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
-            .frame(maxWidth: 760)
+            .frame(maxWidth: VideoDetailLayout.contentMaxWidth)
             .aspectRatio(16.0 / 9.0, contentMode: .fit)
-            .frame(maxWidth: .infinity)
 
             HStack(alignment: .center, spacing: 12) {
                 Text(selectedVideo.title ?? "Untitled")
@@ -147,13 +147,13 @@ struct DetailView: View {
 
                 headerActionButtons(for: selectedVideo)
             }
-            .frame(maxWidth: 760)
-            .frame(maxWidth: .infinity)
         }
-        .padding(.horizontal, 16)
+        .frame(maxWidth: VideoDetailLayout.contentMaxWidth)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, VideoDetailLayout.horizontalPadding)
         .padding(.top, 16)
         .padding(.bottom, 16)
-        .background(backgroundColor)
+        .background(Color.appVideoHeaderBackground)
     }
 
     @ViewBuilder
@@ -192,7 +192,9 @@ struct DetailView: View {
                     }
                 }
             )
-            .padding(.horizontal, 16)
+            .frame(maxWidth: VideoDetailLayout.contentMaxWidth)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, VideoDetailLayout.horizontalPadding)
             .padding(.vertical, 10)
         }
     }
@@ -243,11 +245,13 @@ struct DetailView: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 17, weight: .semibold))
-                .frame(width: 46, height: 46)
+                .font(.system(size: 14, weight: .semibold))
+                .frame(width: VideoDetailLayout.compactActionSize, height: VideoDetailLayout.compactActionSize)
+                .pangolinGlassCapsule(interactive: true)
         }
-        .pangolinGlassButton()
-        .buttonBorderShape(.capsule)
+        .buttonStyle(.plain)
+        .frame(width: VideoDetailLayout.minimumActionHitSize, height: VideoDetailLayout.minimumActionHitSize)
+        .contentShape(Rectangle())
         .accessibilityLabel(accessibilityLabel)
     }
 
@@ -662,13 +666,13 @@ struct MergedTranscriptView: View {
                         .font(.system(size: 17))
                         .lineSpacing(12)
                         .multilineTextAlignment(.leading)
-                        .frame(maxWidth: 760, alignment: .leading)
-                        .frame(maxWidth: .infinity, alignment: .center)
                     }
                 }
-                .padding(.horizontal, 16)
                 .padding(.top, 12)
                 .padding(.bottom, 32)
+                .frame(maxWidth: VideoDetailLayout.contentMaxWidth, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.horizontal, VideoDetailLayout.horizontalPadding)
             }
             .onAppear {
                 loadContent()

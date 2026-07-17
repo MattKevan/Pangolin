@@ -81,6 +81,11 @@ struct VideoNeighbors {
     let next: Video?
 }
 
+private enum VideoNavigationOrigin {
+    case project(Folder)
+    case sidebar(LibrarySidebarDestination)
+}
+
 @MainActor
 class FolderNavigationStore: ObservableObject {
     // MARK: - Core State
@@ -181,6 +186,7 @@ class FolderNavigationStore: ObservableObject {
     private var contextSaveCancellable: AnyCancellable?
     private var isRevealingVideoLocation = false
     private var suppressNextSidebarSelectionChange = false
+    private var videoNavigationOrigin: VideoNavigationOrigin?
     private let fallbackProjectSectionTitle = "Videos"
     
     init(libraryManager: LibraryManager) {
@@ -707,10 +713,12 @@ class FolderNavigationStore: ObservableObject {
 
     func openProjectVideo(_ video: Video, in project: Folder? = nil) {
         if let project {
+            captureVideoNavigationOrigin(.project(project))
             openProject(project)
         } else if let folder = video.folder {
             let topLevelFolder = topLevelAncestor(for: folder)
             if topLevelFolder.isProject {
+                captureVideoNavigationOrigin(.project(topLevelFolder))
                 openProject(topLevelFolder)
             }
         }
@@ -732,6 +740,7 @@ class FolderNavigationStore: ObservableObject {
     }
 
     func openFromSearchCitation(_ video: Video, seekTo seconds: TimeInterval?, source: SearchMatchSource?) {
+        captureVideoNavigationOrigin(.sidebar(.search))
         if video.folder != nil {
             revealVideoLocation(video)
         } else {
@@ -753,6 +762,7 @@ class FolderNavigationStore: ObservableObject {
     }
 
     func openVideoDetailWithoutLocation(_ video: Video) {
+        captureVideoNavigationOrigin()
         selectedVideo = video
 
         if !navigationPath.isEmpty {
@@ -826,6 +836,7 @@ class FolderNavigationStore: ObservableObject {
 
     // Reveal a video's location in the folder hierarchy and select it.
     func revealVideoLocation(_ video: Video) {
+        captureVideoNavigationOrigin()
         isRevealingVideoLocation = true
         defer { isRevealingVideoLocation = false }
 
@@ -939,7 +950,10 @@ class FolderNavigationStore: ObservableObject {
 
     func navigateBackFromDetail() {
         if selectedVideo != nil {
+            let origin = videoNavigationOrigin
+            videoNavigationOrigin = nil
             selectedVideo = nil
+            restoreVideoNavigationOrigin(origin)
             return
         }
 
@@ -951,6 +965,63 @@ class FolderNavigationStore: ObservableObject {
         }
 
         clearProjectDetailState(clearProject: true)
+    }
+
+    private func captureVideoNavigationOrigin(_ preferredOrigin: VideoNavigationOrigin? = nil) {
+        guard selectedVideo == nil else { return }
+
+        if let preferredOrigin {
+            videoNavigationOrigin = preferredOrigin
+            return
+        }
+
+        switch currentDestination {
+        case .projects:
+            if let selectedProject {
+                videoNavigationOrigin = .project(selectedProject)
+            } else {
+                videoNavigationOrigin = .sidebar(.projects)
+            }
+        case .search:
+            videoNavigationOrigin = .sidebar(.search)
+        case .smartCollection(let kind):
+            videoNavigationOrigin = .sidebar(.smartCollection(kind))
+        case .folder(let folder):
+            videoNavigationOrigin = .sidebar(.folder(folder))
+        case .video, .none:
+            videoNavigationOrigin = nil
+        }
+    }
+
+    private func restoreVideoNavigationOrigin(_ origin: VideoNavigationOrigin?) {
+        switch origin {
+        case .project(let project):
+            openProject(project)
+        case .sidebar(let destination):
+            restoreSidebarDestination(destination)
+        case .none:
+            restoreSidebarDestination(.projects)
+        }
+    }
+
+    private func restoreSidebarDestination(_ destination: LibrarySidebarDestination) {
+        if selectionKey(selectedSidebarItem) != selectionKey(destination) {
+            suppressNextSidebarSelectionChange = true
+            selectedSidebarItem = destination
+        }
+
+        switch destination {
+        case .search:
+            clearProjectDetailState(clearProject: true)
+        case .projects:
+            applyProjectsSelection()
+        case .smartCollection:
+            applySmartCollectionSelection()
+        case .folder(let folder):
+            applyFolderSelection(folder, clearSelectedVideo: true)
+        case .video:
+            restoreSidebarDestination(.projects)
+        }
     }
 
     private func matchesProjectQuery(_ video: Video, query: String?) -> Bool {

@@ -46,14 +46,16 @@ struct SidebarView: View {
             .disabled(libraryManager.currentLibrary == nil)
         }
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    createTopLevelProject()
-                } label: {
-                    Image(systemName: "folder.badge.plus")
+            if !store.showsVideoBackButton {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        createTopLevelProject()
+                    } label: {
+                        Image(systemName: "folder.badge.plus")
+                    }
+                    .help("Add Project")
+                    .disabled(libraryManager.currentLibrary == nil)
                 }
-                .help("Add Project")
-                .disabled(libraryManager.currentLibrary == nil)
             }
         }
         .onAppear {

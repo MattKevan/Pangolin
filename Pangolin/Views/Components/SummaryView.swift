@@ -8,11 +8,12 @@ struct SummaryView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                
-
                 content
             }
-            .padding()
+            .padding(.vertical)
+            .frame(maxWidth: VideoDetailLayout.contentMaxWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.horizontal, VideoDetailLayout.horizontalPadding)
         }
     }
 
@@ -72,8 +73,7 @@ struct SummaryView: View {
                 Markdown(summary)
                     .markdownTheme(.gitHub)
                     .textSelection(.enabled)
-                    .frame(maxWidth: 720, alignment: .leading)
-                    .frame(maxWidth: .infinity, alignment: .center)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     
             }
         } else {
