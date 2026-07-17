@@ -121,6 +121,51 @@ struct VideoPlaybackSelectionTests {
 
 @Suite("Video floating layout")
 struct VideoFloatingLayoutTests {
+    @Test("Visible fraction measures vertical intersection and clamps to valid fractions")
+    func visibleFractionMeasuresIntersection() {
+        let viewport = CGRect(x: 0, y: 0, width: 400, height: 300)
+
+        #expect(VideoFloatingLayout.visibleFraction(
+            of: CGRect(x: 50, y: 50, width: 200, height: 100),
+            in: viewport
+        ) == 1)
+        #expect(VideoFloatingLayout.visibleFraction(
+            of: CGRect(x: -100, y: -50, width: 200, height: 100),
+            in: viewport
+        ) == 0.5)
+        #expect(VideoFloatingLayout.visibleFraction(
+            of: CGRect(x: 500, y: 500, width: 200, height: 100),
+            in: viewport
+        ) == 0)
+    }
+
+    @Test("Visible fraction rejects empty and nonfinite geometry")
+    func visibleFractionRejectsInvalidGeometry() {
+        let viewport = CGRect(x: 0, y: 0, width: 400, height: 300)
+        let invalidFrames = [
+            CGRect.zero,
+            CGRect(x: 0, y: 0, width: 0, height: 100),
+            CGRect(x: 100, y: 0, width: -100, height: 100),
+            CGRect(x: 0, y: 0, width: CGFloat.infinity, height: 100),
+            CGRect(x: CGFloat.nan, y: 0, width: 100, height: 100),
+        ]
+
+        for frame in invalidFrames {
+            let fraction = VideoFloatingLayout.visibleFraction(of: frame, in: viewport)
+            #expect(fraction == 0)
+            #expect(fraction.isFinite)
+        }
+
+        #expect(VideoFloatingLayout.visibleFraction(
+            of: CGRect(x: 0, y: 0, width: 100, height: 100),
+            in: .zero
+        ) == 0)
+        #expect(VideoFloatingLayout.visibleFraction(
+            of: CGRect(x: 0, y: 0, width: 100, height: 100),
+            in: CGRect(x: 0, y: 0, width: CGFloat.infinity, height: 300)
+        ) == 0)
+    }
+
     @Test("Floating state uses separate float and dock thresholds")
     func floatingStateUsesHysteresis() {
         let visibleFraction: Double = 0.25
@@ -342,6 +387,23 @@ struct VideoFloatingLayoutTests {
 struct FloatingVideoStateTests {
     private let bounds = CGRect(x: 0, y: 0, width: 1_200, height: 800)
     private let aspectRatio: CGFloat = 16.0 / 9.0
+
+    @Test("Inline width records valid measurements and resets with video presentation")
+    func inlineWidthTracksCurrentVideoOnly() {
+        let state = FloatingVideoState()
+        let videoID = UUID()
+
+        state.reset(for: videoID)
+        state.updateInlineWidth(760)
+        #expect(state.inlineWidth == 760)
+
+        state.updateInlineWidth(0)
+        state.updateInlineWidth(.nan)
+        #expect(state.inlineWidth == 760)
+
+        state.reset(for: UUID())
+        #expect(state.inlineWidth == 0)
+    }
 
     @Test("Visibility thresholds float and dock without resetting placement")
     func visibilityThresholdsPreservePlacement() {

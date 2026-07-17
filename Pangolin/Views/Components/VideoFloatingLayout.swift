@@ -27,6 +27,19 @@ enum VideoFloatingLayout {
             : visibleFraction <= floatVisibleFraction
     }
 
+    static func visibleFraction(of frame: CGRect, in viewport: CGRect) -> Double {
+        guard isValidMeasurement(frame), isValidMeasurement(viewport) else { return 0 }
+
+        let visibleMinimumY = max(frame.minY, viewport.minY)
+        let visibleMaximumY = min(frame.maxY, viewport.maxY)
+        let visibleHeight = max(visibleMaximumY - visibleMinimumY, 0)
+        guard visibleHeight.isFinite else { return 0 }
+
+        let fraction = Double(visibleHeight / frame.size.height)
+        guard fraction.isFinite else { return 0 }
+        return min(max(fraction, 0), 1)
+    }
+
     static func aspectRatio(for resolution: String?) -> CGFloat {
         guard let resolution else { return fallbackAspectRatio }
 
@@ -233,6 +246,15 @@ enum VideoFloatingLayout {
     private static func validRatio(_ aspectRatio: CGFloat) -> CGFloat {
         aspectRatio.isFinite && aspectRatio > 0 ? aspectRatio : fallbackAspectRatio
     }
+
+    private static func isValidMeasurement(_ rect: CGRect) -> Bool {
+        rect.origin.x.isFinite
+            && rect.origin.y.isFinite
+            && rect.size.width.isFinite
+            && rect.size.height.isFinite
+            && rect.size.width > 0
+            && rect.size.height > 0
+    }
 }
 
 @MainActor
@@ -240,6 +262,7 @@ final class FloatingVideoState: ObservableObject {
     @Published private(set) var isFloating = false
     @Published private(set) var frame = CGRect.zero
     @Published private(set) var videoID: UUID?
+    @Published private(set) var inlineWidth: CGFloat = 0
 
     func reset(for videoID: UUID?) {
         guard self.videoID != videoID else { return }
@@ -247,6 +270,12 @@ final class FloatingVideoState: ObservableObject {
         self.videoID = videoID
         isFloating = false
         frame = .zero
+        inlineWidth = 0
+    }
+
+    func updateInlineWidth(_ width: CGFloat) {
+        guard width.isFinite, width > 0 else { return }
+        inlineWidth = width
     }
 
     func prepareDefaultFrame(

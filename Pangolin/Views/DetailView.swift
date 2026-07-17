@@ -7,6 +7,24 @@ enum VideoDetailLayout {
     static let minimumActionHitSize: CGFloat = 44
 }
 
+private struct InlineVideoGeometry: Equatable {
+    let videoID: UUID
+    let frame: CGRect
+}
+
+private struct InlineVideoGeometryPreferenceKey: PreferenceKey {
+    static let defaultValue: InlineVideoGeometry? = nil
+
+    static func reduce(
+        value: inout InlineVideoGeometry?,
+        nextValue: () -> InlineVideoGeometry?
+    ) {
+        if let nextValue = nextValue() {
+            value = nextValue
+        }
+    }
+}
+
 struct DetailView: View {
     @EnvironmentObject private var store: FolderNavigationStore
     @EnvironmentObject private var libraryManager: LibraryManager
@@ -108,45 +126,54 @@ struct DetailView: View {
     private func page(for selectedVideo: Video) -> some View {
         let topAnchorID = detailTopAnchorID(for: selectedVideo)
 
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    header(for: selectedVideo)
-                        .id(topAnchorID)
+        GeometryReader { viewportGeometry in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        header(for: selectedVideo)
+                            .id(topAnchorID)
 
-                    Divider()
+                        Divider()
 
-                    if isSearchVisibleOnPhone && selectedInspectorTab == .transcript {
-                        inlineSearchField
-                            .frame(maxWidth: VideoDetailLayout.contentMaxWidth)
+                        if isSearchVisibleOnPhone && selectedInspectorTab == .transcript {
+                            inlineSearchField
+                                .frame(maxWidth: VideoDetailLayout.contentMaxWidth)
+                                .frame(maxWidth: .infinity)
+                                .padding(.horizontal, VideoDetailLayout.horizontalPadding)
+                                .padding(.vertical, 12)
+                            Divider()
+                        }
+
+                        VideoPageTabPicker(selectedTab: $selectedInspectorTab)
+                            .frame(maxWidth: VideoDetailLayout.contentMaxWidth, alignment: .leading)
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal, VideoDetailLayout.horizontalPadding)
-                            .padding(.vertical, 12)
-                        Divider()
+                            .padding(.top, 12)
+
+                        currentContent(for: selectedVideo, scrollProxy: proxy)
+                            .frame(maxWidth: .infinity, alignment: .top)
+
+                        navigationBar(for: selectedVideo)
                     }
-
-                    VideoPageTabPicker(selectedTab: $selectedInspectorTab)
-                        .frame(maxWidth: VideoDetailLayout.contentMaxWidth, alignment: .leading)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, VideoDetailLayout.horizontalPadding)
-                        .padding(.top, 12)
-
-                    currentContent(for: selectedVideo, scrollProxy: proxy)
-                        .frame(maxWidth: .infinity, alignment: .top)
-
-                    navigationBar(for: selectedVideo)
+                    .frame(maxWidth: .infinity)
+                    .scrollTargetLayout()
                 }
-                .frame(maxWidth: .infinity)
-                .scrollTargetLayout()
-            }
-            .coordinateSpace(name: Self.detailViewportCoordinateSpace)
-            .scrollPosition(id: $pageScrollPosition)
-            .onAppear {
-                pageScrollPosition = topAnchorID
-            }
-            .onChange(of: selectedVideo.id) { _, _ in
-                pageScrollPosition = topAnchorID
-                proxy.scrollTo(topAnchorID, anchor: .top)
+                .coordinateSpace(name: Self.detailViewportCoordinateSpace)
+                .scrollPosition(id: $pageScrollPosition)
+                .onPreferenceChange(InlineVideoGeometryPreferenceKey.self) { measurement in
+                    updateInlineVideoVisibility(
+                        measurement,
+                        viewportSize: viewportGeometry.size,
+                        selectedVideoID: selectedVideo.id
+                    )
+                }
+                .onAppear {
+                    pageScrollPosition = topAnchorID
+                }
+                .onChange(of: selectedVideo.id) { _, _ in
+                    pageScrollPosition = topAnchorID
+                    proxy.scrollTo(topAnchorID, anchor: .top)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -160,11 +187,28 @@ struct DetailView: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(Color.secondary.opacity(0.08))
 
-                VideoPlayerWithPosterView(video: selectedVideo, viewModel: playerViewModel)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                if !floatingVideoState.isFloating {
+                    VideoPlayerWithPosterView(video: selectedVideo, viewModel: playerViewModel)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
             }
             .frame(maxWidth: VideoDetailLayout.contentMaxWidth)
             .aspectRatio(playerViewModel.videoAspectRatio, contentMode: .fit)
+            .background {
+                if let videoID = selectedVideo.id {
+                    GeometryReader { geometry in
+                        Color.clear.preference(
+                            key: InlineVideoGeometryPreferenceKey.self,
+                            value: InlineVideoGeometry(
+                                videoID: videoID,
+                                frame: geometry.frame(
+                                    in: .named(Self.detailViewportCoordinateSpace)
+                                )
+                            )
+                        )
+                    }
+                }
+            }
 
             HStack(alignment: .center, spacing: 12) {
                 Text(selectedVideo.title ?? "Untitled")
@@ -210,6 +254,38 @@ struct DetailView: View {
     }
 
     static let detailViewportCoordinateSpace = "videoDetailViewport"
+
+    private func updateInlineVideoVisibility(
+        _ measurement: InlineVideoGeometry?,
+        viewportSize: CGSize,
+        selectedVideoID: UUID?
+    ) {
+        guard let measurement,
+              measurement.videoID == selectedVideoID,
+              floatingVideoState.videoID == measurement.videoID,
+              isValidMeasurement(measurement.frame),
+              viewportSize.width.isFinite,
+              viewportSize.height.isFinite,
+              viewportSize.width > 0,
+              viewportSize.height > 0 else { return }
+
+        floatingVideoState.updateInlineWidth(measurement.frame.width)
+        floatingVideoState.updateVisibleFraction(
+            VideoFloatingLayout.visibleFraction(
+                of: measurement.frame,
+                in: CGRect(origin: .zero, size: viewportSize)
+            )
+        )
+    }
+
+    private func isValidMeasurement(_ frame: CGRect) -> Bool {
+        frame.origin.x.isFinite
+            && frame.origin.y.isFinite
+            && frame.size.width.isFinite
+            && frame.size.height.isFinite
+            && frame.size.width > 0
+            && frame.size.height > 0
+    }
 
     private func detailTopAnchorID(for video: Video) -> String {
         let videoIdentifier = video.id?.uuidString
