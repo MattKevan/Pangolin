@@ -41,11 +41,67 @@ struct VideoPlaybackSelectionTests {
         let firstID = UUID()
         let secondID = UUID()
 
-        #expect(VideoPlaybackSelection.action(selectedID: firstID, loadedID: nil) == .load)
-        #expect(VideoPlaybackSelection.action(selectedID: firstID, loadedID: firstID) == .none)
-        #expect(VideoPlaybackSelection.action(selectedID: secondID, loadedID: firstID) == .load)
-        #expect(VideoPlaybackSelection.action(selectedID: nil, loadedID: secondID) == .clear)
-        #expect(VideoPlaybackSelection.action(selectedID: nil, loadedID: nil) == .clear)
+        #expect(VideoPlaybackSelection.action(
+            selectedID: firstID,
+            isVideoDetailActive: true,
+            loadedID: nil,
+            hasPlayer: false,
+            isLoading: false
+        ) == .load)
+        #expect(VideoPlaybackSelection.action(
+            selectedID: firstID,
+            isVideoDetailActive: true,
+            loadedID: firstID,
+            hasPlayer: true,
+            isLoading: false
+        ) == .none)
+        #expect(VideoPlaybackSelection.action(
+            selectedID: secondID,
+            isVideoDetailActive: true,
+            loadedID: firstID,
+            hasPlayer: true,
+            isLoading: false
+        ) == .load)
+        #expect(VideoPlaybackSelection.action(
+            selectedID: nil,
+            isVideoDetailActive: true,
+            loadedID: secondID,
+            hasPlayer: true,
+            isLoading: false
+        ) == .clear)
+    }
+
+    @Test("Leaving video detail clears even when the selected video is preserved")
+    func inactiveVideoPresentationClearsPlayback() {
+        let videoID = UUID()
+
+        #expect(VideoPlaybackSelection.action(
+            selectedID: videoID,
+            isVideoDetailActive: false,
+            loadedID: videoID,
+            hasPlayer: true,
+            isLoading: false
+        ) == .clear)
+    }
+
+    @Test("A failed same-video load can retry without duplicating an in-flight load")
+    func sameVideoRetryWaitsForFailedLoad() {
+        let videoID = UUID()
+
+        #expect(VideoPlaybackSelection.action(
+            selectedID: videoID,
+            isVideoDetailActive: true,
+            loadedID: videoID,
+            hasPlayer: false,
+            isLoading: true
+        ) == .none)
+        #expect(VideoPlaybackSelection.action(
+            selectedID: videoID,
+            isVideoDetailActive: true,
+            loadedID: videoID,
+            hasPlayer: false,
+            isLoading: false
+        ) == .load)
     }
 }
 

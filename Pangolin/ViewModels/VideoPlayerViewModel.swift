@@ -22,9 +22,16 @@ enum VideoPlaybackSelection {
         case none
     }
 
-    static func action(selectedID: UUID?, loadedID: UUID?) -> Action {
-        guard let selectedID else { return .clear }
-        return selectedID == loadedID ? .none : .load
+    static func action(
+        selectedID: UUID?,
+        isVideoDetailActive: Bool,
+        loadedID: UUID?,
+        hasPlayer: Bool,
+        isLoading: Bool
+    ) -> Action {
+        guard isVideoDetailActive, let selectedID else { return .clear }
+        guard selectedID == loadedID else { return .load }
+        return hasPlayer || isLoading ? .none : .load
     }
 }
 

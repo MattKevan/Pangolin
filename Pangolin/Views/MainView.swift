@@ -69,19 +69,27 @@ struct MainView: View {
             .onChange(of: folderStore.selectedVideo?.id) { _, _ in
                 synchronizeVideoSelection()
             }
+            .onChange(of: folderStore.currentDetailSurface) { _, _ in
+                synchronizeVideoSelection()
+            }
     }
 
     private func synchronizeVideoSelection() {
         let selectedVideo = folderStore.selectedVideo
-        floatingVideoState.reset(for: selectedVideo?.id)
+        let isVideoDetailActive = folderStore.currentDetailSurface == .videoDetail
+        let activeVideo = isVideoDetailActive ? selectedVideo : nil
+        floatingVideoState.reset(for: activeVideo?.id)
 
         switch VideoPlaybackSelection.action(
             selectedID: selectedVideo?.id,
-            loadedID: playerViewModel.currentVideo?.id
+            isVideoDetailActive: isVideoDetailActive,
+            loadedID: playerViewModel.currentVideo?.id,
+            hasPlayer: playerViewModel.player != nil,
+            isLoading: playerViewModel.isLoading
         ) {
         case .load:
-            if let selectedVideo {
-                playerViewModel.loadVideo(selectedVideo)
+            if let activeVideo {
+                playerViewModel.loadVideo(activeVideo)
             }
         case .clear:
             playerViewModel.clearLoadedVideo()
