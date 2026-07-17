@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		F20A00000000000000000002 /* VideoFloatingLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20A00000000000000000001 /* VideoFloatingLayout.swift */; };
+		F20A00000000000000000004 /* FloatingVideoPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20A00000000000000000003 /* FloatingVideoPane.swift */; };
 		003AC721D036C59CA93AEDDD /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = A31540D5BB20CA519BC50E0D /* MarkdownUI */; };
 		009A57343301D60C04BF279A /* ProcessingControlsInspectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DAB7C10ACE6D59F613BA7E /* ProcessingControlsInspectorView.swift */; };
 		00B3CFCDA690133D196A8EF0 /* ProcessingPopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE429A782F01433C102B5359 /* ProcessingPopoverView.swift */; };
@@ -114,6 +115,7 @@
 
 /* Begin PBXFileReference section */
 		F20A00000000000000000001 /* VideoFloatingLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFloatingLayout.swift; sourceTree = "<group>"; };
+		F20A00000000000000000003 /* FloatingVideoPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingVideoPane.swift; sourceTree = "<group>"; };
 		00DDC1D36638B5015B49BA22 /* BulkProcessingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BulkProcessingView.swift; sourceTree = "<group>"; };
 		010A5B83922FC98F95915E1B /* DraggableSplitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DraggableSplitter.swift; sourceTree = "<group>"; };
 		02A596FCF8EA79F240A4848F /* FlashcardsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlashcardsView.swift; sourceTree = "<group>"; };
@@ -309,6 +311,7 @@
 		A635AF8C38BB5CCE076F6C46 /* Components */ = {
 			isa = PBXGroup;
 			children = (
+				F20A00000000000000000003 /* FloatingVideoPane.swift */,
 				00DDC1D36638B5015B49BA22 /* BulkProcessingView.swift */,
 				569384A914040FDEA22D9202 /* CircularProgressButton.swift */,
 				861A4C66A40173589AAB6E62 /* ContentRowView.swift */,
@@ -707,6 +710,7 @@
 				C977B7ACA46D1D13E964AA87 /* VideoFileManager.swift in Sources */,
 				10B58336F14A243217C8E30D /* VideoFileStatusView.swift in Sources */,
 				F20A00000000000000000002 /* VideoFloatingLayout.swift in Sources */,
+				F20A00000000000000000004 /* FloatingVideoPane.swift in Sources */,
 				766EF5589BC5752005D30E70 /* VideoImporter.swift in Sources */,
 				72F0399CFA145FA2E346F611 /* VideoInfoView.swift in Sources */,
 				EB485127D639337042F4F6CA /* VideoModel.swift in Sources */,

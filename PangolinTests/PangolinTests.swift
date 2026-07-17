@@ -646,3 +646,14 @@ struct FloatingVideoStateTests {
         #expect(state.frame != movedFrame)
     }
 }
+
+@Suite("Floating video keyboard movement")
+struct FloatingVideoKeyboardMovementTests {
+    @Test("Arrow commands move the pane by the desktop keyboard step")
+    func arrowTranslations() {
+        #expect(VideoFloatingKeyboardMovement.translation(for: .left) == CGSize(width: -10, height: 0))
+        #expect(VideoFloatingKeyboardMovement.translation(for: .right) == CGSize(width: 10, height: 0))
+        #expect(VideoFloatingKeyboardMovement.translation(for: .up) == CGSize(width: 0, height: -10))
+        #expect(VideoFloatingKeyboardMovement.translation(for: .down) == CGSize(width: 0, height: 10))
+    }
+}

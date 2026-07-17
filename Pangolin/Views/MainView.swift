@@ -148,7 +148,79 @@ struct MainView: View {
             detailColumn
         }
         .navigationSplitViewStyle(.balanced)
+        #if os(macOS)
+        .overlay {
+            GeometryReader { geometry in
+                let rootBounds = CGRect(origin: .zero, size: geometry.size)
+
+                ZStack(alignment: .topLeading) {
+                    if shouldShowFloatingVideo,
+                       floatingVideoState.frame != .zero,
+                       let selectedVideo = folderStore.selectedVideo {
+                        FloatingVideoPane(
+                            video: selectedVideo,
+                            playerViewModel: playerViewModel,
+                            floatingState: floatingVideoState,
+                            availableBounds: rootBounds,
+                            inlineWidth: floatingVideoState.inlineWidth
+                        )
+                        .zIndex(100)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onChange(of: floatingVideoState.isFloating, initial: true) { _, isFloating in
+                    guard isFloating else { return }
+                    prepareFloatingVideo(in: rootBounds)
+                }
+                .onChange(of: floatingVideoState.inlineWidth) { _, _ in
+                    guard floatingVideoState.isFloating else { return }
+                    prepareFloatingVideo(in: rootBounds)
+                }
+                .onChange(of: geometry.size) { _, newSize in
+                    adjustFloatingVideo(
+                        to: CGRect(origin: .zero, size: newSize)
+                    )
+                }
+                .onChange(of: playerViewModel.videoAspectRatio) { _, _ in
+                    adjustFloatingVideo(to: rootBounds)
+                }
+            }
+            .allowsHitTesting(shouldShowFloatingVideo && floatingVideoState.frame != .zero)
+        }
+        #endif
     }
+
+    #if os(macOS)
+    private var shouldShowFloatingVideo: Bool {
+        guard folderStore.currentDetailSurface == .videoDetail,
+              let selectedVideoID = folderStore.selectedVideo?.id else {
+            return false
+        }
+
+        return floatingVideoState.isFloating
+            && floatingVideoState.videoID == selectedVideoID
+    }
+
+    private func prepareFloatingVideo(in rootBounds: CGRect) {
+        guard shouldShowFloatingVideo else { return }
+        floatingVideoState.prepareDefaultFrame(
+            in: rootBounds,
+            inlineWidth: floatingVideoState.inlineWidth,
+            aspectRatio: playerViewModel.videoAspectRatio
+        )
+    }
+
+    private func adjustFloatingVideo(to rootBounds: CGRect) {
+        if shouldShowFloatingVideo {
+            prepareFloatingVideo(in: rootBounds)
+        } else {
+            floatingVideoState.clamp(
+                to: rootBounds,
+                aspectRatio: playerViewModel.videoAspectRatio
+            )
+        }
+    }
+    #endif
 
     private var splitViewColumnVisibility: Binding<NavigationSplitViewVisibility> {
         Binding(

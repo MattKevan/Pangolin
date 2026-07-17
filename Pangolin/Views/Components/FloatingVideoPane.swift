@@ -1,0 +1,240 @@
+//
+//  FloatingVideoPane.swift
+//  Pangolin
+//
+
+import SwiftUI
+
+enum VideoFloatingKeyboardDirection {
+    case left
+    case right
+    case up
+    case down
+}
+
+enum VideoFloatingKeyboardMovement {
+    static let step: CGFloat = 10
+
+    static func translation(for direction: VideoFloatingKeyboardDirection) -> CGSize {
+        switch direction {
+        case .left:
+            return CGSize(width: -step, height: 0)
+        case .right:
+            return CGSize(width: step, height: 0)
+        case .up:
+            return CGSize(width: 0, height: -step)
+        case .down:
+            return CGSize(width: 0, height: step)
+        }
+    }
+}
+
+#if os(macOS)
+struct FloatingVideoPane: View {
+    let video: Video
+    @ObservedObject var playerViewModel: VideoPlayerViewModel
+    @ObservedObject var floatingState: FloatingVideoState
+    let availableBounds: CGRect
+    let inlineWidth: CGFloat
+
+    @State private var dragStartFrame: CGRect?
+    @State private var resizeStartFrames: [VideoResizeHandle: CGRect] = [:]
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        VideoPlayerWithPosterView(video: video, viewModel: playerViewModel)
+            .frame(width: floatingState.frame.width, height: floatingState.frame.height)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(alignment: .top) {
+                dragHandle
+            }
+            .overlay(alignment: .topTrailing) {
+                resetButton
+            }
+            .overlay {
+                resizeHandles
+            }
+            .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
+            .position(x: floatingState.frame.midX, y: floatingState.frame.midY)
+            .focusable()
+            .focused($isFocused)
+            .onMoveCommand(perform: moveWithKeyboard)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Floating video player")
+            .accessibilityValue(accessibilityFrameValue)
+            .accessibilityAction(named: "Reset position") {
+                resetPlacement()
+            }
+    }
+
+    private var accessibilityFrameValue: String {
+        "Position \(Int(floatingState.frame.minX)), \(Int(floatingState.frame.minY)); width \(Int(floatingState.frame.width))"
+    }
+
+    private var dragHandle: some View {
+        Capsule(style: .continuous)
+            .fill(.regularMaterial)
+            .overlay {
+                Capsule(style: .continuous)
+                    .fill(.white.opacity(0.85))
+                    .frame(width: 44, height: 5)
+            }
+            .frame(width: 76, height: 22)
+            .padding(.top, 6)
+            .contentShape(Rectangle())
+            .help("Drag to move the floating video")
+            .accessibilityLabel("Move floating video")
+            .gesture(dragGesture)
+    }
+
+    private var dragGesture: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                isFocused = true
+                let start = dragStartFrame ?? floatingState.frame
+                dragStartFrame = start
+                floatingState.setFrame(
+                    start.offsetBy(
+                        dx: value.translation.width,
+                        dy: value.translation.height
+                    ),
+                    in: availableBounds,
+                    aspectRatio: playerViewModel.videoAspectRatio
+                )
+            }
+            .onEnded { _ in
+                dragStartFrame = nil
+            }
+    }
+
+    private var resizeHandles: some View {
+        ZStack {
+            resizeHandle(.topLeading, alignment: .topLeading)
+            resizeHandle(.topTrailing, alignment: .topTrailing)
+            resizeHandle(.bottomLeading, alignment: .bottomLeading)
+            resizeHandle(.bottomTrailing, alignment: .bottomTrailing)
+        }
+    }
+
+    private var resetButton: some View {
+        Button(action: resetPlacement) {
+            Image(systemName: "arrow.counterclockwise")
+                .frame(width: 28, height: 28)
+                .background(.regularMaterial, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 6)
+        .padding(.trailing, 34)
+        .keyboardShortcut("0", modifiers: [.command, .option])
+        .help("Reset floating video position (Command-Option-0)")
+        .accessibilityLabel("Reset floating video position")
+    }
+
+    private func resizeHandle(
+        _ handle: VideoResizeHandle,
+        alignment: Alignment
+    ) -> some View {
+        Circle()
+            .fill(.white)
+            .overlay {
+                Circle().stroke(.black.opacity(0.35), lineWidth: 1)
+            }
+            .frame(width: 14, height: 14)
+            .frame(width: 32, height: 32)
+            .contentShape(Rectangle())
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
+            .accessibilityLabel(accessibilityLabel(for: handle))
+            .accessibilityHint("Adjust to resize while preserving the video's aspect ratio")
+            .accessibilityAdjustableAction { direction in
+                resizeWithAccessibility(handle, direction: direction)
+            }
+            .gesture(resizeGesture(for: handle))
+    }
+
+    private func resizeGesture(for handle: VideoResizeHandle) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                isFocused = true
+                let start = resizeStartFrames[handle] ?? floatingState.frame
+                resizeStartFrames[handle] = start
+                floatingState.resize(
+                    from: start,
+                    handle: handle,
+                    translation: value.translation,
+                    in: availableBounds,
+                    aspectRatio: playerViewModel.videoAspectRatio
+                )
+            }
+            .onEnded { _ in
+                resizeStartFrames[handle] = nil
+            }
+    }
+
+    private func accessibilityLabel(for handle: VideoResizeHandle) -> String {
+        switch handle {
+        case .topLeading:
+            return "Resize floating video from top left"
+        case .topTrailing:
+            return "Resize floating video from top right"
+        case .bottomLeading:
+            return "Resize floating video from bottom left"
+        case .bottomTrailing:
+            return "Resize floating video from bottom right"
+        }
+    }
+
+    private func resizeWithAccessibility(
+        _ handle: VideoResizeHandle,
+        direction: AccessibilityAdjustmentDirection
+    ) {
+        let growsWithPositiveTranslation = handle == .topTrailing || handle == .bottomTrailing
+        let translation: CGFloat
+        switch direction {
+        case .increment:
+            translation = growsWithPositiveTranslation ? 10 : -10
+        case .decrement:
+            translation = growsWithPositiveTranslation ? -10 : 10
+        @unknown default:
+            return
+        }
+
+        floatingState.resize(
+            from: floatingState.frame,
+            handle: handle,
+            translation: CGSize(width: translation, height: 0),
+            in: availableBounds,
+            aspectRatio: playerViewModel.videoAspectRatio
+        )
+    }
+
+    private func resetPlacement() {
+        floatingState.resetPlacement(
+            in: availableBounds,
+            inlineWidth: inlineWidth,
+            aspectRatio: playerViewModel.videoAspectRatio
+        )
+    }
+
+    private func moveWithKeyboard(_ direction: MoveCommandDirection) {
+        let keyboardDirection: VideoFloatingKeyboardDirection
+        switch direction {
+        case .left:
+            keyboardDirection = .left
+        case .right:
+            keyboardDirection = .right
+        case .up:
+            keyboardDirection = .up
+        case .down:
+            keyboardDirection = .down
+        @unknown default:
+            return
+        }
+
+        floatingState.move(
+            by: VideoFloatingKeyboardMovement.translation(for: keyboardDirection),
+            in: availableBounds,
+            aspectRatio: playerViewModel.videoAspectRatio
+        )
+    }
+}
+#endif
