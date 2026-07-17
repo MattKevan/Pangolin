@@ -310,6 +310,73 @@ struct FloatingVideoStateTests {
         #expect(state.frame == .zero)
     }
 
+    @Test("Clearing selection makes reopening the same video start fresh")
+    func clearingSelectionResetsPriorVideoPlacement() {
+        let videoID = UUID()
+        let state = FloatingVideoState()
+
+        state.reset(for: videoID)
+        state.prepareDefaultFrame(
+            in: bounds,
+            inlineWidth: 760,
+            aspectRatio: aspectRatio
+        )
+        state.move(
+            by: CGSize(width: -180, height: 90),
+            in: bounds,
+            aspectRatio: aspectRatio
+        )
+        state.updateVisibleFraction(0.20)
+        let movedFrame = state.frame
+
+        state.reset(for: nil)
+        #expect(state.videoID == nil)
+        #expect(!state.isFloating)
+        #expect(state.frame == .zero)
+
+        state.reset(for: videoID)
+        state.prepareDefaultFrame(
+            in: bounds,
+            inlineWidth: 760,
+            aspectRatio: aspectRatio
+        )
+
+        #expect(state.videoID == videoID)
+        #expect(!state.isFloating)
+        #expect(state.frame != movedFrame)
+        #expect(state.frame == VideoFloatingLayout.defaultFrame(
+            in: bounds,
+            inlineWidth: 760,
+            aspectRatio: aspectRatio
+        ))
+    }
+
+    @Test("Resetting the same video preserves its presentation")
+    func sameVideoResetPreservesPresentation() {
+        let videoID = UUID()
+        let state = FloatingVideoState()
+
+        state.reset(for: videoID)
+        state.prepareDefaultFrame(
+            in: bounds,
+            inlineWidth: 760,
+            aspectRatio: aspectRatio
+        )
+        state.move(
+            by: CGSize(width: -120, height: 80),
+            in: bounds,
+            aspectRatio: aspectRatio
+        )
+        state.updateVisibleFraction(0.20)
+        let movedFrame = state.frame
+
+        state.reset(for: videoID)
+
+        #expect(state.videoID == videoID)
+        #expect(state.isFloating)
+        #expect(state.frame == movedFrame)
+    }
+
     @Test("Setting a frame clamps it inside available bounds")
     func setFrameClampsToBounds() {
         let state = FloatingVideoState()
@@ -346,5 +413,43 @@ struct FloatingVideoStateTests {
         #expect(state.frame.minY == 16)
         #expect(state.frame.maxX == 1_184)
         #expect(state.frame.maxY <= 784)
+    }
+
+    @Test("Transient unusable bounds preserve customized placement")
+    func transientBoundsPreserveCustomizedPlacement() {
+        let state = FloatingVideoState()
+
+        state.prepareDefaultFrame(
+            in: bounds,
+            inlineWidth: 760,
+            aspectRatio: aspectRatio
+        )
+        state.move(
+            by: CGSize(width: -200, height: 100),
+            in: bounds,
+            aspectRatio: aspectRatio
+        )
+        let movedFrame = state.frame
+
+        state.prepareDefaultFrame(
+            in: .zero,
+            inlineWidth: 760,
+            aspectRatio: aspectRatio
+        )
+        #expect(state.frame == movedFrame)
+
+        let smallerBounds = CGRect(x: 0, y: 0, width: 900, height: 600)
+        state.prepareDefaultFrame(
+            in: smallerBounds,
+            inlineWidth: 760,
+            aspectRatio: aspectRatio
+        )
+
+        #expect(state.frame == VideoFloatingLayout.fittedFrame(
+            movedFrame,
+            aspectRatio: aspectRatio,
+            in: smallerBounds
+        ))
+        #expect(state.frame != movedFrame)
     }
 }

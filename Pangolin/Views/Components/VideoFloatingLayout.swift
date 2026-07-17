@@ -241,7 +241,7 @@ final class FloatingVideoState: ObservableObject {
     @Published private(set) var frame = CGRect.zero
     @Published private(set) var videoID: UUID?
 
-    func reset(for videoID: UUID) {
+    func reset(for videoID: UUID?) {
         guard self.videoID != videoID else { return }
 
         self.videoID = videoID
@@ -316,7 +316,14 @@ final class FloatingVideoState: ObservableObject {
     func clamp(to bounds: CGRect, aspectRatio: CGFloat) {
         guard frame != .zero else { return }
 
-        setFrame(frame, in: bounds, aspectRatio: aspectRatio)
+        let fittedFrame = VideoFloatingLayout.fittedFrame(
+            frame,
+            aspectRatio: aspectRatio,
+            in: bounds
+        )
+        guard fittedFrame != .zero else { return }
+
+        frame = fittedFrame
     }
 
     func resetPlacement(
