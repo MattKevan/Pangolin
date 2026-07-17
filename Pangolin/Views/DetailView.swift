@@ -20,6 +20,7 @@ struct DetailView: View {
     @State private var selectedInspectorTab: InspectorTab = .transcript
     @State private var isControlsInspectorPresented = false
     @State private var isSearchVisibleOnPhone = false
+    @State private var pageScrollPosition: String?
 
     init(
         video: Video?,
@@ -105,11 +106,13 @@ struct DetailView: View {
 
     @ViewBuilder
     private func page(for selectedVideo: Video) -> some View {
+        let topAnchorID = detailTopAnchorID(for: selectedVideo)
+
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 0) {
                     header(for: selectedVideo)
-                        .id(Self.detailTopAnchorID)
+                        .id(topAnchorID)
 
                     Divider()
 
@@ -134,9 +137,16 @@ struct DetailView: View {
                     navigationBar(for: selectedVideo)
                 }
                 .frame(maxWidth: .infinity)
+                .scrollTargetLayout()
+            }
+            .coordinateSpace(name: Self.detailViewportCoordinateSpace)
+            .scrollPosition(id: $pageScrollPosition)
+            .onAppear {
+                pageScrollPosition = topAnchorID
             }
             .onChange(of: selectedVideo.id) { _, _ in
-                proxy.scrollTo(Self.detailTopAnchorID, anchor: .top)
+                pageScrollPosition = topAnchorID
+                proxy.scrollTo(topAnchorID, anchor: .top)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -199,7 +209,13 @@ struct DetailView: View {
         }
     }
 
-    private static let detailTopAnchorID = "video-detail-top"
+    static let detailViewportCoordinateSpace = "videoDetailViewport"
+
+    private func detailTopAnchorID(for video: Video) -> String {
+        let videoIdentifier = video.id?.uuidString
+            ?? video.objectID.uriRepresentation().absoluteString
+        return "video-detail-top-\(videoIdentifier)"
+    }
 
     @ViewBuilder
     private func navigationBar(for selectedVideo: Video) -> some View {
@@ -702,33 +718,33 @@ struct MergedTranscriptView: View {
         .onAppear {
             loadContent()
             updateActiveParagraph(for: playerViewModel.currentTime)
-            refreshSearchState()
+            refreshSearchState(scrollToMatch: false)
         }
         .onChange(of: video.id) { _, _ in
             loadContent()
-            refreshSearchState()
+            refreshSearchState(scrollToMatch: false)
         }
         .onChange(of: video.transcriptDateGenerated) { _, _ in
             loadContent()
-            refreshSearchState()
+            refreshSearchState(scrollToMatch: false)
         }
         .onChange(of: video.translationDateGenerated) { _, _ in
             loadContent()
-            refreshSearchState()
+            refreshSearchState(scrollToMatch: false)
         }
         .onChange(of: video.translatedLanguage) { _, _ in
             loadContent()
-            refreshSearchState()
+            refreshSearchState(scrollToMatch: false)
         }
         .onChange(of: preferredTranslationLocaleIdentifier) { _, _ in
             loadContent()
-            refreshSearchState()
+            refreshSearchState(scrollToMatch: false)
         }
         .onChange(of: playerViewModel.currentTime) { _, newTime in
             updateActiveParagraph(for: newTime)
         }
         .onChange(of: searchModel.query) { _, _ in
-            refreshSearchState()
+            refreshSearchState(scrollToMatch: true)
         }
         .onChange(of: searchModel.navigationRequestID) { _, _ in
             moveAcrossSearchResults()
@@ -786,7 +802,7 @@ struct MergedTranscriptView: View {
         onRequestScrollToParagraph(matches[nextIndex])
     }
 
-    private func refreshSearchState() {
+    private func refreshSearchState(scrollToMatch: Bool) {
         let matches = matchingParagraphIDs
         guard !matches.isEmpty else {
             currentMatchID = nil
@@ -805,7 +821,8 @@ struct MergedTranscriptView: View {
         let currentIndex = matches.firstIndex(of: nextMatchID) ?? 0
         searchModel.setSearchState(totalMatches: matches.count, currentMatchIndex: currentIndex)
 
-        if !searchModel.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if scrollToMatch,
+           !searchModel.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             onRequestScrollToParagraph(nextMatchID)
         }
     }
