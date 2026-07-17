@@ -13,14 +13,14 @@ enum VideoResizeHandle: CaseIterable, Hashable {
 }
 
 enum VideoFloatingLayout {
-    static let floatVisibleFraction: CGFloat = 0.25
-    static let dockVisibleFraction: CGFloat = 0.60
+    static let floatVisibleFraction: Double = 0.25
+    static let dockVisibleFraction: Double = 0.60
     static let initialWidthScale: CGFloat = 0.55
     static let minimumWidth: CGFloat = 240
     static let edgeInset: CGFloat = 16
     static let fallbackAspectRatio: CGFloat = 16.0 / 9.0
 
-    static func shouldFloat(isFloating: Bool, visibleFraction: CGFloat) -> Bool {
+    static func shouldFloat(isFloating: Bool, visibleFraction: Double) -> Bool {
         let visibleFraction = min(max(visibleFraction, 0), 1)
         return isFloating
             ? visibleFraction < dockVisibleFraction
@@ -53,10 +53,7 @@ enum VideoFloatingLayout {
     ) -> CGRect {
         let ratio = validRatio(aspectRatio)
         let availableBounds = bounds.insetBy(dx: edgeInset, dy: edgeInset)
-        let proposedWidth = max(
-            (inlineWidth * initialWidthScale).rounded(),
-            minimumWidth
-        )
+        let proposedWidth = max(inlineWidth * initialWidthScale, minimumWidth)
         let size = fittedSize(
             proposedWidth: proposedWidth,
             aspectRatio: ratio,
@@ -121,7 +118,7 @@ enum VideoFloatingLayout {
             verticalDelta = translation.height * ratio
         }
 
-        let widthDelta = abs(translation.width) >= abs(translation.height)
+        let widthDelta = abs(horizontalDelta) >= abs(verticalDelta)
             ? horizontalDelta
             : verticalDelta
 

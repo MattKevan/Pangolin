@@ -38,10 +38,16 @@ struct PangolinTests {
 struct VideoFloatingLayoutTests {
     @Test("Floating state uses separate float and dock thresholds")
     func floatingStateUsesHysteresis() {
-        #expect(VideoFloatingLayout.shouldFloat(isFloating: false, visibleFraction: 0.25))
+        let visibleFraction: Double = 0.25
+        let floatThreshold: Double = VideoFloatingLayout.floatVisibleFraction
+        let dockThreshold: Double = VideoFloatingLayout.dockVisibleFraction
+
+        #expect(VideoFloatingLayout.shouldFloat(isFloating: false, visibleFraction: visibleFraction))
         #expect(!VideoFloatingLayout.shouldFloat(isFloating: false, visibleFraction: 0.26))
         #expect(VideoFloatingLayout.shouldFloat(isFloating: true, visibleFraction: 0.59))
         #expect(!VideoFloatingLayout.shouldFloat(isFloating: true, visibleFraction: 0.60))
+        #expect(floatThreshold == 0.25)
+        #expect(dockThreshold == 0.60)
     }
 
     @Test("Resolution strings produce valid aspect ratios")
@@ -60,10 +66,17 @@ struct VideoFloatingLayoutTests {
             aspectRatio: 16.0 / 9.0
         )
 
-        #expect(frame.width == 418)
-        #expect(frame.height == 235.125)
-        #expect(frame.maxX == 1_184)
-        #expect(frame.minY == 16)
+        #expect(abs(frame.width - 418) < 0.000_001)
+        #expect(abs(frame.height - 235.125) < 0.000_001)
+        #expect(abs(frame.maxX - 1_184) < 0.000_001)
+        #expect(abs(frame.minY - 16) < 0.000_001)
+
+        let fractionalFrame = VideoFloatingLayout.defaultFrame(
+            in: CGRect(x: 0, y: 0, width: 1_200, height: 800),
+            inlineWidth: 761,
+            aspectRatio: 16.0 / 9.0
+        )
+        #expect(abs(fractionalFrame.width - 761 * 0.55) < 0.000_001)
     }
 
     @Test("Resizing preserves aspect ratio and the opposite corner")
@@ -79,6 +92,16 @@ struct VideoFloatingLayoutTests {
         #expect(abs(frame.width / frame.height - 16.0 / 9.0) < 0.000_001)
         #expect(frame.maxX == 1_100)
         #expect(frame.minY == 16)
+
+        let mixedAxisFrame = VideoFloatingLayout.resizedFrame(
+            from: CGRect(x: 400, y: 16, width: 400, height: 225),
+            handle: .bottomTrailing,
+            translation: CGSize(width: 80, height: 50),
+            aspectRatio: 16.0 / 9.0,
+            in: CGRect(x: 0, y: 0, width: 1_400, height: 1_000)
+        )
+        let expectedWidth = 400 + 50 * (16.0 / 9.0)
+        #expect(abs(mixedAxisFrame.width - expectedWidth) < 0.000_001)
     }
 
     @Test("Fitting keeps an oversized-positioned frame reachable")
