@@ -105,31 +105,42 @@ struct DetailView: View {
 
     @ViewBuilder
     private func page(for selectedVideo: Video) -> some View {
-        VStack(spacing: 0) {
-            header(for: selectedVideo)
-            Divider()
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    header(for: selectedVideo)
+                        .id(Self.detailTopAnchorID)
 
-            if isSearchVisibleOnPhone && selectedInspectorTab == .transcript {
-                inlineSearchField
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                Divider()
-            }
+                    Divider()
 
-            VideoPageTabPicker(selectedTab: $selectedInspectorTab)
-                .frame(maxWidth: VideoDetailLayout.contentMaxWidth, alignment: .leading)
+                    if isSearchVisibleOnPhone && selectedInspectorTab == .transcript {
+                        inlineSearchField
+                            .frame(maxWidth: VideoDetailLayout.contentMaxWidth)
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, VideoDetailLayout.horizontalPadding)
+                            .padding(.vertical, 12)
+                        Divider()
+                    }
+
+                    VideoPageTabPicker(selectedTab: $selectedInspectorTab)
+                        .frame(maxWidth: VideoDetailLayout.contentMaxWidth, alignment: .leading)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, VideoDetailLayout.horizontalPadding)
+                        .padding(.top, 12)
+
+                    currentContent(for: selectedVideo, scrollProxy: proxy)
+                        .frame(maxWidth: .infinity, alignment: .top)
+
+                    navigationBar(for: selectedVideo)
+                }
                 .frame(maxWidth: .infinity)
-                .padding(.horizontal, VideoDetailLayout.horizontalPadding)
-                .padding(.top, 12)
-
-            currentContent(for: selectedVideo)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            }
+            .onChange(of: selectedVideo.id) { _, _ in
+                proxy.scrollTo(Self.detailTopAnchorID, anchor: .top)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.appContentBackground)
-        .safeAreaInset(edge: .bottom) {
-            navigationBar(for: selectedVideo)
-        }
     }
 
     @ViewBuilder
@@ -143,7 +154,7 @@ struct DetailView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             .frame(maxWidth: VideoDetailLayout.contentMaxWidth)
-            .aspectRatio(16.0 / 9.0, contentMode: .fit)
+            .aspectRatio(playerViewModel.videoAspectRatio, contentMode: .fit)
 
             HStack(alignment: .center, spacing: 12) {
                 Text(selectedVideo.title ?? "Untitled")
@@ -163,14 +174,22 @@ struct DetailView: View {
     }
 
     @ViewBuilder
-    private func currentContent(for selectedVideo: Video) -> some View {
+    private func currentContent(
+        for selectedVideo: Video,
+        scrollProxy: ScrollViewProxy
+    ) -> some View {
         switch selectedInspectorTab {
         case .transcript:
             MergedTranscriptView(
                 video: selectedVideo,
                 playerViewModel: playerViewModel,
                 searchModel: searchModel,
-                preferredTranslationLocaleIdentifier: preferredTranslationLocaleIdentifier
+                preferredTranslationLocaleIdentifier: preferredTranslationLocaleIdentifier,
+                onRequestScrollToParagraph: { paragraphID in
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        scrollProxy.scrollTo(paragraphID, anchor: .center)
+                    }
+                }
             )
             .environmentObject(libraryManager)
         case .summary:
@@ -179,6 +198,8 @@ struct DetailView: View {
                 .environmentObject(transcriptionService)
         }
     }
+
+    private static let detailTopAnchorID = "video-detail-top"
 
     @ViewBuilder
     private func navigationBar(for selectedVideo: Video) -> some View {
@@ -585,6 +606,7 @@ struct MergedTranscriptView: View {
     @ObservedObject var playerViewModel: VideoPlayerViewModel
     @ObservedObject var searchModel: VideoPageSearchModel
     let preferredTranslationLocaleIdentifier: String?
+    let onRequestScrollToParagraph: (String) -> Void
 
     @State private var timedParagraphs: [TimedParagraph] = []
     @State private var plainParagraphs: [PlainParagraph] = []
@@ -620,107 +642,96 @@ struct MergedTranscriptView: View {
     private static let sentenceTerminators: Set<Character> = [".", "?", "!", ";", ":"]
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    if let loadError {
-                        ContentUnavailableView(
-                            "Transcript unavailable",
-                            systemImage: "exclamationmark.bubble",
-                            description: Text(loadError)
-                        )
-                        .frame(maxWidth: .infinity, minHeight: 240)
-                    } else if timedParagraphs.isEmpty && plainParagraphs.isEmpty {
-                        ContentUnavailableView(
-                            "No transcript yet",
-                            systemImage: "doc.text",
-                            description: Text("Transcript has not been generated for this video.")
-                        )
-                        .frame(maxWidth: .infinity, minHeight: 240)
-                    } else {
-                        Text(sourceLabel)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 16) {
+            if let loadError {
+                ContentUnavailableView(
+                    "Transcript unavailable",
+                    systemImage: "exclamationmark.bubble",
+                    description: Text(loadError)
+                )
+                .frame(maxWidth: .infinity, minHeight: 240)
+            } else if timedParagraphs.isEmpty && plainParagraphs.isEmpty {
+                ContentUnavailableView(
+                    "No transcript yet",
+                    systemImage: "doc.text",
+                    description: Text("Transcript has not been generated for this video.")
+                )
+                .frame(maxWidth: .infinity, minHeight: 240)
+            } else {
+                Text(sourceLabel)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
-                        LazyVStack(alignment: .leading, spacing: 10) {
-                            if !timedParagraphs.isEmpty {
-                                ForEach(timedParagraphs) { paragraph in
-                                    Text(paragraph.text)
-                                        .foregroundStyle(.primary)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(.vertical, 4)
-                                        .padding(.horizontal, 2)
-                                        .background(backgroundColor(for: paragraph.id, active: activeParagraphID == paragraph.id))
-                                        .contentShape(Rectangle())
-                                        .onTapGesture {
-                                            playerViewModel.seek(to: paragraph.startSeconds, in: video)
-                                        }
-                                        .id(paragraph.id)
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    if !timedParagraphs.isEmpty {
+                        ForEach(timedParagraphs) { paragraph in
+                            Text(paragraph.text)
+                                .foregroundStyle(.primary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 4)
+                                .padding(.horizontal, 2)
+                                .background(backgroundColor(for: paragraph.id, active: activeParagraphID == paragraph.id))
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    playerViewModel.seek(to: paragraph.startSeconds, in: video)
                                 }
-                            } else {
-                                ForEach(plainParagraphs) { paragraph in
-                                    Text(paragraph.text)
-                                        .foregroundStyle(.primary)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(.vertical, 4)
-                                        .padding(.horizontal, 2)
-                                        .background(backgroundColor(for: paragraph.id, active: false))
-                                        .id(paragraph.id)
-                                }
-                            }
+                                .id(paragraph.id)
                         }
-                        .font(.system(size: 17))
-                        .lineSpacing(12)
-                        .multilineTextAlignment(.leading)
+                    } else {
+                        ForEach(plainParagraphs) { paragraph in
+                            Text(paragraph.text)
+                                .foregroundStyle(.primary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 4)
+                                .padding(.horizontal, 2)
+                                .background(backgroundColor(for: paragraph.id, active: false))
+                                .id(paragraph.id)
+                        }
                     }
                 }
-                .padding(.top, 12)
-                .padding(.bottom, 32)
-                .frame(maxWidth: VideoDetailLayout.contentMaxWidth, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.horizontal, VideoDetailLayout.horizontalPadding)
+                .font(.system(size: 17))
+                .lineSpacing(12)
+                .multilineTextAlignment(.leading)
             }
-            .onAppear {
-                loadContent()
-                updateActiveParagraph(for: playerViewModel.currentTime)
-                refreshSearchState(using: proxy)
-            }
-            .onChange(of: video.id) { _, _ in
-                loadContent()
-                refreshSearchState(using: proxy)
-            }
-            .onChange(of: video.transcriptDateGenerated) { _, _ in
-                loadContent()
-                refreshSearchState(using: proxy)
-            }
-            .onChange(of: video.translationDateGenerated) { _, _ in
-                loadContent()
-                refreshSearchState(using: proxy)
-            }
-            .onChange(of: video.translatedLanguage) { _, _ in
-                loadContent()
-                refreshSearchState(using: proxy)
-            }
-            .onChange(of: preferredTranslationLocaleIdentifier) { _, _ in
-                loadContent()
-                refreshSearchState(using: proxy)
-            }
-            .onChange(of: playerViewModel.currentTime) { _, newTime in
-                updateActiveParagraph(for: newTime)
-            }
-            .onChange(of: searchModel.query) { _, _ in
-                refreshSearchState(using: proxy)
-            }
-            .onChange(of: searchModel.navigationRequestID) { _, _ in
-                moveAcrossSearchResults(using: proxy)
-            }
-            .onChange(of: activeParagraphID) { _, paragraphID in
-                guard searchModel.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                      let paragraphID else { return }
-                withAnimation(.easeInOut(duration: 0.12)) {
-                    proxy.scrollTo(paragraphID, anchor: .center)
-                }
-            }
+        }
+        .padding(.top, 12)
+        .padding(.bottom, 32)
+        .frame(maxWidth: VideoDetailLayout.contentMaxWidth, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.horizontal, VideoDetailLayout.horizontalPadding)
+        .onAppear {
+            loadContent()
+            updateActiveParagraph(for: playerViewModel.currentTime)
+            refreshSearchState()
+        }
+        .onChange(of: video.id) { _, _ in
+            loadContent()
+            refreshSearchState()
+        }
+        .onChange(of: video.transcriptDateGenerated) { _, _ in
+            loadContent()
+            refreshSearchState()
+        }
+        .onChange(of: video.translationDateGenerated) { _, _ in
+            loadContent()
+            refreshSearchState()
+        }
+        .onChange(of: video.translatedLanguage) { _, _ in
+            loadContent()
+            refreshSearchState()
+        }
+        .onChange(of: preferredTranslationLocaleIdentifier) { _, _ in
+            loadContent()
+            refreshSearchState()
+        }
+        .onChange(of: playerViewModel.currentTime) { _, newTime in
+            updateActiveParagraph(for: newTime)
+        }
+        .onChange(of: searchModel.query) { _, _ in
+            refreshSearchState()
+        }
+        .onChange(of: searchModel.navigationRequestID) { _, _ in
+            moveAcrossSearchResults()
         }
     }
 
@@ -753,7 +764,7 @@ struct MergedTranscriptView: View {
             .map(\.id)
     }
 
-    private func moveAcrossSearchResults(using proxy: ScrollViewProxy) {
+    private func moveAcrossSearchResults() {
         let matches = matchingParagraphIDs
         guard !matches.isEmpty else {
             currentMatchID = nil
@@ -772,12 +783,10 @@ struct MergedTranscriptView: View {
 
         currentMatchID = matches[nextIndex]
         searchModel.setSearchState(totalMatches: matches.count, currentMatchIndex: nextIndex)
-        withAnimation(.easeInOut(duration: 0.15)) {
-            proxy.scrollTo(matches[nextIndex], anchor: .center)
-        }
+        onRequestScrollToParagraph(matches[nextIndex])
     }
 
-    private func refreshSearchState(using proxy: ScrollViewProxy) {
+    private func refreshSearchState() {
         let matches = matchingParagraphIDs
         guard !matches.isEmpty else {
             currentMatchID = nil
@@ -797,9 +806,7 @@ struct MergedTranscriptView: View {
         searchModel.setSearchState(totalMatches: matches.count, currentMatchIndex: currentIndex)
 
         if !searchModel.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                proxy.scrollTo(nextMatchID, anchor: .center)
-            }
+            onRequestScrollToParagraph(nextMatchID)
         }
     }
 

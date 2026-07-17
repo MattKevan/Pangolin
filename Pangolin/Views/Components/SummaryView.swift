@@ -6,15 +6,13 @@ struct SummaryView: View {
     @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                content
-            }
-            .padding(.vertical)
-            .frame(maxWidth: VideoDetailLayout.contentMaxWidth, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.horizontal, VideoDetailLayout.horizontalPadding)
+        VStack(alignment: .leading, spacing: 16) {
+            content
         }
+        .padding(.vertical)
+        .frame(maxWidth: VideoDetailLayout.contentMaxWidth, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.horizontal, VideoDetailLayout.horizontalPadding)
     }
 
     @ViewBuilder
