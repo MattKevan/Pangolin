@@ -13,6 +13,8 @@ enum VideoResizeHandle: CaseIterable, Hashable {
 }
 
 enum VideoDisplayGeometry {
+    static let maximumDimension: CGFloat = 1_000_000
+
     static func displaySize(
         naturalSize: CGSize,
         preferredTransform: CGAffineTransform
@@ -32,6 +34,8 @@ enum VideoDisplayGeometry {
             && size.height.isFinite
             && size.width > 0
             && size.height > 0
+            && size.width <= maximumDimension
+            && size.height <= maximumDimension
     }
 
     private static func isFinite(_ transform: CGAffineTransform) -> Bool {
@@ -84,7 +88,9 @@ enum VideoFloatingLayout {
               width.isFinite,
               height.isFinite,
               width > 0,
-              height > 0 else {
+              height > 0,
+              width <= Double(VideoDisplayGeometry.maximumDimension),
+              height <= Double(VideoDisplayGeometry.maximumDimension) else {
             return fallbackAspectRatio
         }
 

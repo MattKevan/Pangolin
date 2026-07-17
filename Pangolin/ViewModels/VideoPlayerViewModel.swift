@@ -37,6 +37,24 @@ enum VideoPlaybackSelection {
     }
 }
 
+enum VideoAspectRatioSelection {
+    static func initialRatio(
+        loadedVideoID: UUID?,
+        selectedVideoID: UUID?,
+        currentRatio: CGFloat,
+        persistedResolution: String?
+    ) -> CGFloat {
+        if let selectedVideoID,
+           loadedVideoID == selectedVideoID,
+           currentRatio.isFinite,
+           currentRatio > 0 {
+            return currentRatio
+        }
+
+        return VideoFloatingLayout.aspectRatio(for: persistedResolution)
+    }
+}
+
 enum VideoPlaybackOperation {
     struct Token: Equatable {
         let generation: UInt
@@ -148,7 +166,12 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
             discardPlayerForVideoChange()
         }
 
-        videoAspectRatio = VideoFloatingLayout.fallbackAspectRatio
+        videoAspectRatio = VideoAspectRatioSelection.initialRatio(
+            loadedVideoID: currentVideo?.id,
+            selectedVideoID: video.id,
+            currentRatio: videoAspectRatio,
+            persistedResolution: video.resolution
+        )
         if let videoID = video.id {
             posterPresentation.prepare(for: videoID)
         } else {
@@ -541,7 +564,9 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
             
             for track in videoTracks {
                 if let compTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) {
+                    let preferredTransform = try await track.load(.preferredTransform)
                     try compTrack.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: track, at: .zero)
+                    compTrack.preferredTransform = preferredTransform
                 }
             }
             for track in audioTracks {

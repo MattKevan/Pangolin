@@ -242,6 +242,7 @@ struct VideoFloatingLayoutTests {
         #expect(abs(VideoFloatingLayout.aspectRatio(for: nil) - 16.0 / 9.0) < 0.000_001)
         #expect(abs(VideoFloatingLayout.aspectRatio(for: "1e308x1e-308") - 16.0 / 9.0) < 0.000_001)
         #expect(abs(VideoFloatingLayout.aspectRatio(for: "1e-308x1e308") - 16.0 / 9.0) < 0.000_001)
+        #expect(abs(VideoFloatingLayout.aspectRatio(for: "1000001x1080") - 16.0 / 9.0) < 0.000_001)
     }
 
     @Test("Default frame starts at the top right and fits the inline width")
@@ -511,6 +512,91 @@ struct VideoDisplayGeometryTests {
             naturalSize: naturalSize,
             preferredTransform: nonfinite
         ) == naturalSize)
+    }
+
+    @Test("Extreme finite transforms fall back without producing unrepresentable dimensions")
+    func extremeFiniteTransformsUseNaturalDimensions() {
+        let naturalSize = CGSize(width: 1920, height: 1080)
+        let extreme = CGAffineTransform(
+            a: CGFloat.greatestFiniteMagnitude,
+            b: 0,
+            c: 0,
+            d: CGFloat.greatestFiniteMagnitude,
+            tx: 0,
+            ty: 0
+        )
+
+        #expect(VideoDisplayGeometry.displaySize(
+            naturalSize: naturalSize,
+            preferredTransform: extreme
+        ) == naturalSize)
+    }
+
+    @Test("Display dimensions enforce the supported conversion boundary")
+    func displayDimensionBoundaryIsSafe() {
+        let maximum = VideoDisplayGeometry.maximumDimension
+
+        #expect(VideoDisplayGeometry.displaySize(
+            naturalSize: CGSize(width: maximum, height: 1),
+            preferredTransform: .identity
+        ) == CGSize(width: maximum, height: 1))
+        #expect(VideoDisplayGeometry.displaySize(
+            naturalSize: CGSize(width: maximum.nextUp, height: 1),
+            preferredTransform: .identity
+        ) == nil)
+    }
+}
+
+@Suite("Video aspect ratio selection")
+struct VideoAspectRatioSelectionTests {
+    @Test("A new video starts from its valid persisted resolution")
+    func newVideoUsesPersistedResolution() {
+        let ratio = VideoAspectRatioSelection.initialRatio(
+            loadedVideoID: UUID(),
+            selectedVideoID: UUID(),
+            currentRatio: 9.0 / 16.0,
+            persistedResolution: "1440x1080"
+        )
+
+        #expect(abs(ratio - 4.0 / 3.0) < 0.000_001)
+    }
+
+    @Test("A new video with invalid persisted resolution uses the safe fallback")
+    func newVideoUsesFallbackForInvalidResolution() {
+        let ratio = VideoAspectRatioSelection.initialRatio(
+            loadedVideoID: UUID(),
+            selectedVideoID: UUID(),
+            currentRatio: 9.0 / 16.0,
+            persistedResolution: "not-a-resolution"
+        )
+
+        #expect(ratio == VideoFloatingLayout.fallbackAspectRatio)
+    }
+
+    @Test("Reloading the same video retains its resolved aspect ratio")
+    func sameVideoRetainsResolvedRatio() {
+        let videoID = UUID()
+        let ratio = VideoAspectRatioSelection.initialRatio(
+            loadedVideoID: videoID,
+            selectedVideoID: videoID,
+            currentRatio: 9.0 / 16.0,
+            persistedResolution: "1920x1080"
+        )
+
+        #expect(abs(ratio - 9.0 / 16.0) < 0.000_001)
+    }
+
+    @Test("Reloading the same video rejects an invalid current ratio")
+    func sameVideoRejectsInvalidCurrentRatio() {
+        let videoID = UUID()
+        let ratio = VideoAspectRatioSelection.initialRatio(
+            loadedVideoID: videoID,
+            selectedVideoID: videoID,
+            currentRatio: .infinity,
+            persistedResolution: "1440x1080"
+        )
+
+        #expect(abs(ratio - 4.0 / 3.0) < 0.000_001)
     }
 }
 
