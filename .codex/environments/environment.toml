@@ -8,8 +8,4 @@ script = ""
 [[actions]]
 name = "Run"
 icon = "run"
-command = '''
-osascript -e 'tell application "Pangolin" to quit' || true
-xcodebuild -scheme Pangolin -configuration Debug -project /Users/matt/Dev/Pangolin/Pangolin.xcodeproj -destination 'platform=macOS' build
-open /Users/matt/Library/Developer/Xcode/DerivedData/Pangolin-*/Build/Products/Debug/Pangolin.app
-'''
+command = "./script/build_and_run.sh"
