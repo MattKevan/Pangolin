@@ -245,8 +245,14 @@ class FileSystemManager {
         var frameRate = 0.0
         
         if let videoTrack = tracks.first {
-            let size = try await videoTrack.load(.naturalSize)
-            resolution = "\(Int(size.width))x\(Int(size.height))"
+            let naturalSize = try await videoTrack.load(.naturalSize)
+            let preferredTransform = try await videoTrack.load(.preferredTransform)
+            if let displaySize = VideoDisplayGeometry.displaySize(
+                naturalSize: naturalSize,
+                preferredTransform: preferredTransform
+            ) {
+                resolution = "\(Int(displaySize.width.rounded()))x\(Int(displaySize.height.rounded()))"
+            }
             
             let rate = try await videoTrack.load(.nominalFrameRate)
             frameRate = Double(rate)

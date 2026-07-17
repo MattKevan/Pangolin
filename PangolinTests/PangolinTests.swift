@@ -436,6 +436,84 @@ struct VideoFloatingLayoutTests {
     }
 }
 
+@Suite("Video display geometry")
+struct VideoDisplayGeometryTests {
+    @Test("Identity transforms preserve landscape display dimensions")
+    func identityTransformPreservesDimensions() throws {
+        let size = try #require(VideoDisplayGeometry.displaySize(
+            naturalSize: CGSize(width: 1920, height: 1080),
+            preferredTransform: .identity
+        ))
+
+        #expect(size == CGSize(width: 1920, height: 1080))
+    }
+
+    @Test("Quarter-turn transforms produce portrait display dimensions")
+    func quarterTurnsSwapDimensions() throws {
+        let clockwise = CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: 1080, ty: 0)
+        let counterclockwise = CGAffineTransform(a: 0, b: -1, c: 1, d: 0, tx: 0, ty: 1920)
+
+        let clockwiseSize = try #require(VideoDisplayGeometry.displaySize(
+            naturalSize: CGSize(width: 1920, height: 1080),
+            preferredTransform: clockwise
+        ))
+        let counterclockwiseSize = try #require(VideoDisplayGeometry.displaySize(
+            naturalSize: CGSize(width: 1920, height: 1080),
+            preferredTransform: counterclockwise
+        ))
+
+        #expect(clockwiseSize == CGSize(width: 1080, height: 1920))
+        #expect(counterclockwiseSize == CGSize(width: 1080, height: 1920))
+    }
+
+    @Test("Mirroring and translation return standardized positive dimensions")
+    func mirroringAndTranslationAreStandardized() throws {
+        let transform = CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: 2500, ty: -400)
+        let size = try #require(VideoDisplayGeometry.displaySize(
+            naturalSize: CGSize(width: 1920, height: 1080),
+            preferredTransform: transform
+        ))
+
+        #expect(size == CGSize(width: 1920, height: 1080))
+        #expect(size.width > 0)
+        #expect(size.height > 0)
+    }
+
+    @Test("Invalid natural dimensions are rejected")
+    func invalidNaturalDimensionsAreRejected() {
+        let invalidSizes = [
+            CGSize.zero,
+            CGSize(width: 0, height: 1080),
+            CGSize(width: -1920, height: 1080),
+            CGSize(width: CGFloat.infinity, height: 1080),
+            CGSize(width: 1920, height: CGFloat.nan),
+        ]
+
+        for size in invalidSizes {
+            #expect(VideoDisplayGeometry.displaySize(
+                naturalSize: size,
+                preferredTransform: .identity
+            ) == nil)
+        }
+    }
+
+    @Test("Invalid transforms safely fall back to valid natural dimensions")
+    func invalidTransformsUseNaturalDimensions() throws {
+        let naturalSize = CGSize(width: 1920, height: 1080)
+        let collapsed = CGAffineTransform(a: 0, b: 0, c: 0, d: 0, tx: 0, ty: 0)
+        let nonfinite = CGAffineTransform(a: CGFloat.infinity, b: 0, c: 0, d: 1, tx: 0, ty: 0)
+
+        #expect(VideoDisplayGeometry.displaySize(
+            naturalSize: naturalSize,
+            preferredTransform: collapsed
+        ) == naturalSize)
+        #expect(VideoDisplayGeometry.displaySize(
+            naturalSize: naturalSize,
+            preferredTransform: nonfinite
+        ) == naturalSize)
+    }
+}
+
 @Suite("Floating video state")
 @MainActor
 struct FloatingVideoStateTests {

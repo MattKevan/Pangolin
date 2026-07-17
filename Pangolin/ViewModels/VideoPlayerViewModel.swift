@@ -148,7 +148,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
             discardPlayerForVideoChange()
         }
 
-        videoAspectRatio = VideoFloatingLayout.aspectRatio(for: video.resolution)
+        videoAspectRatio = VideoFloatingLayout.fallbackAspectRatio
         if let videoID = video.id {
             posterPresentation.prepare(for: videoID)
         } else {
@@ -179,6 +179,8 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
             resetPlayerObservers()
             do {
                 let resolvedURL = try await video.getAccessibleFileURL(downloadIfNeeded: true)
+                guard isCurrentOperation(token) else { return }
+                await updateDisplayAspectRatio(for: resolvedURL, token: token)
                 guard isCurrentOperation(token) else { return }
                 do {
                     let item = try await buildPlayerItem(for: resolvedURL, with: selectedSubtitle)
@@ -415,6 +417,36 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         guard VideoPlaybackOperation.ownsLoading(token, owner: loadingOperation) else { return }
         loadingOperation = nil
         isLoading = false
+    }
+
+    private func updateDisplayAspectRatio(
+        for url: URL,
+        token: VideoPlaybackOperation.Token
+    ) async {
+        do {
+            let asset = AVURLAsset(url: url)
+            let tracks = try await asset.loadTracks(withMediaType: .video)
+            guard isCurrentOperation(token), let videoTrack = tracks.first else { return }
+
+            let naturalSize = try await videoTrack.load(.naturalSize)
+            guard isCurrentOperation(token) else { return }
+
+            let preferredTransform = try await videoTrack.load(.preferredTransform)
+            guard isCurrentOperation(token),
+                  let displaySize = VideoDisplayGeometry.displaySize(
+                    naturalSize: naturalSize,
+                    preferredTransform: preferredTransform
+                  ) else {
+                return
+            }
+
+            let ratio = displaySize.width / displaySize.height
+            guard isCurrentOperation(token), ratio.isFinite, ratio > 0 else { return }
+            videoAspectRatio = ratio
+        } catch {
+            guard isCurrentOperation(token) else { return }
+            // The safe fallback remains active when source display metadata is unavailable.
+        }
     }
 
     private func installLoadedItem(

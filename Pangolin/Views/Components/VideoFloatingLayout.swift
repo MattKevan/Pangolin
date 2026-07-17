@@ -12,6 +12,38 @@ enum VideoResizeHandle: CaseIterable, Hashable {
     case bottomTrailing
 }
 
+enum VideoDisplayGeometry {
+    static func displaySize(
+        naturalSize: CGSize,
+        preferredTransform: CGAffineTransform
+    ) -> CGSize? {
+        guard isValid(naturalSize) else { return nil }
+        guard isFinite(preferredTransform) else { return naturalSize }
+
+        let transformedBounds = CGRect(origin: .zero, size: naturalSize)
+            .applying(preferredTransform)
+            .standardized
+        guard isValid(transformedBounds.size) else { return naturalSize }
+        return transformedBounds.size
+    }
+
+    private static func isValid(_ size: CGSize) -> Bool {
+        size.width.isFinite
+            && size.height.isFinite
+            && size.width > 0
+            && size.height > 0
+    }
+
+    private static func isFinite(_ transform: CGAffineTransform) -> Bool {
+        transform.a.isFinite
+            && transform.b.isFinite
+            && transform.c.isFinite
+            && transform.d.isFinite
+            && transform.tx.isFinite
+            && transform.ty.isFinite
+    }
+}
+
 enum VideoFloatingLayout {
     static let floatVisibleFraction: Double = 0.25
     static let dockVisibleFraction: Double = 0.60
