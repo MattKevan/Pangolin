@@ -274,8 +274,13 @@ final class FloatingVideoState: ObservableObject {
     }
 
     func updateInlineWidth(_ width: CGFloat) {
-        guard width.isFinite, width > 0 else { return }
+        guard width.isFinite, width > 0, inlineWidth != width else { return }
         inlineWidth = width
+    }
+
+    func updateVisibilityMeasurement(_ visibleFraction: Double?) {
+        guard inlineWidth > 0 else { return }
+        updateVisibleFraction(visibleFraction ?? 0)
     }
 
     func prepareDefaultFrame(
@@ -296,10 +301,12 @@ final class FloatingVideoState: ObservableObject {
     }
 
     func updateVisibleFraction(_ visibleFraction: Double) {
-        isFloating = VideoFloatingLayout.shouldFloat(
+        let shouldFloat = VideoFloatingLayout.shouldFloat(
             isFloating: isFloating,
             visibleFraction: visibleFraction
         )
+        guard shouldFloat != isFloating else { return }
+        isFloating = shouldFloat
     }
 
     func move(

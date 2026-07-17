@@ -7,6 +7,7 @@
 
 import Testing
 import Foundation
+import Combine
 @testable import Pangolin
 
 struct PangolinTests {
@@ -387,6 +388,51 @@ struct VideoFloatingLayoutTests {
 struct FloatingVideoStateTests {
     private let bounds = CGRect(x: 0, y: 0, width: 1_200, height: 800)
     private let aspectRatio: CGFloat = 16.0 / 9.0
+
+    @Test("A missing preference floats only after a valid current-video measurement")
+    func missingPreferenceUsesPriorCurrentMeasurement() {
+        let state = FloatingVideoState()
+        let firstVideoID = UUID()
+
+        state.reset(for: firstVideoID)
+        state.updateVisibilityMeasurement(nil)
+        #expect(!state.isFloating)
+
+        state.updateInlineWidth(760)
+        state.updateVisibilityMeasurement(0.80)
+        #expect(!state.isFloating)
+
+        state.updateVisibilityMeasurement(nil)
+        #expect(state.isFloating)
+
+        state.reset(for: UUID())
+        state.updateVisibilityMeasurement(nil)
+        #expect(!state.isFloating)
+    }
+
+    @Test("Repeated geometry on the same hysteresis side does not republish state")
+    func unchangedGeometryDoesNotPublish() {
+        let state = FloatingVideoState()
+        var changeCount = 0
+        let observation = state.objectWillChange.sink {
+            changeCount += 1
+        }
+
+        state.updateInlineWidth(760)
+        #expect(changeCount == 1)
+
+        state.updateInlineWidth(760)
+        state.updateVisibleFraction(0.80)
+        #expect(changeCount == 1)
+
+        state.updateVisibleFraction(0.20)
+        #expect(changeCount == 2)
+
+        state.updateVisibleFraction(0.10)
+        #expect(changeCount == 2)
+
+        withExtendedLifetime(observation) {}
+    }
 
     @Test("Inline width records valid measurements and resets with video presentation")
     func inlineWidthTracksCurrentVideoOnly() {

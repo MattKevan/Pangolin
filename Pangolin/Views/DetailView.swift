@@ -260,9 +260,15 @@ struct DetailView: View {
         viewportSize: CGSize,
         selectedVideoID: UUID?
     ) {
-        guard let measurement,
-              measurement.videoID == selectedVideoID,
-              floatingVideoState.videoID == measurement.videoID,
+        guard let selectedVideoID,
+              floatingVideoState.videoID == selectedVideoID else { return }
+
+        guard let measurement else {
+            floatingVideoState.updateVisibilityMeasurement(nil)
+            return
+        }
+
+        guard measurement.videoID == selectedVideoID,
               isValidMeasurement(measurement.frame),
               viewportSize.width.isFinite,
               viewportSize.height.isFinite,
@@ -270,7 +276,7 @@ struct DetailView: View {
               viewportSize.height > 0 else { return }
 
         floatingVideoState.updateInlineWidth(measurement.frame.width)
-        floatingVideoState.updateVisibleFraction(
+        floatingVideoState.updateVisibilityMeasurement(
             VideoFloatingLayout.visibleFraction(
                 of: measurement.frame,
                 in: CGRect(origin: .zero, size: viewportSize)
