@@ -35,6 +35,82 @@ struct PangolinTests {
     }
 }
 
+@Suite("Video presentation frame updates")
+struct VideoPresentationFrameUpdatePolicyTests {
+    @Test("An initial docked frame update is direct")
+    func initialDockedFrameIsDirect() {
+        #expect(VideoPresentationFrameUpdatePolicy.decision(
+            previousMode: nil,
+            newMode: .docked,
+            hasPresentedFrame: false
+        ) == .direct)
+    }
+
+    @Test("A steady docked frame update is direct")
+    func steadyDockedFrameIsDirect() {
+        #expect(VideoPresentationFrameUpdatePolicy.decision(
+            previousMode: .docked,
+            newMode: .docked,
+            hasPresentedFrame: true
+        ) == .direct)
+    }
+
+    @Test("Moving from docked to floating animates")
+    func dockedToFloatingAnimates() {
+        #expect(VideoPresentationFrameUpdatePolicy.decision(
+            previousMode: .docked,
+            newMode: .floating,
+            hasPresentedFrame: true
+        ) == .animated)
+    }
+
+    @Test("Moving from floating to docked animates")
+    func floatingToDockedAnimates() {
+        #expect(VideoPresentationFrameUpdatePolicy.decision(
+            previousMode: .floating,
+            newMode: .docked,
+            hasPresentedFrame: true
+        ) == .animated)
+    }
+
+    @Test("An active transition smoothly retargets its frame")
+    func activeTransitionRetargetsWithAnimation() {
+        #expect(VideoPresentationFrameUpdatePolicy.decision(
+            previousMode: .docked,
+            newMode: .docked,
+            hasPresentedFrame: true,
+            isTransitioning: true
+        ) == .animated)
+    }
+
+    @Test("A floating gesture updates its frame directly")
+    func floatingGestureUpdatesDirectly() {
+        #expect(VideoPresentationFrameUpdatePolicy.decision(
+            previousMode: .floating,
+            newMode: .floating,
+            hasPresentedFrame: true,
+            isInteracting: true
+        ) == .direct)
+    }
+
+    @Test("Reset clears directly applied presentation geometry")
+    @MainActor
+    func resetClearsPresentationGeometry() {
+        let controller = VideoPresentationFrameController()
+
+        controller.apply(
+            destination: CGRect(x: 10, y: 20, width: 300, height: 200),
+            mode: .docked,
+            animated: false
+        )
+        controller.reset()
+
+        #expect(controller.frame == nil)
+        #expect(controller.mode == nil)
+        #expect(!controller.isTransitioning)
+    }
+}
+
 @Suite("Video playback selection")
 struct VideoPlaybackSelectionTests {
     @Test("New selections load, repeated selections do nothing, and clearing stops playback")
