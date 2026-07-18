@@ -171,6 +171,72 @@ struct VideoNavigationSequenceTests {
         await manager.closeCurrentLibrary()
     }
 
+    @Test("Abandoning video detail clears selection state without restoring its origin")
+    @MainActor
+    func abandonVideoDetailClearsStateWithoutRestoringOrigin() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
+        let first = try makeVideo(title: "First", thumbnailPath: nil, in: context, folder: project, library: library)
+        let second = try makeVideo(title: "Second", thumbnailPath: nil, in: context, folder: project, library: library)
+        try context.save()
+
+        let store = FolderNavigationStore(libraryManager: manager)
+        store.activateSearch()
+        store.openFromSearchCitation(first, seekTo: 12, source: nil)
+        #expect(store.pendingSearchSeekRequest != nil)
+        #expect(!store.selectedProjectVideoIDs.isEmpty)
+
+        store.abandonVideoDetail()
+        store.abandonVideoDetail()
+
+        #expect(store.selectedVideo == nil)
+        #expect(store.pendingSearchSeekRequest == nil)
+        #expect(store.selectedProjectVideoIDs.isEmpty)
+        #expect(store.currentDestination != .search)
+
+        store.selectVideo(second)
+        store.navigateBackFromDetail()
+
+        #expect(store.currentDestination == .projects)
+        #expect(store.currentDetailSurface == .projectsGrid)
+
+        await manager.closeCurrentLibrary()
+    }
+
+    @Test("External video deselection restores and consumes its search origin exactly once")
+    @MainActor
+    func externalDeselectionRestoresSearchOriginOnce() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
+        let video = try makeVideo(title: "Result", thumbnailPath: nil, in: context, folder: project, library: library)
+        try context.save()
+
+        let store = FolderNavigationStore(libraryManager: manager)
+        store.activateSearch()
+        store.openFromSearchCitation(video, seekTo: 12, source: nil)
+        store.selectedVideo = nil
+
+        store.restoreVideoNavigationOriginAfterSelectionCleared()
+
+        #expect(store.currentDestination == .search)
+        #expect(store.currentDetailSurface == .searchResults)
+        #expect(store.pendingSearchSeekRequest == nil)
+        #expect(store.selectedProjectVideoIDs.isEmpty)
+
+        store.restoreVideoNavigationOriginAfterSelectionCleared()
+
+        #expect(store.currentDestination == .search)
+        #expect(store.currentDetailSurface == .searchResults)
+
+        await manager.closeCurrentLibrary()
+    }
+
     @MainActor
     private func waitForFlatVideoCount(
         _ expectedCount: Int,

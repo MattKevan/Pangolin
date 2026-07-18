@@ -8,6 +8,12 @@
 import Foundation
 import SwiftUI
 
+enum SearchVideoSelectionResetPolicy {
+    static func shouldClearRowSelection(selectedVideoID: UUID?) -> Bool {
+        selectedVideoID == nil
+    }
+}
+
 struct SearchResultsView: View {
     @EnvironmentObject private var searchManager: SearchManager
     @EnvironmentObject private var folderStore: FolderNavigationStore
@@ -62,6 +68,12 @@ struct SearchResultsView: View {
             selectedItems.removeAll()
         }
         .onChange(of: searchManager.searchScope) { _, _ in
+            selectedItems.removeAll()
+        }
+        .onChange(of: folderStore.selectedVideo?.id) { _, newValue in
+            guard SearchVideoSelectionResetPolicy.shouldClearRowSelection(
+                selectedVideoID: newValue
+            ) else { return }
             selectedItems.removeAll()
         }
     }

@@ -1432,13 +1432,13 @@ struct VideoPresentationHostLayoutTests {
     }
 }
 
-@Suite("Phone project video route pop policy")
-struct PhoneProjectVideoRoutePopPolicyTests {
-    @Test("Popping the active video route unwinds the store detail")
+@Suite("Phone video route pop policy")
+struct PhoneVideoRoutePopPolicyTests {
+    @Test("Popping an active collection video route unwinds the store detail")
     func removedVideoRouteNavigatesBack() {
         let videoID = UUID()
 
-        #expect(PhoneProjectVideoRoutePopPolicy.shouldNavigateBack(
+        #expect(PhoneVideoRoutePopPolicy.shouldNavigateBack(
             oldVideoRouteIDs: [videoID],
             newVideoRouteIDs: [],
             selectedVideoID: videoID,
@@ -1450,7 +1450,7 @@ struct PhoneProjectVideoRoutePopPolicyTests {
     func steadyVideoRouteDoesNotNavigateBack() {
         let videoID = UUID()
 
-        #expect(!PhoneProjectVideoRoutePopPolicy.shouldNavigateBack(
+        #expect(!PhoneVideoRoutePopPolicy.shouldNavigateBack(
             oldVideoRouteIDs: [videoID],
             newVideoRouteIDs: [videoID],
             selectedVideoID: videoID,
@@ -1462,7 +1462,7 @@ struct PhoneProjectVideoRoutePopPolicyTests {
     func unrelatedVideoRouteDoesNotNavigateBack() {
         let selectedVideoID = UUID()
 
-        #expect(!PhoneProjectVideoRoutePopPolicy.shouldNavigateBack(
+        #expect(!PhoneVideoRoutePopPolicy.shouldNavigateBack(
             oldVideoRouteIDs: [UUID()],
             newVideoRouteIDs: [],
             selectedVideoID: selectedVideoID,
@@ -1470,11 +1470,11 @@ struct PhoneProjectVideoRoutePopPolicyTests {
         ))
     }
 
-    @Test("Removing the selected route outside video detail does not unwind")
-    func inactiveVideoDetailDoesNotNavigateBack() {
+    @Test("Programmatic route removal for an inactive origin does not behave like native Back")
+    func inactiveOriginRemovalDoesNotNavigateBack() {
         let videoID = UUID()
 
-        #expect(!PhoneProjectVideoRoutePopPolicy.shouldNavigateBack(
+        #expect(!PhoneVideoRoutePopPolicy.shouldNavigateBack(
             oldVideoRouteIDs: [videoID],
             newVideoRouteIDs: [],
             selectedVideoID: videoID,
@@ -1483,17 +1483,109 @@ struct PhoneProjectVideoRoutePopPolicyTests {
     }
 }
 
-@Suite("Phone project video route sync policy")
-struct PhoneProjectVideoRouteSyncPolicyTests {
-    @Test("Selecting another video replaces the existing terminal video route")
+@Suite("Phone video route sync policy")
+struct PhoneVideoRouteSyncPolicyTests {
+    @Test("Selecting the first collection video appends a route")
+    func firstCollectionVideoAppendsRoute() {
+        #expect(PhoneVideoRouteSyncPolicy.action(
+            existingVideoRouteIDs: [],
+            selectedVideoID: UUID()
+        ) == .append)
+    }
+
+    @Test("Selecting another search result replaces the existing terminal video route")
     func nextVideoReplacesRoute() {
         let oldVideoID = UUID()
         let newVideoID = UUID()
 
-        #expect(PhoneProjectVideoRouteSyncPolicy.action(
+        #expect(PhoneVideoRouteSyncPolicy.action(
             existingVideoRouteIDs: [oldVideoID],
             selectedVideoID: newVideoID
         ) == .replace)
+    }
+
+    @Test("Selecting the routed video again does not duplicate it")
+    func selectedRouteIsNotDuplicated() {
+        let videoID = UUID()
+
+        #expect(PhoneVideoRouteSyncPolicy.action(
+            existingVideoRouteIDs: [videoID],
+            selectedVideoID: videoID
+        ) == .none)
+    }
+}
+
+@Suite("Phone video route deactivation policy")
+struct PhoneVideoRouteDeactivationPolicyTests {
+    @Test("Deactivating a tab removes its stale video route")
+    func activeRouteIsRemoved() {
+        #expect(PhoneVideoRouteDeactivationPolicy.action(
+            existingVideoRouteIDs: [UUID()]
+        ) == .removeVideoRoutes)
+    }
+
+    @Test("Deactivating a root tab leaves its path unchanged")
+    func rootPathIsUnchanged() {
+        #expect(PhoneVideoRouteDeactivationPolicy.action(
+            existingVideoRouteIDs: []
+        ) == .none)
+    }
+
+    @Test("Removing a project video route preserves the project route")
+    func projectRouteIsPreserved() {
+        let projectID = UUID()
+
+        #expect(PhoneProjectsPathPolicy.removingVideoRoutes(from: [
+            .project(projectID),
+            .video(UUID())
+        ]) == [.project(projectID)])
+    }
+}
+
+@Suite("Phone video route selection reconciliation policy")
+struct PhoneVideoRouteSelectionReconciliationPolicyTests {
+    @Test("Store-driven nil selection removes an existing video route")
+    func nilSelectionRemovesRoute() {
+        #expect(PhoneVideoRouteSelectionReconciliationPolicy.action(
+            existingVideoRouteIDs: [UUID()],
+            selectedVideoID: nil,
+            isSwitchingTabs: false
+        ) == .removeVideoRoutes)
+    }
+
+    @Test("A nonnil Previous or Next selection keeps route synchronization active")
+    func nonnilSelectionKeepsRoute() {
+        #expect(PhoneVideoRouteSelectionReconciliationPolicy.action(
+            existingVideoRouteIDs: [UUID()],
+            selectedVideoID: UUID(),
+            isSwitchingTabs: false
+        ) == .none)
+    }
+
+    @Test("Tab-switch abandonment is not treated as external deselection")
+    func tabSwitchDoesNotRestoreOrigin() {
+        #expect(PhoneVideoRouteSelectionReconciliationPolicy.action(
+            existingVideoRouteIDs: [UUID()],
+            selectedVideoID: nil,
+            isSwitchingTabs: true
+        ) == .none)
+    }
+}
+
+@Suite("Search video selection reset policy")
+struct SearchVideoSelectionResetPolicyTests {
+    @Test("Store deselection clears the selected search row")
+    func nilVideoClearsSelection() {
+        #expect(SearchVideoSelectionResetPolicy.shouldClearRowSelection(
+            selectedVideoID: nil
+        ))
+    }
+
+    @Test("Previous or Next selection retains the selected search row")
+    func selectedVideoRetainsSelection() {
+        #expect(!SearchVideoSelectionResetPolicy.shouldClearRowSelection(
+            selectedVideoID: UUID()
+        ))
     }
 }
 

@@ -83,7 +83,7 @@ enum VideoPresentationHostLayout {
     }
 }
 
-enum PhoneProjectVideoRoutePopPolicy {
+enum PhoneVideoRoutePopPolicy {
     static func shouldNavigateBack(
         oldVideoRouteIDs: [UUID],
         newVideoRouteIDs: [UUID],
@@ -96,7 +96,7 @@ enum PhoneProjectVideoRoutePopPolicy {
     }
 }
 
-enum PhoneProjectVideoRouteSyncPolicy {
+enum PhoneVideoRouteSyncPolicy {
     enum Action: Equatable {
         case none
         case append
@@ -109,6 +109,53 @@ enum PhoneProjectVideoRouteSyncPolicy {
     ) -> Action {
         guard existingVideoRouteIDs.last != selectedVideoID else { return .none }
         return existingVideoRouteIDs.isEmpty ? .append : .replace
+    }
+}
+
+enum PhoneVideoRouteDeactivationPolicy {
+    enum Action: Equatable {
+        case none
+        case removeVideoRoutes
+    }
+
+    static func action(existingVideoRouteIDs: [UUID]) -> Action {
+        existingVideoRouteIDs.isEmpty ? .none : .removeVideoRoutes
+    }
+}
+
+enum PhoneVideoRouteSelectionReconciliationPolicy {
+    enum Action: Equatable {
+        case none
+        case removeVideoRoutes
+    }
+
+    static func action(
+        existingVideoRouteIDs: [UUID],
+        selectedVideoID: UUID?,
+        isSwitchingTabs: Bool
+    ) -> Action {
+        guard !isSwitchingTabs,
+              selectedVideoID == nil,
+              !existingVideoRouteIDs.isEmpty else { return .none }
+        return .removeVideoRoutes
+    }
+}
+
+enum PhoneProjectsRoute: Hashable {
+    case project(UUID)
+    case video(UUID)
+
+    var videoID: UUID? {
+        guard case .video(let videoID) = self else { return nil }
+        return videoID
+    }
+}
+
+enum PhoneProjectsPathPolicy {
+    static func removingVideoRoutes(
+        from routes: [PhoneProjectsRoute]
+    ) -> [PhoneProjectsRoute] {
+        routes.filter { $0.videoID == nil }
     }
 }
 

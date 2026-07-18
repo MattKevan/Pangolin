@@ -187,6 +187,7 @@ class FolderNavigationStore: ObservableObject {
     private var isRevealingVideoLocation = false
     private var suppressNextSidebarSelectionChange = false
     private var videoNavigationOrigin: VideoNavigationOrigin?
+    private var hasCapturedVideoNavigationOrigin = false
     private let fallbackProjectSectionTitle = "Videos"
     
     init(libraryManager: LibraryManager) {
@@ -948,11 +949,45 @@ class FolderNavigationStore: ObservableObject {
         currentDetailSurface == .videoDetail
     }
 
+    func abandonVideoDetail() {
+        videoNavigationOrigin = nil
+        hasCapturedVideoNavigationOrigin = false
+        clearVideoDetailRouteState()
+        if selectedVideo != nil {
+            selectedVideo = nil
+        }
+    }
+
+    func restoreVideoNavigationOriginAfterSelectionCleared() {
+        guard selectedVideo == nil,
+              hasCapturedVideoNavigationOrigin else { return }
+
+        let origin = videoNavigationOrigin
+        videoNavigationOrigin = nil
+        hasCapturedVideoNavigationOrigin = false
+        clearVideoDetailRouteState()
+        restoreVideoNavigationOrigin(origin)
+    }
+
+    private func clearVideoDetailRouteState() {
+        if pendingSearchSeekRequest != nil {
+            pendingSearchSeekRequest = nil
+        }
+        if !selectedProjectVideoIDs.isEmpty {
+            selectedProjectVideoIDs = []
+        }
+        if projectSelectionAnchorID != nil {
+            projectSelectionAnchorID = nil
+        }
+    }
+
     func navigateBackFromDetail() {
         if selectedVideo != nil {
             let origin = videoNavigationOrigin
             videoNavigationOrigin = nil
+            hasCapturedVideoNavigationOrigin = false
             selectedVideo = nil
+            clearVideoDetailRouteState()
             restoreVideoNavigationOrigin(origin)
             return
         }
@@ -969,6 +1004,7 @@ class FolderNavigationStore: ObservableObject {
 
     private func captureVideoNavigationOrigin(_ preferredOrigin: VideoNavigationOrigin? = nil) {
         guard selectedVideo == nil else { return }
+        hasCapturedVideoNavigationOrigin = true
 
         if let preferredOrigin {
             videoNavigationOrigin = preferredOrigin
