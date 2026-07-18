@@ -395,6 +395,17 @@ final class FloatingVideoState: ObservableObject {
         )
     }
 
+    func prepareFloatingDestination(
+        in bounds: CGRect,
+        aspectRatio: CGFloat
+    ) {
+        prepareDefaultFrame(
+            in: bounds,
+            inlineWidth: inlineWidth,
+            aspectRatio: aspectRatio
+        )
+    }
+
     func updateVisibleFraction(_ visibleFraction: Double) {
         let shouldFloat = VideoFloatingLayout.shouldFloat(
             isFloating: isFloating,

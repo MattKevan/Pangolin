@@ -54,6 +54,7 @@ enum TranscriptFollowPolicy {
 private struct InlineVideoGeometry: Equatable {
     let videoID: UUID
     let frame: CGRect
+    let rootFrame: CGRect
 }
 
 private struct InlineVideoGeometryPreferenceKey: PreferenceKey {
@@ -288,10 +289,10 @@ struct DetailView: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(Color.secondary.opacity(0.08))
 
-                if !floatingVideoState.isFloating {
-                    VideoPlayerWithPosterView(video: selectedVideo, viewModel: playerViewModel)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
+                #if os(iOS)
+                VideoPlayerWithPosterView(video: selectedVideo, viewModel: playerViewModel)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                #endif
             }
             .frame(maxWidth: VideoDetailLayout.contentMaxWidth)
             .aspectRatio(playerViewModel.videoAspectRatio, contentMode: .fit)
@@ -304,6 +305,9 @@ struct DetailView: View {
                                 videoID: videoID,
                                 frame: geometry.frame(
                                     in: .named(Self.detailViewportCoordinateSpace)
+                                ),
+                                rootFrame: geometry.frame(
+                                    in: .named(VideoFloatingCoordinateSpace.root)
                                 )
                             )
                         )
@@ -555,12 +559,14 @@ struct DetailView: View {
 
         guard measurement.videoID == selectedVideoID,
               isValidMeasurement(measurement.frame),
+              isValidMeasurement(measurement.rootFrame),
               viewportSize.width.isFinite,
               viewportSize.height.isFinite,
               viewportSize.width > 0,
               viewportSize.height > 0 else { return }
 
         floatingVideoState.updateInlineWidth(measurement.frame.width)
+        floatingVideoState.updateInlineFrame(measurement.rootFrame)
         floatingVideoState.updateVisibilityMeasurement(
             VideoFloatingLayout.visibleFraction(
                 of: measurement.frame,

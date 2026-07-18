@@ -41,8 +41,16 @@ struct FloatingVideoPane: View {
     @State private var interactionPreviewFrame: CGRect?
     @FocusState private var isFocused: Bool
 
+    private var baseFrame: CGRect {
+        VideoPlayerPresentationPolicy.destination(
+            isFloating: floatingState.isFloating,
+            inlineFrame: floatingState.inlineFrame,
+            floatingFrame: floatingState.frame
+        ) ?? .zero
+    }
+
     private var renderedFrame: CGRect {
-        interactionPreviewFrame ?? floatingState.frame
+        interactionPreviewFrame ?? baseFrame
     }
 
     var body: some View {
@@ -50,21 +58,34 @@ struct FloatingVideoPane: View {
             .frame(width: renderedFrame.width, height: renderedFrame.height)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(alignment: .top) {
-                dragHandle
+                if floatingState.isFloating {
+                    dragHandle
+                }
             }
             .overlay(alignment: .topTrailing) {
-                resetButton
+                if floatingState.isFloating {
+                    resetButton
+                }
             }
             .overlay {
-                resizeHandles
+                if floatingState.isFloating {
+                    resizeHandles
+                }
             }
-            .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
+            .shadow(
+                color: floatingState.isFloating ? .black.opacity(0.28) : .clear,
+                radius: floatingState.isFloating ? 18 : 0,
+                y: floatingState.isFloating ? 8 : 0
+            )
             .position(x: renderedFrame.midX, y: renderedFrame.midY)
-            .focusable()
+            .focusable(floatingState.isFloating)
             .focused($isFocused)
             .onMoveCommand(perform: moveWithKeyboard)
+            .animation(.easeInOut(duration: 0.25), value: floatingState.isFloating)
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("Floating video player")
+            .accessibilityLabel(
+                floatingState.isFloating ? "Floating video player" : "Video player"
+            )
             .accessibilityValue(accessibilityFrameValue)
             .accessibilityAction(named: "Reset position") {
                 resetPlacement()
@@ -230,6 +251,8 @@ struct FloatingVideoPane: View {
     }
 
     private func moveWithKeyboard(_ direction: MoveCommandDirection) {
+        guard floatingState.isFloating else { return }
+
         let keyboardDirection: VideoFloatingKeyboardDirection
         switch direction {
         case .left:

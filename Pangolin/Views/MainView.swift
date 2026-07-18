@@ -148,14 +148,14 @@ struct MainView: View {
             detailColumn
         }
         .navigationSplitViewStyle(.balanced)
+        .coordinateSpace(name: VideoFloatingCoordinateSpace.root)
         #if os(macOS)
         .overlay {
             GeometryReader { geometry in
                 let rootBounds = CGRect(origin: .zero, size: geometry.size)
 
                 ZStack(alignment: .topLeading) {
-                    if shouldShowFloatingVideo,
-                       floatingVideoState.frame != .zero,
+                    if shouldShowVideoPlayer,
                        let selectedVideo = folderStore.selectedVideo {
                         FloatingVideoPane(
                             video: selectedVideo,
@@ -168,12 +168,10 @@ struct MainView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .onChange(of: floatingVideoState.isFloating, initial: true) { _, isFloating in
-                    guard isFloating else { return }
+                .onChange(of: floatingVideoState.inlineFrame, initial: true) { _, _ in
                     prepareFloatingVideo(in: rootBounds)
                 }
                 .onChange(of: floatingVideoState.inlineWidth) { _, _ in
-                    guard floatingVideoState.isFloating else { return }
                     prepareFloatingVideo(in: rootBounds)
                 }
                 .onChange(of: geometry.size) { _, newSize in
@@ -185,33 +183,37 @@ struct MainView: View {
                     adjustFloatingVideo(to: rootBounds)
                 }
             }
-            .allowsHitTesting(shouldShowFloatingVideo && floatingVideoState.frame != .zero)
+            .clipped()
+            .allowsHitTesting(shouldShowVideoPlayer)
         }
         #endif
     }
 
     #if os(macOS)
-    private var shouldShowFloatingVideo: Bool {
+    private var shouldShowVideoPlayer: Bool {
         guard folderStore.currentDetailSurface == .videoDetail,
               let selectedVideoID = folderStore.selectedVideo?.id else {
             return false
         }
 
-        return floatingVideoState.isFloating
-            && floatingVideoState.videoID == selectedVideoID
+        return floatingVideoState.videoID == selectedVideoID
+            && VideoPlayerPresentationPolicy.destination(
+                isFloating: false,
+                inlineFrame: floatingVideoState.inlineFrame,
+                floatingFrame: floatingVideoState.frame
+            ) != nil
     }
 
     private func prepareFloatingVideo(in rootBounds: CGRect) {
-        guard shouldShowFloatingVideo else { return }
-        floatingVideoState.prepareDefaultFrame(
+        guard shouldShowVideoPlayer else { return }
+        floatingVideoState.prepareFloatingDestination(
             in: rootBounds,
-            inlineWidth: floatingVideoState.inlineWidth,
             aspectRatio: playerViewModel.videoAspectRatio
         )
     }
 
     private func adjustFloatingVideo(to rootBounds: CGRect) {
-        if shouldShowFloatingVideo {
+        if shouldShowVideoPlayer {
             prepareFloatingVideo(in: rootBounds)
         } else {
             floatingVideoState.clamp(

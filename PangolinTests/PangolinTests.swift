@@ -881,6 +881,27 @@ struct FloatingVideoStateTests {
         #expect(state.frame.maxY <= 784)
     }
 
+    @Test("Inline geometry prepares a floating destination before undocking")
+    func preparesDestinationWhileDocked() {
+        let state = FloatingVideoState()
+
+        state.reset(for: UUID())
+        state.updateInlineFrame(CGRect(x: 120, y: 40, width: 800, height: 450))
+        state.updateInlineWidth(800)
+        state.prepareFloatingDestination(
+            in: bounds,
+            aspectRatio: aspectRatio
+        )
+
+        #expect(!state.isFloating)
+        #expect(state.frame != .zero)
+        #expect(state.frame == VideoFloatingLayout.defaultFrame(
+            in: bounds,
+            inlineWidth: 800,
+            aspectRatio: aspectRatio
+        ))
+    }
+
     @Test("Transient unusable bounds preserve customized placement")
     func transientBoundsPreserveCustomizedPlacement() {
         let state = FloatingVideoState()
