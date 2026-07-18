@@ -215,6 +215,10 @@ struct DetailView: View {
         let topAnchorID = detailTopAnchorID(for: selectedVideo)
 
         GeometryReader { viewportGeometry in
+            let presentationViewportFrame = viewportGeometry.frame(
+                in: .named(VideoFloatingCoordinateSpace.root)
+            )
+
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 0) {
@@ -271,10 +275,20 @@ struct DetailView: View {
                 }
                 .onAppear {
                     detailViewportSize = viewportGeometry.size
+                    updatePresentationViewport(
+                        presentationViewportFrame,
+                        selectedVideoID: selectedVideo.id
+                    )
                     pageScrollPosition = topAnchorID
                 }
                 .onChange(of: viewportGeometry.size) { _, newSize in
                     detailViewportSize = newSize
+                }
+                .onChange(of: presentationViewportFrame) { _, newFrame in
+                    updatePresentationViewport(
+                        newFrame,
+                        selectedVideoID: selectedVideo.id
+                    )
                 }
                 .onChange(of: selectedVideo.id) { _, _ in
                     resetTranscriptFollowState()
@@ -603,6 +617,15 @@ struct DetailView: View {
                 in: CGRect(origin: .zero, size: viewportSize)
             )
         )
+    }
+
+    private func updatePresentationViewport(
+        _ frame: CGRect,
+        selectedVideoID: UUID?
+    ) {
+        guard let selectedVideoID,
+              floatingVideoState.videoID == selectedVideoID else { return }
+        floatingVideoState.updatePresentationViewportFrame(frame)
     }
 
     private func isValidMeasurement(_ frame: CGRect) -> Bool {

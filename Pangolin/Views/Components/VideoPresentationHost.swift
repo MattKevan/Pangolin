@@ -17,9 +17,17 @@ struct VideoPresentationHost: View {
             let overlayFrameInRoot = geometry.frame(
                 in: .named(VideoFloatingCoordinateSpace.root)
             )
-            let availableBounds = VideoPresentationHostLayout.availableBounds(
+            let outerSafeBounds = VideoPresentationHostLayout.availableBounds(
                 size: geometry.size,
                 insets: geometry.safeAreaInsets
+            )
+            let presentationViewportFrame = VideoPlayerPresentationPolicy.overlayLocalFrame(
+                floatingState.presentationViewportFrame,
+                overlayFrameInRoot: overlayFrameInRoot
+            )
+            let availableBounds = VideoPresentationHostLayout.availableBounds(
+                outerBounds: outerSafeBounds,
+                presentationViewportFrame: presentationViewportFrame
             )
             let dockedFrame = VideoPlayerPresentationPolicy.overlayLocalFrame(
                 floatingState.inlineFrame,
@@ -50,6 +58,12 @@ struct VideoPresentationHost: View {
                     )
                 }
                 .onChange(of: floatingState.inlineWidth) { _, _ in
+                    prepareFloatingDestination(
+                        dockedFrame: dockedFrame,
+                        availableBounds: availableBounds
+                    )
+                }
+                .onChange(of: floatingState.presentationViewportFrame) { _, _ in
                     prepareFloatingDestination(
                         dockedFrame: dockedFrame,
                         availableBounds: availableBounds

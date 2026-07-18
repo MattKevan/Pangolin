@@ -39,6 +39,67 @@ enum VideoPresentationHostLayout {
             height: height
         )
     }
+
+    static func availableBounds(
+        outerBounds: CGRect,
+        presentationViewportFrame: CGRect?
+    ) -> CGRect {
+        guard isValid(outerBounds) else { return .zero }
+        guard let presentationViewportFrame,
+              isValid(presentationViewportFrame) else {
+            return outerBounds
+        }
+
+        let minimumY = max(outerBounds.minY, presentationViewportFrame.minY)
+        let maximumY = min(outerBounds.maxY, presentationViewportFrame.maxY)
+        let height = maximumY - minimumY
+        guard height.isFinite, height > 0 else { return .zero }
+
+        return CGRect(
+            x: outerBounds.minX,
+            y: minimumY,
+            width: outerBounds.width,
+            height: height
+        )
+    }
+
+    private static func isValid(_ frame: CGRect) -> Bool {
+        frame.minX.isFinite
+            && frame.minY.isFinite
+            && frame.width.isFinite
+            && frame.height.isFinite
+            && frame.width > 0
+            && frame.height > 0
+    }
+}
+
+enum PhoneProjectVideoRoutePopPolicy {
+    static func shouldNavigateBack(
+        oldVideoRouteIDs: [UUID],
+        newVideoRouteIDs: [UUID],
+        selectedVideoID: UUID?,
+        isVideoDetailActive: Bool
+    ) -> Bool {
+        guard isVideoDetailActive, let selectedVideoID else { return false }
+        return oldVideoRouteIDs.contains(selectedVideoID)
+            && !newVideoRouteIDs.contains(selectedVideoID)
+    }
+}
+
+enum PhoneProjectVideoRouteSyncPolicy {
+    enum Action: Equatable {
+        case none
+        case append
+        case replace
+    }
+
+    static func action(
+        existingVideoRouteIDs: [UUID],
+        selectedVideoID: UUID
+    ) -> Action {
+        guard existingVideoRouteIDs.last != selectedVideoID else { return .none }
+        return existingVideoRouteIDs.isEmpty ? .append : .replace
+    }
 }
 
 enum VideoNavigationShell: Equatable {
@@ -423,6 +484,7 @@ final class FloatingVideoState: ObservableObject {
     @Published private(set) var videoID: UUID?
     @Published private(set) var inlineWidth: CGFloat = 0
     @Published private(set) var inlineFrame = CGRect.zero
+    @Published private(set) var presentationViewportFrame = CGRect.zero
     private var latestVisibleFraction: Double?
 
     func reset(for videoID: UUID?) {
@@ -433,6 +495,7 @@ final class FloatingVideoState: ObservableObject {
         frame = .zero
         inlineWidth = 0
         inlineFrame = .zero
+        presentationViewportFrame = .zero
         latestVisibleFraction = nil
     }
 
@@ -451,6 +514,16 @@ final class FloatingVideoState: ObservableObject {
         inlineFrame = frame
     }
 
+    func updatePresentationViewportFrame(_ frame: CGRect) {
+        let normalizedFrame = VideoPlayerPresentationPolicy.destination(
+            isFloating: false,
+            inlineFrame: frame,
+            floatingFrame: .zero
+        ) == nil ? .zero : frame
+        guard presentationViewportFrame != normalizedFrame else { return }
+        presentationViewportFrame = normalizedFrame
+    }
+
     func updateVisibilityMeasurement(_ visibleFraction: Double?) {
         guard inlineWidth > 0 else { return }
         updateVisibleFraction(visibleFraction ?? 0)
@@ -466,11 +539,11 @@ final class FloatingVideoState: ObservableObject {
             return
         }
 
-        frame = VideoFloatingLayout.defaultFrame(
+        updateFrame(VideoFloatingLayout.defaultFrame(
             in: bounds,
             inlineWidth: inlineWidth,
             aspectRatio: aspectRatio
-        )
+        ))
     }
 
     func prepareFloatingDestination(
@@ -519,11 +592,11 @@ final class FloatingVideoState: ObservableObject {
         in bounds: CGRect,
         aspectRatio: CGFloat
     ) {
-        self.frame = VideoFloatingLayout.fittedFrame(
+        updateFrame(VideoFloatingLayout.fittedFrame(
             frame,
             aspectRatio: aspectRatio,
             in: bounds
-        )
+        ))
     }
 
     func resize(
@@ -533,13 +606,13 @@ final class FloatingVideoState: ObservableObject {
         in bounds: CGRect,
         aspectRatio: CGFloat
     ) {
-        self.frame = VideoFloatingLayout.resizedFrame(
+        updateFrame(VideoFloatingLayout.resizedFrame(
             from: frame,
             handle: handle,
             translation: translation,
             aspectRatio: aspectRatio,
             in: bounds
-        )
+        ))
     }
 
     func clamp(to bounds: CGRect, aspectRatio: CGFloat) {
@@ -551,8 +624,7 @@ final class FloatingVideoState: ObservableObject {
             in: bounds
         )
         guard fittedFrame != .zero else { return }
-
-        frame = fittedFrame
+        updateFrame(fittedFrame)
     }
 
     func resetPlacement(
@@ -560,10 +632,15 @@ final class FloatingVideoState: ObservableObject {
         inlineWidth: CGFloat,
         aspectRatio: CGFloat
     ) {
-        frame = VideoFloatingLayout.defaultFrame(
+        updateFrame(VideoFloatingLayout.defaultFrame(
             in: bounds,
             inlineWidth: inlineWidth,
             aspectRatio: aspectRatio
-        )
+        ))
+    }
+
+    private func updateFrame(_ newFrame: CGRect) {
+        guard frame != newFrame else { return }
+        frame = newFrame
     }
 }

@@ -15,6 +15,11 @@ struct MainView: View {
     private enum PhoneProjectsRoute: Hashable {
         case project(UUID)
         case video(UUID)
+
+        var videoID: UUID? {
+            guard case .video(let videoID) = self else { return nil }
+            return videoID
+        }
     }
     #endif
 
@@ -44,6 +49,7 @@ struct MainView: View {
     #if os(iOS)
     @State private var phoneSelectedTab: PhoneTab = .projects
     @State private var phoneProjectsPath: [PhoneProjectsRoute] = []
+    @State private var isUnwindingPhoneProjectVideo = false
     #endif
     
     init(
@@ -384,10 +390,13 @@ struct MainView: View {
                     }
                     .onChange(of: folderStore.selectedVideo?.id) { _, newValue in
                         guard phoneSelectedTab == .projects,
+                              !isUnwindingPhoneProjectVideo,
                               let videoID = newValue,
-                              !phoneProjectsPath.contains(.video(videoID)),
                               folderStore.selectedProject != nil else { return }
-                        phoneProjectsPath.append(.video(videoID))
+                        synchronizePhoneProjectVideoRoute(to: videoID)
+                    }
+                    .onChange(of: phoneProjectsPath) { oldValue, newValue in
+                        handlePhoneProjectsPathChange(from: oldValue, to: newValue)
                     }
                 }
             }
@@ -500,6 +509,41 @@ struct MainView: View {
         guard let projectID = project.id else { return }
         if phoneProjectsPath.last != .project(projectID) {
             phoneProjectsPath.append(.project(projectID))
+        }
+    }
+
+    private func handlePhoneProjectsPathChange(
+        from oldValue: [PhoneProjectsRoute],
+        to newValue: [PhoneProjectsRoute]
+    ) {
+        let shouldNavigateBack = PhoneProjectVideoRoutePopPolicy.shouldNavigateBack(
+            oldVideoRouteIDs: oldValue.compactMap(\.videoID),
+            newVideoRouteIDs: newValue.compactMap(\.videoID),
+            selectedVideoID: folderStore.selectedVideo?.id,
+            isVideoDetailActive: folderStore.currentDetailSurface == .videoDetail
+        )
+        guard shouldNavigateBack else { return }
+
+        isUnwindingPhoneProjectVideo = true
+        folderStore.navigateBackFromDetail()
+        Task { @MainActor in
+            await Task.yield()
+            isUnwindingPhoneProjectVideo = false
+        }
+    }
+
+    private func synchronizePhoneProjectVideoRoute(to videoID: UUID) {
+        switch PhoneProjectVideoRouteSyncPolicy.action(
+            existingVideoRouteIDs: phoneProjectsPath.compactMap(\.videoID),
+            selectedVideoID: videoID
+        ) {
+        case .none:
+            return
+        case .append:
+            phoneProjectsPath.append(.video(videoID))
+        case .replace:
+            phoneProjectsPath = phoneProjectsPath.filter { $0.videoID == nil }
+                + [.video(videoID)]
         }
     }
 

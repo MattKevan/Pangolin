@@ -1177,6 +1177,41 @@ struct FloatingVideoStateTests {
         ))
         #expect(state.frame != movedFrame)
     }
+
+    @Test("Repeated preparation with unchanged geometry does not publish")
+    func repeatedPreparationDoesNotPublish() {
+        let state = FloatingVideoState()
+        state.updateInlineWidth(760)
+        state.prepareFloatingDestination(
+            in: bounds,
+            aspectRatio: aspectRatio
+        )
+
+        var changeCount = 0
+        let observation = state.objectWillChange.sink {
+            changeCount += 1
+        }
+
+        state.prepareFloatingDestination(
+            in: bounds,
+            aspectRatio: aspectRatio
+        )
+
+        #expect(changeCount == 0)
+        withExtendedLifetime(observation) {}
+    }
+
+    @Test("Invalid viewport clears a previous measurement for host fallback")
+    func invalidViewportClearsMeasurement() {
+        let state = FloatingVideoState()
+        state.updatePresentationViewportFrame(
+            CGRect(x: 0, y: 96, width: 800, height: 600)
+        )
+
+        state.updatePresentationViewportFrame(.zero)
+
+        #expect(state.presentationViewportFrame == .zero)
+    }
 }
 
 @Suite("Floating video keyboard movement")
@@ -1285,6 +1320,95 @@ struct VideoPresentationHostLayoutTests {
             size: CGSize(width: 100, height: 100),
             insets: EdgeInsets(top: 80, leading: 60, bottom: 30, trailing: 60)
         ) == .zero)
+    }
+    @Test("Detail viewport constrains only the host's vertical bounds")
+    func intersectsDetailViewportVertically() {
+        let outerBounds = CGRect(x: 0, y: 59, width: 390, height: 751)
+
+        #expect(VideoPresentationHostLayout.availableBounds(
+            outerBounds: outerBounds,
+            presentationViewportFrame: CGRect(x: 92, y: 103, width: 250, height: 650)
+        ) == CGRect(x: 0, y: 103, width: 390, height: 650))
+    }
+
+    @Test("Invalid detail viewport falls back to outer safe bounds")
+    func invalidViewportFallsBack() {
+        let outerBounds = CGRect(x: 0, y: 59, width: 390, height: 751)
+
+        #expect(VideoPresentationHostLayout.availableBounds(
+            outerBounds: outerBounds,
+            presentationViewportFrame: CGRect(
+                x: 0,
+                y: CGFloat.nan,
+                width: 390,
+                height: 700
+            )
+        ) == outerBounds)
+    }
+}
+
+@Suite("Phone project video route pop policy")
+struct PhoneProjectVideoRoutePopPolicyTests {
+    @Test("Popping the active video route unwinds the store detail")
+    func removedVideoRouteNavigatesBack() {
+        let videoID = UUID()
+
+        #expect(PhoneProjectVideoRoutePopPolicy.shouldNavigateBack(
+            oldVideoRouteIDs: [videoID],
+            newVideoRouteIDs: [],
+            selectedVideoID: videoID,
+            isVideoDetailActive: true
+        ))
+    }
+
+    @Test("A steady active video route leaves store detail unchanged")
+    func steadyVideoRouteDoesNotNavigateBack() {
+        let videoID = UUID()
+
+        #expect(!PhoneProjectVideoRoutePopPolicy.shouldNavigateBack(
+            oldVideoRouteIDs: [videoID],
+            newVideoRouteIDs: [videoID],
+            selectedVideoID: videoID,
+            isVideoDetailActive: true
+        ))
+    }
+
+    @Test("Removing a different video route does not unwind the active detail")
+    func unrelatedVideoRouteDoesNotNavigateBack() {
+        let selectedVideoID = UUID()
+
+        #expect(!PhoneProjectVideoRoutePopPolicy.shouldNavigateBack(
+            oldVideoRouteIDs: [UUID()],
+            newVideoRouteIDs: [],
+            selectedVideoID: selectedVideoID,
+            isVideoDetailActive: true
+        ))
+    }
+
+    @Test("Removing the selected route outside video detail does not unwind")
+    func inactiveVideoDetailDoesNotNavigateBack() {
+        let videoID = UUID()
+
+        #expect(!PhoneProjectVideoRoutePopPolicy.shouldNavigateBack(
+            oldVideoRouteIDs: [videoID],
+            newVideoRouteIDs: [],
+            selectedVideoID: videoID,
+            isVideoDetailActive: false
+        ))
+    }
+}
+
+@Suite("Phone project video route sync policy")
+struct PhoneProjectVideoRouteSyncPolicyTests {
+    @Test("Selecting another video replaces the existing terminal video route")
+    func nextVideoReplacesRoute() {
+        let oldVideoID = UUID()
+        let newVideoID = UUID()
+
+        #expect(PhoneProjectVideoRouteSyncPolicy.action(
+            existingVideoRouteIDs: [oldVideoID],
+            selectedVideoID: newVideoID
+        ) == .replace)
     }
 }
 
