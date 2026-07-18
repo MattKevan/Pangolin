@@ -1212,6 +1212,22 @@ struct FloatingVideoStateTests {
 
         #expect(state.presentationViewportFrame == .zero)
     }
+
+    @Test("Viewport follows the detail shell lifecycle instead of video identity")
+    func viewportPersistsBetweenVideosAndClearsOnExit() {
+        let state = FloatingVideoState()
+        let viewportFrame = CGRect(x: 0, y: 96, width: 800, height: 600)
+
+        state.reset(for: UUID())
+        state.updatePresentationViewportFrame(viewportFrame)
+        state.reset(for: UUID())
+
+        #expect(state.presentationViewportFrame == viewportFrame)
+
+        state.reset(for: nil)
+
+        #expect(state.presentationViewportFrame == .zero)
+    }
 }
 
 @Suite("Floating video keyboard movement")

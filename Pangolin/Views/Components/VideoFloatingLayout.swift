@@ -488,14 +488,24 @@ final class FloatingVideoState: ObservableObject {
     private var latestVisibleFraction: Double?
 
     func reset(for videoID: UUID?) {
-        guard self.videoID != videoID else { return }
+        guard self.videoID != videoID else {
+            if videoID == nil, presentationViewportFrame != .zero {
+                presentationViewportFrame = .zero
+            }
+            return
+        }
+
+        let preservesPresentationViewport = self.videoID != nil && videoID != nil
 
         self.videoID = videoID
         isFloating = false
         frame = .zero
         inlineWidth = 0
         inlineFrame = .zero
-        presentationViewportFrame = .zero
+        if !preservesPresentationViewport,
+           presentationViewportFrame != .zero {
+            presentationViewportFrame = .zero
+        }
         latestVisibleFraction = nil
     }
 
