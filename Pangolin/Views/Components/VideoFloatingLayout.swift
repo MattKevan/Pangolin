@@ -28,26 +28,27 @@ enum VideoPresentationHostLayout {
 
         let width = size.width - insets.leading - insets.trailing
         let height = size.height - insets.top - insets.bottom
-        guard width.isFinite, height.isFinite, width > 0, height > 0 else {
-            return .zero
-        }
-
-        return CGRect(
+        let bounds = CGRect(
             x: insets.leading,
             y: insets.top,
             width: width,
             height: height
         )
+        return isPaneUsable(bounds) ? bounds : .zero
     }
 
     static func availableBounds(
         outerBounds: CGRect,
         presentationViewportFrame: CGRect?
     ) -> CGRect {
-        guard isValid(outerBounds) else { return .zero }
+        guard isPaneUsable(outerBounds) else { return .zero }
         guard let presentationViewportFrame,
               isValid(presentationViewportFrame) else {
             return outerBounds
+        }
+        guard presentationViewportFrame.maxX > outerBounds.minX,
+              presentationViewportFrame.minX < outerBounds.maxX else {
+            return .zero
         }
 
         let minimumX = max(outerBounds.minX, presentationViewportFrame.minX)
@@ -56,19 +57,13 @@ enum VideoPresentationHostLayout {
         let maximumY = min(outerBounds.maxY, presentationViewportFrame.maxY)
         let width = maximumX - minimumX
         let height = maximumY - minimumY
-        guard width.isFinite,
-              height.isFinite,
-              width > 0,
-              height > 0 else {
-            return .zero
-        }
-
-        return CGRect(
+        let bounds = CGRect(
             x: minimumX,
             y: minimumY,
             width: width,
             height: height
         )
+        return isPaneUsable(bounds) ? bounds : .zero
     }
 
     private static func isValid(_ frame: CGRect) -> Bool {
@@ -78,6 +73,13 @@ enum VideoPresentationHostLayout {
             && frame.height.isFinite
             && frame.width > 0
             && frame.height > 0
+    }
+
+    private static func isPaneUsable(_ frame: CGRect) -> Bool {
+        let minimumDimension = VideoFloatingLayout.edgeInset * 2
+        return isValid(frame)
+            && frame.width > minimumDimension
+            && frame.height > minimumDimension
     }
 }
 

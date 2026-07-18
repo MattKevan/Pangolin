@@ -1337,6 +1337,27 @@ struct VideoPresentationHostLayoutTests {
             insets: EdgeInsets(top: 80, leading: 60, bottom: 30, trailing: 60)
         ) == .zero)
     }
+
+    @Test("Safe-area bounds at or below two edge insets are unusable")
+    func rejectsSafeAreaBoundsWithoutPositiveInsetArea() {
+        #expect(VideoPresentationHostLayout.availableBounds(
+            size: CGSize(width: 32, height: 100),
+            insets: EdgeInsets()
+        ) == .zero)
+        #expect(VideoPresentationHostLayout.availableBounds(
+            size: CGSize(width: 40, height: 40),
+            insets: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4)
+        ) == .zero)
+    }
+
+    @Test("Safe-area bounds above two edge insets remain usable")
+    func acceptsSafeAreaBoundsWithPositiveInsetArea() {
+        #expect(VideoPresentationHostLayout.availableBounds(
+            size: CGSize(width: 33, height: 33),
+            insets: EdgeInsets()
+        ) == CGRect(x: 0, y: 0, width: 33, height: 33))
+    }
+
     @Test("Detail viewport excludes the sidebar while retaining inspector-side width")
     func excludesSidebarAndRetainsInspectorWidth() {
         let outerBounds = CGRect(x: 0, y: 0, width: 1200, height: 800)
@@ -1372,12 +1393,42 @@ struct VideoPresentationHostLayoutTests {
         ) == outerBounds)
     }
 
-    @Test("Disjoint detail viewport produces empty bounds")
-    func disjointViewportIsEmpty() {
+    @Test("Missing viewport only falls back to pane-usable outer bounds")
+    func missingViewportRejectsUnusableOuterBounds() {
+        #expect(VideoPresentationHostLayout.availableBounds(
+            outerBounds: CGRect(x: 0, y: 0, width: 32, height: 100),
+            presentationViewportFrame: nil
+        ) == .zero)
+        #expect(VideoPresentationHostLayout.availableBounds(
+            outerBounds: CGRect(x: 0, y: 0, width: 33, height: 33),
+            presentationViewportFrame: nil
+        ) == CGRect(x: 0, y: 0, width: 33, height: 33))
+    }
+
+    @Test("Detail viewport disjoint on either horizontal side produces empty bounds")
+    func horizontallyDisjointViewportIsEmpty() {
         #expect(VideoPresentationHostLayout.availableBounds(
             outerBounds: CGRect(x: 0, y: 0, width: 1200, height: 800),
             presentationViewportFrame: CGRect(x: 1300, y: 60, width: 700, height: 700)
         ) == .zero)
+        #expect(VideoPresentationHostLayout.availableBounds(
+            outerBounds: CGRect(x: 0, y: 0, width: 1200, height: 800),
+            presentationViewportFrame: CGRect(x: -700, y: 60, width: 600, height: 700)
+        ) == .zero)
+    }
+
+    @Test("Viewport intersection must leave positive area inside pane edge insets")
+    func viewportIntersectionRequiresPositiveInsetArea() {
+        let outerBounds = CGRect(x: 0, y: 0, width: 1200, height: 800)
+
+        #expect(VideoPresentationHostLayout.availableBounds(
+            outerBounds: outerBounds,
+            presentationViewportFrame: CGRect(x: 1168, y: 60, width: 100, height: 700)
+        ) == .zero)
+        #expect(VideoPresentationHostLayout.availableBounds(
+            outerBounds: outerBounds,
+            presentationViewportFrame: CGRect(x: 1167, y: 60, width: 100, height: 700)
+        ) == CGRect(x: 1167, y: 60, width: 33, height: 700))
     }
 }
 
