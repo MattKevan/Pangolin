@@ -9,6 +9,30 @@ enum VideoFloatingCoordinateSpace {
     static let root = "videoFloatingRoot"
 }
 
+enum VideoNavigationShell: Equatable {
+    case workspace
+    case phone
+}
+
+enum VideoToolbarPolicy {
+    static func showsSidebarButton(
+        shell: VideoNavigationShell,
+        isVideoDetail: Bool,
+        supportsAppOwnedSidebarButton: Bool
+    ) -> Bool {
+        shell == .workspace
+            && supportsAppOwnedSidebarButton
+            && !isVideoDetail
+    }
+
+    static func showsVideoBackButton(
+        shell: VideoNavigationShell,
+        isVideoDetail: Bool
+    ) -> Bool {
+        shell == .workspace && isVideoDetail
+    }
+}
+
 enum VideoPlayerPresentationPolicy {
     static func destination(
         isFloating: Bool,
@@ -31,6 +55,17 @@ enum VideoPlayerPresentationPolicy {
     ) -> CGRect {
         guard isFloating else { return baseFrame }
         return interactionPreviewFrame ?? baseFrame
+    }
+
+    static func overlayLocalFrame(
+        _ rootFrame: CGRect,
+        overlayFrameInRoot: CGRect
+    ) -> CGRect? {
+        guard isValid(rootFrame), isValid(overlayFrameInRoot) else { return nil }
+        return rootFrame.offsetBy(
+            dx: -overlayFrameInRoot.minX,
+            dy: -overlayFrameInRoot.minY
+        )
     }
 
     private static func isValid(_ frame: CGRect) -> Bool {

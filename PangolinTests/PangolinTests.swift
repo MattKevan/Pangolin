@@ -1035,6 +1035,67 @@ struct VideoPlayerPresentationPolicyTests {
             interactionPreviewFrame: preview
         ) == preview)
     }
+
+    @Test("Root geometry converts to overlay-local coordinates")
+    func overlayLocalFrame() {
+        let rootFrame = CGRect(x: 120, y: 180, width: 800, height: 450)
+        let overlayFrameInRoot = CGRect(x: 0, y: 58, width: 1200, height: 742)
+
+        #expect(VideoPlayerPresentationPolicy.overlayLocalFrame(
+            rootFrame,
+            overlayFrameInRoot: overlayFrameInRoot
+        ) == CGRect(x: 120, y: 122, width: 800, height: 450))
+    }
+
+    @Test("Invalid root and overlay geometry are rejected")
+    func invalidOverlayGeometry() {
+        #expect(VideoPlayerPresentationPolicy.overlayLocalFrame(
+            .zero,
+            overlayFrameInRoot: CGRect(x: 0, y: 58, width: 1200, height: 742)
+        ) == nil)
+        #expect(VideoPlayerPresentationPolicy.overlayLocalFrame(
+            inline,
+            overlayFrameInRoot: .zero
+        ) == nil)
+    }
+}
+
+@Suite("Video toolbar policy")
+struct VideoToolbarPolicyTests {
+    @Test("Ordinary workspace shows its app-owned sidebar button")
+    func workspaceShowsSidebarButton() {
+        #expect(VideoToolbarPolicy.showsSidebarButton(
+            shell: .workspace,
+            isVideoDetail: false,
+            supportsAppOwnedSidebarButton: true
+        ))
+    }
+
+    @Test("Workspace video detail replaces the sidebar button with Back")
+    func workspaceVideoDetailShowsBackButton() {
+        #expect(!VideoToolbarPolicy.showsSidebarButton(
+            shell: .workspace,
+            isVideoDetail: true,
+            supportsAppOwnedSidebarButton: true
+        ))
+        #expect(VideoToolbarPolicy.showsVideoBackButton(
+            shell: .workspace,
+            isVideoDetail: true
+        ))
+    }
+
+    @Test("Phone video detail does not use workspace navigation controls")
+    func phoneVideoDetailHidesWorkspaceControls() {
+        #expect(!VideoToolbarPolicy.showsSidebarButton(
+            shell: .phone,
+            isVideoDetail: true,
+            supportsAppOwnedSidebarButton: false
+        ))
+        #expect(!VideoToolbarPolicy.showsVideoBackButton(
+            shell: .phone,
+            isVideoDetail: true
+        ))
+    }
 }
 
 @Suite("Transcript follow policy")
