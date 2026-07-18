@@ -913,3 +913,90 @@ struct FloatingVideoKeyboardMovementTests {
         #expect(VideoFloatingKeyboardMovement.translation(for: .down) == CGSize(width: 0, height: 10))
     }
 }
+
+@Suite("Transcript follow policy")
+struct TranscriptFollowPolicyTests {
+    private let viewport = CGRect(x: 0, y: 0, width: 760, height: 700)
+
+    @Test("Playback follows a paragraph crossing the bottom boundary")
+    func playbackFollowsBelowBottomBoundary() {
+        #expect(TranscriptFollowPolicy.shouldScroll(
+            paragraphFrame: CGRect(x: 100, y: 650, width: 560, height: 80),
+            viewport: viewport,
+            isPlaying: true,
+            isSuppressed: false,
+            mode: .playbackAdvance
+        ))
+    }
+
+    @Test("Playback leaves a visible paragraph alone")
+    func visibleParagraphDoesNotScroll() {
+        #expect(!TranscriptFollowPolicy.shouldScroll(
+            paragraphFrame: CGRect(x: 100, y: 300, width: 560, height: 80),
+            viewport: viewport,
+            isPlaying: true,
+            isSuppressed: false,
+            mode: .playbackAdvance
+        ))
+    }
+
+    @Test("User suppression prevents playback following")
+    func suppressionPreventsFollowing() {
+        #expect(!TranscriptFollowPolicy.shouldScroll(
+            paragraphFrame: CGRect(x: 100, y: 650, width: 560, height: 80),
+            viewport: viewport,
+            isPlaying: true,
+            isSuppressed: true,
+            mode: .playbackAdvance
+        ))
+    }
+
+    @Test("Paused playback does not follow")
+    func pausedPlaybackDoesNotScroll() {
+        #expect(!TranscriptFollowPolicy.shouldScroll(
+            paragraphFrame: CGRect(x: 100, y: 650, width: 560, height: 80),
+            viewport: viewport,
+            isPlaying: false,
+            isSuppressed: false,
+            mode: .playbackAdvance
+        ))
+    }
+
+    @Test("Resume returns a paragraph above the viewport")
+    func resumeReturnsParagraphAboveViewport() {
+        let paragraph = CGRect(x: 100, y: -50, width: 560, height: 30)
+
+        #expect(!TranscriptFollowPolicy.shouldScroll(
+            paragraphFrame: paragraph,
+            viewport: viewport,
+            isPlaying: true,
+            isSuppressed: false,
+            mode: .playbackAdvance
+        ))
+        #expect(TranscriptFollowPolicy.shouldScroll(
+            paragraphFrame: paragraph,
+            viewport: viewport,
+            isPlaying: true,
+            isSuppressed: false,
+            mode: .resume
+        ))
+    }
+
+    @Test("Invalid geometry never follows")
+    func invalidGeometryDoesNotScroll() {
+        #expect(!TranscriptFollowPolicy.shouldScroll(
+            paragraphFrame: CGRect(x: CGFloat.nan, y: 0, width: 560, height: 80),
+            viewport: viewport,
+            isPlaying: true,
+            isSuppressed: false,
+            mode: .resume
+        ))
+        #expect(!TranscriptFollowPolicy.shouldScroll(
+            paragraphFrame: CGRect(x: 0, y: 0, width: 560, height: 80),
+            viewport: .zero,
+            isPlaying: true,
+            isSuppressed: false,
+            mode: .resume
+        ))
+    }
+}

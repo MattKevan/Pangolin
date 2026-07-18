@@ -7,6 +7,45 @@ enum VideoDetailLayout {
     static let minimumActionHitSize: CGFloat = 44
 }
 
+enum TranscriptFollowMode: Equatable {
+    case playbackAdvance
+    case resume
+}
+
+enum TranscriptFollowPolicy {
+    static let bottomMargin: CGFloat = 96
+    static let topMargin: CGFloat = 40
+    static let suppressionDuration: Duration = .seconds(4)
+
+    static func shouldScroll(
+        paragraphFrame: CGRect,
+        viewport: CGRect,
+        isPlaying: Bool,
+        isSuppressed: Bool,
+        mode: TranscriptFollowMode
+    ) -> Bool {
+        guard isPlaying,
+              !isSuppressed,
+              isValid(paragraphFrame),
+              isValid(viewport) else {
+            return false
+        }
+
+        let isBelowSafeArea = paragraphFrame.maxY > viewport.maxY - bottomMargin
+        let isAboveSafeArea = paragraphFrame.minY < viewport.minY + topMargin
+        return isBelowSafeArea || (mode == .resume && isAboveSafeArea)
+    }
+
+    private static func isValid(_ frame: CGRect) -> Bool {
+        frame.origin.x.isFinite
+            && frame.origin.y.isFinite
+            && frame.size.width.isFinite
+            && frame.size.height.isFinite
+            && frame.size.width > 0
+            && frame.size.height > 0
+    }
+}
+
 private struct InlineVideoGeometry: Equatable {
     let videoID: UUID
     let frame: CGRect
