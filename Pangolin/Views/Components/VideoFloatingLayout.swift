@@ -50,15 +50,23 @@ enum VideoPresentationHostLayout {
             return outerBounds
         }
 
+        let minimumX = max(outerBounds.minX, presentationViewportFrame.minX)
+        let maximumX = outerBounds.maxX
         let minimumY = max(outerBounds.minY, presentationViewportFrame.minY)
         let maximumY = min(outerBounds.maxY, presentationViewportFrame.maxY)
+        let width = maximumX - minimumX
         let height = maximumY - minimumY
-        guard height.isFinite, height > 0 else { return .zero }
+        guard width.isFinite,
+              height.isFinite,
+              width > 0,
+              height > 0 else {
+            return .zero
+        }
 
         return CGRect(
-            x: outerBounds.minX,
+            x: minimumX,
             y: minimumY,
-            width: outerBounds.width,
+            width: width,
             height: height
         )
     }

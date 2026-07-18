@@ -1230,14 +1230,14 @@ struct FloatingVideoStateTests {
     }
 }
 
-@Suite("Floating video keyboard movement")
-struct FloatingVideoKeyboardMovementTests {
-    @Test("Arrow commands move the pane by the desktop keyboard step")
-    func arrowTranslations() {
-        #expect(VideoFloatingKeyboardMovement.translation(for: .left) == CGSize(width: -10, height: 0))
-        #expect(VideoFloatingKeyboardMovement.translation(for: .right) == CGSize(width: 10, height: 0))
-        #expect(VideoFloatingKeyboardMovement.translation(for: .up) == CGSize(width: 0, height: -10))
-        #expect(VideoFloatingKeyboardMovement.translation(for: .down) == CGSize(width: 0, height: 10))
+@Suite("Floating video directional movement")
+struct FloatingVideoDirectionalMovementTests {
+    @Test("Directional commands use the platform-neutral movement step")
+    func directionalTranslations() {
+        #expect(VideoFloatingMovement.translation(for: .left) == CGSize(width: -10, height: 0))
+        #expect(VideoFloatingMovement.translation(for: .right) == CGSize(width: 10, height: 0))
+        #expect(VideoFloatingMovement.translation(for: .up) == CGSize(width: 0, height: -10))
+        #expect(VideoFloatingMovement.translation(for: .down) == CGSize(width: 0, height: 10))
     }
 }
 
@@ -1337,14 +1337,14 @@ struct VideoPresentationHostLayoutTests {
             insets: EdgeInsets(top: 80, leading: 60, bottom: 30, trailing: 60)
         ) == .zero)
     }
-    @Test("Detail viewport constrains only the host's vertical bounds")
-    func intersectsDetailViewportVertically() {
-        let outerBounds = CGRect(x: 0, y: 59, width: 390, height: 751)
+    @Test("Detail viewport excludes the sidebar while retaining inspector-side width")
+    func excludesSidebarAndRetainsInspectorWidth() {
+        let outerBounds = CGRect(x: 0, y: 0, width: 1200, height: 800)
 
         #expect(VideoPresentationHostLayout.availableBounds(
             outerBounds: outerBounds,
-            presentationViewportFrame: CGRect(x: 92, y: 103, width: 250, height: 650)
-        ) == CGRect(x: 0, y: 103, width: 390, height: 650))
+            presentationViewportFrame: CGRect(x: 260, y: 60, width: 700, height: 700)
+        ) == CGRect(x: 260, y: 60, width: 940, height: 700))
     }
 
     @Test("Invalid detail viewport falls back to outer safe bounds")
@@ -1360,6 +1360,24 @@ struct VideoPresentationHostLayoutTests {
                 height: 700
             )
         ) == outerBounds)
+    }
+
+    @Test("Missing detail viewport falls back to outer safe bounds")
+    func missingViewportFallsBack() {
+        let outerBounds = CGRect(x: 0, y: 59, width: 390, height: 751)
+
+        #expect(VideoPresentationHostLayout.availableBounds(
+            outerBounds: outerBounds,
+            presentationViewportFrame: nil
+        ) == outerBounds)
+    }
+
+    @Test("Disjoint detail viewport produces empty bounds")
+    func disjointViewportIsEmpty() {
+        #expect(VideoPresentationHostLayout.availableBounds(
+            outerBounds: CGRect(x: 0, y: 0, width: 1200, height: 800),
+            presentationViewportFrame: CGRect(x: 1300, y: 60, width: 700, height: 700)
+        ) == .zero)
     }
 }
 

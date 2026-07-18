@@ -5,17 +5,17 @@
 
 import SwiftUI
 
-enum VideoFloatingKeyboardDirection {
+enum VideoFloatingMovementDirection {
     case left
     case right
     case up
     case down
 }
 
-enum VideoFloatingKeyboardMovement {
+enum VideoFloatingMovement {
     static let step: CGFloat = 10
 
-    static func translation(for direction: VideoFloatingKeyboardDirection) -> CGSize {
+    static func translation(for direction: VideoFloatingMovementDirection) -> CGSize {
         switch direction {
         case .left:
             return CGSize(width: -step, height: 0)
@@ -39,9 +39,7 @@ struct FloatingVideoPane: View {
 
     @State private var interactionStartFrame: CGRect?
     @State private var interactionPreviewFrame: CGRect?
-    #if os(macOS)
     @FocusState private var isFocused: Bool
-    #endif
 
     private var mode: VideoPresentationMode {
         floatingState.isFloating ? .floating : .docked
@@ -86,8 +84,8 @@ struct FloatingVideoPane: View {
             .position(x: renderedFrame.midX, y: renderedFrame.midY)
             .macOSKeyboardControls(
                 isFloating: floatingState.isFloating,
-                isFocused: macOSFocusBinding,
-                moveAction: moveWithKeyboard
+                isFocused: $isFocused,
+                moveAction: moveFloatingPane
             )
             .onAppear {
                 updatePresentation(isInteracting: false)
@@ -109,6 +107,10 @@ struct FloatingVideoPane: View {
                 floatingState.isFloating ? "Floating video player" : "Video player"
             )
             .accessibilityValue(accessibilityFrameValue)
+            .floatingMovementAccessibilityActions(
+                isFloating: floatingState.isFloating,
+                moveAction: moveFloatingPane
+            )
             .floatingResetAccessibilityAction(
                 isFloating: floatingState.isFloating,
                 action: resetPlacement
@@ -313,55 +315,42 @@ struct FloatingVideoPane: View {
         #endif
     }
 
-    #if os(macOS)
-    private var macOSFocusBinding: FocusState<Bool>.Binding? { $isFocused }
-
-    private func moveWithKeyboard(_ direction: MoveCommandDirection) {
+    private func moveFloatingPane(_ direction: VideoFloatingMovementDirection) {
         guard floatingState.isFloating else { return }
 
-        let keyboardDirection: VideoFloatingKeyboardDirection
-        switch direction {
-        case .left:
-            keyboardDirection = .left
-        case .right:
-            keyboardDirection = .right
-        case .up:
-            keyboardDirection = .up
-        case .down:
-            keyboardDirection = .down
-        @unknown default:
-            return
-        }
-
         floatingState.move(
-            by: VideoFloatingKeyboardMovement.translation(for: keyboardDirection),
+            by: VideoFloatingMovement.translation(for: direction),
             in: availableBounds,
             aspectRatio: playerViewModel.videoAspectRatio
         )
         updatePresentation(isInteracting: true)
     }
-    #else
-    private var macOSFocusBinding: Never? { nil }
-    private func moveWithKeyboard(_ direction: Never) {}
-    #endif
 }
 
 private extension View {
     @ViewBuilder
     func macOSKeyboardControls(
         isFloating: Bool,
-        isFocused: Any?,
-        moveAction: Any
+        isFocused: FocusState<Bool>.Binding,
+        moveAction: @escaping (VideoFloatingMovementDirection) -> Void
     ) -> some View {
         #if os(macOS)
-        if let binding = isFocused as? FocusState<Bool>.Binding,
-           let action = moveAction as? (MoveCommandDirection) -> Void {
-            focusable(isFloating)
-                .focused(binding)
-                .onMoveCommand(perform: action)
-        } else {
-            self
-        }
+        focusable(isFloating)
+            .focused(isFocused)
+            .onMoveCommand { direction in
+                switch direction {
+                case .left:
+                    moveAction(.left)
+                case .right:
+                    moveAction(.right)
+                case .up:
+                    moveAction(.up)
+                case .down:
+                    moveAction(.down)
+                @unknown default:
+                    break
+                }
+            }
         #else
         self
         #endif
@@ -392,6 +381,29 @@ private extension View {
     ) -> some View {
         if isFloating {
             accessibilityAction(named: "Reset position", action)
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func floatingMovementAccessibilityActions(
+        isFloating: Bool,
+        moveAction: @escaping (VideoFloatingMovementDirection) -> Void
+    ) -> some View {
+        if isFloating {
+            accessibilityAction(named: "Move left") {
+                moveAction(.left)
+            }
+            .accessibilityAction(named: "Move right") {
+                moveAction(.right)
+            }
+            .accessibilityAction(named: "Move up") {
+                moveAction(.up)
+            }
+            .accessibilityAction(named: "Move down") {
+                moveAction(.down)
+            }
         } else {
             self
         }
