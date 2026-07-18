@@ -32,11 +32,20 @@ enum VideoPresentationFrameUpdatePolicy {
 final class VideoPresentationFrameController: ObservableObject {
     static let transitionDuration = 0.25
 
+    typealias TransitionSleep = @MainActor (TimeInterval) async throws -> Void
+
     @Published private(set) var frame: CGRect?
     @Published private(set) var mode: VideoPresentationMode?
     @Published private(set) var isTransitioning = false
 
+    private let sleep: TransitionSleep
     private var transitionTask: Task<Void, Never>?
+
+    init(sleep: @escaping TransitionSleep = { duration in
+        try await Task.sleep(for: .seconds(duration))
+    }) {
+        self.sleep = sleep
+    }
 
     func apply(
         destination: CGRect,
@@ -49,6 +58,7 @@ final class VideoPresentationFrameController: ObservableObject {
         guard animated else {
             var transaction = Transaction()
             transaction.animation = nil
+            transaction.disablesAnimations = true
             withTransaction(transaction) {
                 frame = destination
                 self.mode = mode
@@ -63,9 +73,10 @@ final class VideoPresentationFrameController: ObservableObject {
             self.mode = mode
         }
 
-        transitionTask = Task { [weak self] in
+        let sleep = sleep
+        transitionTask = Task { [weak self, sleep] in
             do {
-                try await Task.sleep(for: .seconds(Self.transitionDuration))
+                try await sleep(Self.transitionDuration)
             } catch {
                 return
             }
@@ -82,6 +93,7 @@ final class VideoPresentationFrameController: ObservableObject {
 
         var transaction = Transaction()
         transaction.animation = nil
+        transaction.disablesAnimations = true
         withTransaction(transaction) {
             frame = nil
             mode = nil
