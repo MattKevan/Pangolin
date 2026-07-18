@@ -152,6 +152,22 @@ enum VideoFloatingLayout {
         return CGRect(origin: CGPoint(x: x, y: y), size: size)
     }
 
+    static func draggedFrame(
+        from startFrame: CGRect,
+        translation: CGSize,
+        aspectRatio: CGFloat,
+        in bounds: CGRect
+    ) -> CGRect {
+        fittedFrame(
+            startFrame.offsetBy(
+                dx: translation.width,
+                dy: translation.height
+            ),
+            aspectRatio: aspectRatio,
+            in: bounds
+        )
+    }
+
     static func resizedFrame(
         from frame: CGRect,
         handle: VideoResizeHandle,

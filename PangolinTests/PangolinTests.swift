@@ -266,6 +266,45 @@ struct VideoFloatingLayoutTests {
         #expect(abs(fractionalFrame.width - 761 * 0.55) < 0.000_001)
     }
 
+    @Test("Drag preview derives from an immutable start frame")
+    func dragPreviewUsesImmutableStartFrame() {
+        let start = CGRect(x: 600, y: 20, width: 400, height: 225)
+        let bounds = CGRect(x: 0, y: 0, width: 1_200, height: 800)
+
+        let first = VideoFloatingLayout.draggedFrame(
+            from: start,
+            translation: CGSize(width: -50, height: 30),
+            aspectRatio: 16.0 / 9.0,
+            in: bounds
+        )
+        let repeated = VideoFloatingLayout.draggedFrame(
+            from: start,
+            translation: CGSize(width: -50, height: 30),
+            aspectRatio: 16.0 / 9.0,
+            in: bounds
+        )
+
+        #expect(first == repeated)
+        #expect(first.size == start.size)
+        #expect(first.origin == CGPoint(x: 550, y: 50))
+    }
+
+    @Test("Drag preview clamps without changing size")
+    func dragPreviewClampsWithoutChangingSize() {
+        let start = CGRect(x: 400, y: 20, width: 400, height: 225)
+        let bounds = CGRect(x: 0, y: 0, width: 900, height: 600)
+        let preview = VideoFloatingLayout.draggedFrame(
+            from: start,
+            translation: CGSize(width: 1_000, height: 1_000),
+            aspectRatio: 16.0 / 9.0,
+            in: bounds
+        )
+
+        #expect(preview.size == start.size)
+        #expect(preview.maxX <= bounds.maxX - VideoFloatingLayout.edgeInset)
+        #expect(preview.maxY <= bounds.maxY - VideoFloatingLayout.edgeInset)
+    }
+
     @Test("Resizing preserves aspect ratio and the opposite corner")
     func resizingFromBottomLeading() {
         let frame = VideoFloatingLayout.resizedFrame(

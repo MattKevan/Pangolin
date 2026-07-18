@@ -37,13 +37,17 @@ struct FloatingVideoPane: View {
     let availableBounds: CGRect
     let inlineWidth: CGFloat
 
-    @State private var dragStartFrame: CGRect?
-    @State private var resizeStartFrames: [VideoResizeHandle: CGRect] = [:]
+    @State private var interactionStartFrame: CGRect?
+    @State private var interactionPreviewFrame: CGRect?
     @FocusState private var isFocused: Bool
+
+    private var renderedFrame: CGRect {
+        interactionPreviewFrame ?? floatingState.frame
+    }
 
     var body: some View {
         VideoPlayerWithPosterView(video: video, viewModel: playerViewModel)
-            .frame(width: floatingState.frame.width, height: floatingState.frame.height)
+            .frame(width: renderedFrame.width, height: renderedFrame.height)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(alignment: .top) {
                 dragHandle
@@ -55,7 +59,7 @@ struct FloatingVideoPane: View {
                 resizeHandles
             }
             .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
-            .position(x: floatingState.frame.midX, y: floatingState.frame.midY)
+            .position(x: renderedFrame.midX, y: renderedFrame.midY)
             .focusable()
             .focused($isFocused)
             .onMoveCommand(perform: moveWithKeyboard)
@@ -88,22 +92,20 @@ struct FloatingVideoPane: View {
     }
 
     private var dragGesture: some Gesture {
-        DragGesture(minimumDistance: 0)
+        DragGesture(minimumDistance: 0, coordinateSpace: .global)
             .onChanged { value in
                 isFocused = true
-                let start = dragStartFrame ?? floatingState.frame
-                dragStartFrame = start
-                floatingState.setFrame(
-                    start.offsetBy(
-                        dx: value.translation.width,
-                        dy: value.translation.height
-                    ),
+                let start = interactionStartFrame ?? floatingState.frame
+                interactionStartFrame = start
+                interactionPreviewFrame = VideoFloatingLayout.draggedFrame(
+                    from: start,
+                    translation: value.translation,
+                    aspectRatio: playerViewModel.videoAspectRatio,
                     in: availableBounds,
-                    aspectRatio: playerViewModel.videoAspectRatio
                 )
             }
             .onEnded { _ in
-                dragStartFrame = nil
+                commitInteraction()
             }
     }
 
@@ -152,22 +154,34 @@ struct FloatingVideoPane: View {
     }
 
     private func resizeGesture(for handle: VideoResizeHandle) -> some Gesture {
-        DragGesture(minimumDistance: 0)
+        DragGesture(minimumDistance: 0, coordinateSpace: .global)
             .onChanged { value in
                 isFocused = true
-                let start = resizeStartFrames[handle] ?? floatingState.frame
-                resizeStartFrames[handle] = start
-                floatingState.resize(
+                let start = interactionStartFrame ?? floatingState.frame
+                interactionStartFrame = start
+                interactionPreviewFrame = VideoFloatingLayout.resizedFrame(
                     from: start,
                     handle: handle,
                     translation: value.translation,
-                    in: availableBounds,
-                    aspectRatio: playerViewModel.videoAspectRatio
+                    aspectRatio: playerViewModel.videoAspectRatio,
+                    in: availableBounds
                 )
             }
             .onEnded { _ in
-                resizeStartFrames[handle] = nil
+                commitInteraction()
             }
+    }
+
+    private func commitInteraction() {
+        if let interactionPreviewFrame {
+            floatingState.setFrame(
+                interactionPreviewFrame,
+                in: availableBounds,
+                aspectRatio: playerViewModel.videoAspectRatio
+            )
+        }
+        interactionStartFrame = nil
+        interactionPreviewFrame = nil
     }
 
     private func accessibilityLabel(for handle: VideoResizeHandle) -> String {
