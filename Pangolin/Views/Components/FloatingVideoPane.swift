@@ -29,30 +29,32 @@ enum VideoFloatingKeyboardMovement {
     }
 }
 
-#if os(macOS)
 struct FloatingVideoPane: View {
     let video: Video
     @ObservedObject var playerViewModel: VideoPlayerViewModel
     @ObservedObject var floatingState: FloatingVideoState
+    @ObservedObject var frameController: VideoPresentationFrameController
+    let dockedFrame: CGRect
     let availableBounds: CGRect
-    let inlineWidth: CGFloat
 
     @State private var interactionStartFrame: CGRect?
     @State private var interactionPreviewFrame: CGRect?
+    #if os(macOS)
     @FocusState private var isFocused: Bool
+    #endif
 
-    private var baseFrame: CGRect {
-        VideoPlayerPresentationPolicy.destination(
-            isFloating: floatingState.isFloating,
-            inlineFrame: floatingState.inlineFrame,
-            floatingFrame: floatingState.frame
-        ) ?? .zero
+    private var mode: VideoPresentationMode {
+        floatingState.isFloating ? .floating : .docked
+    }
+
+    private var destination: CGRect {
+        floatingState.isFloating ? floatingState.frame : dockedFrame
     }
 
     private var renderedFrame: CGRect {
         VideoPlayerPresentationPolicy.renderedFrame(
             isFloating: floatingState.isFloating,
-            baseFrame: baseFrame,
+            baseFrame: frameController.frame ?? destination,
             interactionPreviewFrame: interactionPreviewFrame
         )
     }
@@ -82,15 +84,25 @@ struct FloatingVideoPane: View {
                 y: floatingState.isFloating ? 8 : 0
             )
             .position(x: renderedFrame.midX, y: renderedFrame.midY)
-            .focusable(floatingState.isFloating)
-            .focused($isFocused)
-            .onMoveCommand(perform: moveWithKeyboard)
-            .animation(.easeInOut(duration: 0.25), value: floatingState.isFloating)
+            .macOSKeyboardControls(
+                isFloating: floatingState.isFloating,
+                isFocused: macOSFocusBinding,
+                moveAction: moveWithKeyboard
+            )
+            .onAppear {
+                updatePresentation(isInteracting: false)
+            }
             .onChange(of: floatingState.isFloating) { _, isFloating in
-                guard !isFloating else { return }
-                interactionStartFrame = nil
-                interactionPreviewFrame = nil
-                isFocused = false
+                if !isFloating {
+                    clearInteraction()
+                }
+                updatePresentation(isInteracting: false)
+            }
+            .onChange(of: destination) { _, _ in
+                updatePresentation(isInteracting: false)
+            }
+            .onDisappear {
+                clearInteraction()
             }
             .accessibilityElement(children: .contain)
             .accessibilityLabel(
@@ -114,10 +126,10 @@ struct FloatingVideoPane: View {
                     .fill(.white.opacity(0.85))
                     .frame(width: 44, height: 5)
             }
-            .frame(width: 76, height: 22)
+            .frame(width: 76, height: 44)
             .padding(.top, 6)
             .contentShape(Rectangle())
-            .help("Drag to move the floating video")
+            .macOSHelp("Drag to move the floating video")
             .accessibilityLabel("Move floating video")
             .gesture(dragGesture)
     }
@@ -125,7 +137,7 @@ struct FloatingVideoPane: View {
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .global)
             .onChanged { value in
-                isFocused = true
+                focusFloatingPane()
                 let start = interactionStartFrame ?? floatingState.frame
                 interactionStartFrame = start
                 interactionPreviewFrame = VideoFloatingLayout.draggedFrame(
@@ -152,14 +164,14 @@ struct FloatingVideoPane: View {
     private var resetButton: some View {
         Button(action: resetPlacement) {
             Image(systemName: "arrow.counterclockwise")
-                .frame(width: 28, height: 28)
+                .frame(width: 44, height: 44)
                 .background(.regularMaterial, in: Circle())
         }
         .buttonStyle(.plain)
         .padding(.top, 6)
         .padding(.trailing, 34)
-        .keyboardShortcut("0", modifiers: [.command, .option])
-        .help("Reset floating video position (Command-Option-0)")
+        .macOSResetShortcut()
+        .macOSHelp("Reset floating video position (Command-Option-0)")
         .accessibilityLabel("Reset floating video position")
     }
 
@@ -173,7 +185,7 @@ struct FloatingVideoPane: View {
                 Circle().stroke(.black.opacity(0.35), lineWidth: 1)
             }
             .frame(width: 14, height: 14)
-            .frame(width: 32, height: 32)
+            .frame(width: 44, height: 44)
             .contentShape(Rectangle())
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
             .accessibilityLabel(accessibilityLabel(for: handle))
@@ -187,7 +199,7 @@ struct FloatingVideoPane: View {
     private func resizeGesture(for handle: VideoResizeHandle) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .global)
             .onChanged { value in
-                isFocused = true
+                focusFloatingPane()
                 let start = interactionStartFrame ?? floatingState.frame
                 interactionStartFrame = start
                 interactionPreviewFrame = VideoFloatingLayout.resizedFrame(
@@ -253,12 +265,52 @@ struct FloatingVideoPane: View {
     }
 
     private func resetPlacement() {
+        guard floatingState.isFloating else { return }
         floatingState.resetPlacement(
             in: availableBounds,
-            inlineWidth: inlineWidth,
+            inlineWidth: dockedFrame.width,
             aspectRatio: playerViewModel.videoAspectRatio
         )
     }
+
+    private func updatePresentation(isInteracting: Bool) {
+        guard VideoPlayerPresentationPolicy.destination(
+            isFloating: mode == .floating,
+            inlineFrame: destination,
+            floatingFrame: destination
+        ) != nil else { return }
+        guard frameController.frame != destination || frameController.mode != mode else { return }
+
+        let decision = VideoPresentationFrameUpdatePolicy.decision(
+            previousMode: frameController.mode,
+            newMode: mode,
+            hasPresentedFrame: frameController.frame != nil,
+            isTransitioning: frameController.isTransitioning,
+            isInteracting: isInteracting
+        )
+        frameController.apply(
+            destination: destination,
+            mode: mode,
+            animated: decision == .animated
+        )
+    }
+
+    private func clearInteraction() {
+        interactionStartFrame = nil
+        interactionPreviewFrame = nil
+        #if os(macOS)
+        isFocused = false
+        #endif
+    }
+
+    private func focusFloatingPane() {
+        #if os(macOS)
+        isFocused = true
+        #endif
+    }
+
+    #if os(macOS)
+    private var macOSFocusBinding: FocusState<Bool>.Binding? { $isFocused }
 
     private func moveWithKeyboard(_ direction: MoveCommandDirection) {
         guard floatingState.isFloating else { return }
@@ -283,5 +335,48 @@ struct FloatingVideoPane: View {
             aspectRatio: playerViewModel.videoAspectRatio
         )
     }
+    #else
+    private var macOSFocusBinding: Never? { nil }
+    private func moveWithKeyboard(_ direction: Never) {}
+    #endif
 }
-#endif
+
+private extension View {
+    @ViewBuilder
+    func macOSKeyboardControls(
+        isFloating: Bool,
+        isFocused: Any?,
+        moveAction: Any
+    ) -> some View {
+        #if os(macOS)
+        if let binding = isFocused as? FocusState<Bool>.Binding,
+           let action = moveAction as? (MoveCommandDirection) -> Void {
+            focusable(isFloating)
+                .focused(binding)
+                .onMoveCommand(perform: action)
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
+    }
+
+    @ViewBuilder
+    func macOSHelp(_ text: String) -> some View {
+        #if os(macOS)
+        help(text)
+        #else
+        self
+        #endif
+    }
+
+    @ViewBuilder
+    func macOSResetShortcut() -> some View {
+        #if os(macOS)
+        keyboardShortcut("0", modifiers: [.command, .option])
+        #else
+        self
+        #endif
+    }
+}
