@@ -5,6 +5,35 @@
 
 import SwiftUI
 
+enum VideoFloatingCoordinateSpace {
+    static let root = "videoFloatingRoot"
+}
+
+enum VideoPlayerPresentationPolicy {
+    static func destination(
+        isFloating: Bool,
+        inlineFrame: CGRect,
+        floatingFrame: CGRect
+    ) -> CGRect? {
+        let candidate = isFloating ? floatingFrame : inlineFrame
+        guard isValid(candidate) else { return nil }
+        return candidate
+    }
+
+    static func shouldAnimate(from oldValue: Bool, to newValue: Bool) -> Bool {
+        oldValue != newValue
+    }
+
+    private static func isValid(_ frame: CGRect) -> Bool {
+        frame.minX.isFinite
+            && frame.minY.isFinite
+            && frame.width.isFinite
+            && frame.height.isFinite
+            && frame.width > 0
+            && frame.height > 0
+    }
+}
+
 enum VideoResizeHandle: CaseIterable, Hashable {
     case topLeading
     case topTrailing
@@ -317,6 +346,7 @@ final class FloatingVideoState: ObservableObject {
     @Published private(set) var frame = CGRect.zero
     @Published private(set) var videoID: UUID?
     @Published private(set) var inlineWidth: CGFloat = 0
+    @Published private(set) var inlineFrame = CGRect.zero
 
     func reset(for videoID: UUID?) {
         guard self.videoID != videoID else { return }
@@ -325,11 +355,22 @@ final class FloatingVideoState: ObservableObject {
         isFloating = false
         frame = .zero
         inlineWidth = 0
+        inlineFrame = .zero
     }
 
     func updateInlineWidth(_ width: CGFloat) {
         guard width.isFinite, width > 0, inlineWidth != width else { return }
         inlineWidth = width
+    }
+
+    func updateInlineFrame(_ frame: CGRect) {
+        guard VideoPlayerPresentationPolicy.destination(
+            isFloating: false,
+            inlineFrame: frame,
+            floatingFrame: .zero
+        ) != nil,
+        inlineFrame != frame else { return }
+        inlineFrame = frame
     }
 
     func updateVisibilityMeasurement(_ visibleFraction: Double?) {

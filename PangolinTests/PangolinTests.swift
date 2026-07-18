@@ -707,6 +707,23 @@ struct FloatingVideoStateTests {
         #expect(state.inlineWidth == 0)
     }
 
+    @Test("Inline frame records valid geometry and resets with video presentation")
+    func inlineFrameTracksCurrentVideoOnly() {
+        let state = FloatingVideoState()
+        let inlineFrame = CGRect(x: 120, y: 40, width: 800, height: 450)
+
+        state.reset(for: UUID())
+        state.updateInlineFrame(inlineFrame)
+        #expect(state.inlineFrame == inlineFrame)
+
+        state.updateInlineFrame(.zero)
+        state.updateInlineFrame(CGRect(x: CGFloat.nan, y: 0, width: 800, height: 450))
+        #expect(state.inlineFrame == inlineFrame)
+
+        state.reset(for: UUID())
+        #expect(state.inlineFrame == .zero)
+    }
+
     @Test("Visibility thresholds float and dock without resetting placement")
     func visibilityThresholdsPreservePlacement() {
         let videoID = UUID()
@@ -911,6 +928,47 @@ struct FloatingVideoKeyboardMovementTests {
         #expect(VideoFloatingKeyboardMovement.translation(for: .right) == CGSize(width: 10, height: 0))
         #expect(VideoFloatingKeyboardMovement.translation(for: .up) == CGSize(width: 0, height: -10))
         #expect(VideoFloatingKeyboardMovement.translation(for: .down) == CGSize(width: 0, height: 10))
+    }
+}
+
+@Suite("Video player presentation policy")
+struct VideoPlayerPresentationPolicyTests {
+    private let inline = CGRect(x: 100, y: 80, width: 800, height: 450)
+    private let floating = CGRect(x: 700, y: 40, width: 440, height: 247.5)
+
+    @Test("Docked presentation uses the inline frame")
+    func dockedDestination() {
+        #expect(VideoPlayerPresentationPolicy.destination(
+            isFloating: false,
+            inlineFrame: inline,
+            floatingFrame: floating
+        ) == inline)
+    }
+
+    @Test("Floating presentation uses the committed floating frame")
+    func floatingDestination() {
+        #expect(VideoPlayerPresentationPolicy.destination(
+            isFloating: true,
+            inlineFrame: inline,
+            floatingFrame: floating
+        ) == floating)
+    }
+
+    @Test("Invalid destinations are rejected")
+    func invalidDestination() {
+        #expect(VideoPlayerPresentationPolicy.destination(
+            isFloating: false,
+            inlineFrame: .zero,
+            floatingFrame: floating
+        ) == nil)
+    }
+
+    @Test("Only dock state changes animate")
+    func animationEligibility() {
+        #expect(VideoPlayerPresentationPolicy.shouldAnimate(from: false, to: true))
+        #expect(VideoPlayerPresentationPolicy.shouldAnimate(from: true, to: false))
+        #expect(!VideoPlayerPresentationPolicy.shouldAnimate(from: false, to: false))
+        #expect(!VideoPlayerPresentationPolicy.shouldAnimate(from: true, to: true))
     }
 }
 
