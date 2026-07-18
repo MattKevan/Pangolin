@@ -304,11 +304,6 @@ struct DetailView: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(Color.secondary.opacity(0.08))
-
-                #if os(iOS)
-                VideoPlayerWithPosterView(video: selectedVideo, viewModel: playerViewModel)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                #endif
             }
             .frame(maxWidth: VideoDetailLayout.contentMaxWidth)
             .aspectRatio(playerViewModel.videoAspectRatio, contentMode: .fit)

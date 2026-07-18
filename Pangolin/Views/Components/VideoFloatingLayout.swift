@@ -9,6 +9,38 @@ enum VideoFloatingCoordinateSpace {
     static let root = "videoFloatingRoot"
 }
 
+enum VideoPresentationHostLayout {
+    static func availableBounds(size: CGSize, insets: EdgeInsets) -> CGRect {
+        guard size.width.isFinite,
+              size.height.isFinite,
+              size.width > 0,
+              size.height > 0,
+              insets.top.isFinite,
+              insets.leading.isFinite,
+              insets.bottom.isFinite,
+              insets.trailing.isFinite,
+              insets.top >= 0,
+              insets.leading >= 0,
+              insets.bottom >= 0,
+              insets.trailing >= 0 else {
+            return .zero
+        }
+
+        let width = size.width - insets.leading - insets.trailing
+        let height = size.height - insets.top - insets.bottom
+        guard width.isFinite, height.isFinite, width > 0, height > 0 else {
+            return .zero
+        }
+
+        return CGRect(
+            x: insets.leading,
+            y: insets.top,
+            width: width,
+            height: height
+        )
+    }
+}
+
 enum VideoNavigationShell: Equatable {
     case workspace
     case phone

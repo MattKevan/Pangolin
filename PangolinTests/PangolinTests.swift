@@ -8,6 +8,7 @@
 import Testing
 import Foundation
 import Combine
+import SwiftUI
 @testable import Pangolin
 
 @MainActor
@@ -1266,6 +1267,24 @@ struct VideoPlayerPresentationPolicyTests {
             inline,
             overlayFrameInRoot: .zero
         ) == nil)
+    }
+}
+
+struct VideoPresentationHostLayoutTests {
+    @Test("Available bounds subtract safe-area insets")
+    func subtractsSafeAreaInsets() {
+        #expect(VideoPresentationHostLayout.availableBounds(
+            size: CGSize(width: 390, height: 844),
+            insets: EdgeInsets(top: 59, leading: 0, bottom: 34, trailing: 0)
+        ) == CGRect(x: 0, y: 59, width: 390, height: 751))
+    }
+
+    @Test("Oversized safe-area insets produce empty bounds")
+    func rejectsOversizedInsets() {
+        #expect(VideoPresentationHostLayout.availableBounds(
+            size: CGSize(width: 100, height: 100),
+            insets: EdgeInsets(top: 80, leading: 60, bottom: 30, trailing: 60)
+        ) == .zero)
     }
 }
 

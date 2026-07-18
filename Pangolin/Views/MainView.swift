@@ -120,15 +120,27 @@ struct MainView: View {
 
     @ViewBuilder
     private var rootShellView: some View {
-        #if os(iOS)
-        if UIDevice.current.userInterfaceIdiom == .phone {
-            phoneRootView
-        } else {
+        Group {
+            #if os(iOS)
+            if UIDevice.current.userInterfaceIdiom == .phone {
+                phoneRootView
+            } else {
+                rootNavigationSplitView
+            }
+            #else
             rootNavigationSplitView
+            #endif
         }
-        #else
-        rootNavigationSplitView
-        #endif
+        .coordinateSpace(name: VideoFloatingCoordinateSpace.root)
+        .overlay {
+            VideoPresentationHost(
+                selectedVideo: folderStore.selectedVideo,
+                isVideoDetailActive: folderStore.currentDetailSurface == .videoDetail,
+                playerViewModel: playerViewModel,
+                floatingState: floatingVideoState,
+                frameController: videoPresentationFrameController
+            )
+        }
     }
 
     @ViewBuilder
@@ -152,83 +164,7 @@ struct MainView: View {
             detailColumn
         }
         .navigationSplitViewStyle(.balanced)
-        .coordinateSpace(name: VideoFloatingCoordinateSpace.root)
-        #if os(macOS)
-        .overlay {
-            GeometryReader { geometry in
-                let rootBounds = CGRect(origin: .zero, size: geometry.size)
-
-                ZStack(alignment: .topLeading) {
-                    if shouldShowVideoPlayer,
-                       let selectedVideo = folderStore.selectedVideo {
-                        FloatingVideoPane(
-                            video: selectedVideo,
-                            playerViewModel: playerViewModel,
-                            floatingState: floatingVideoState,
-                            frameController: videoPresentationFrameController,
-                            dockedFrame: floatingVideoState.inlineFrame,
-                            availableBounds: rootBounds
-                        )
-                        .id(selectedVideo.id)
-                        .zIndex(100)
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .onChange(of: floatingVideoState.inlineFrame, initial: true) { _, _ in
-                    prepareFloatingVideo(in: rootBounds)
-                }
-                .onChange(of: floatingVideoState.inlineWidth) { _, _ in
-                    prepareFloatingVideo(in: rootBounds)
-                }
-                .onChange(of: geometry.size) { _, newSize in
-                    adjustFloatingVideo(
-                        to: CGRect(origin: .zero, size: newSize)
-                    )
-                }
-                .onChange(of: playerViewModel.videoAspectRatio) { _, _ in
-                    adjustFloatingVideo(to: rootBounds)
-                }
-            }
-            .clipped()
-            .allowsHitTesting(shouldShowVideoPlayer)
-        }
-        #endif
     }
-
-    #if os(macOS)
-    private var shouldShowVideoPlayer: Bool {
-        guard folderStore.currentDetailSurface == .videoDetail,
-              let selectedVideoID = folderStore.selectedVideo?.id else {
-            return false
-        }
-
-        return floatingVideoState.videoID == selectedVideoID
-            && VideoPlayerPresentationPolicy.destination(
-                isFloating: floatingVideoState.isFloating,
-                inlineFrame: floatingVideoState.inlineFrame,
-                floatingFrame: floatingVideoState.frame
-            ) != nil
-    }
-
-    private func prepareFloatingVideo(in rootBounds: CGRect) {
-        guard shouldShowVideoPlayer else { return }
-        floatingVideoState.prepareFloatingDestination(
-            in: rootBounds,
-            aspectRatio: playerViewModel.videoAspectRatio
-        )
-    }
-
-    private func adjustFloatingVideo(to rootBounds: CGRect) {
-        if shouldShowVideoPlayer {
-            prepareFloatingVideo(in: rootBounds)
-        } else {
-            floatingVideoState.clamp(
-                to: rootBounds,
-                aspectRatio: playerViewModel.videoAspectRatio
-            )
-        }
-    }
-    #endif
 
     private var splitViewColumnVisibility: Binding<NavigationSplitViewVisibility> {
         Binding(
