@@ -79,6 +79,9 @@ struct MainView: View {
         let selectedVideo = folderStore.selectedVideo
         let isVideoDetailActive = folderStore.currentDetailSurface == .videoDetail
         let activeVideo = isVideoDetailActive ? selectedVideo : nil
+        if floatingVideoState.videoID != activeVideo?.id || !isVideoDetailActive {
+            videoPresentationFrameController.reset()
+        }
         floatingVideoState.reset(for: activeVideo?.id)
 
         switch VideoPlaybackSelection.action(
@@ -166,6 +169,7 @@ struct MainView: View {
                             dockedFrame: floatingVideoState.inlineFrame,
                             availableBounds: rootBounds
                         )
+                        .id(selectedVideo.id)
                         .zIndex(100)
                     }
                 }

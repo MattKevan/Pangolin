@@ -109,13 +109,14 @@ struct FloatingVideoPane: View {
                 floatingState.isFloating ? "Floating video player" : "Video player"
             )
             .accessibilityValue(accessibilityFrameValue)
-            .accessibilityAction(named: "Reset position") {
-                resetPlacement()
-            }
+            .floatingResetAccessibilityAction(
+                isFloating: floatingState.isFloating,
+                action: resetPlacement
+            )
     }
 
     private var accessibilityFrameValue: String {
-        "Position \(Int(floatingState.frame.minX)), \(Int(floatingState.frame.minY)); width \(Int(floatingState.frame.width))"
+        "Position \(Int(renderedFrame.minX)), \(Int(renderedFrame.minY)); width \(Int(renderedFrame.width))"
     }
 
     private var dragHandle: some View {
@@ -169,7 +170,7 @@ struct FloatingVideoPane: View {
         }
         .buttonStyle(.plain)
         .padding(.top, 6)
-        .padding(.trailing, 34)
+        .padding(.trailing, 52)
         .macOSResetShortcut()
         .macOSHelp("Reset floating video position (Command-Option-0)")
         .accessibilityLabel("Reset floating video position")
@@ -222,6 +223,7 @@ struct FloatingVideoPane: View {
                 in: availableBounds,
                 aspectRatio: playerViewModel.videoAspectRatio
             )
+            updatePresentation(isInteracting: true)
         }
         interactionStartFrame = nil
         interactionPreviewFrame = nil
@@ -262,6 +264,7 @@ struct FloatingVideoPane: View {
             in: availableBounds,
             aspectRatio: playerViewModel.videoAspectRatio
         )
+        updatePresentation(isInteracting: true)
     }
 
     private func resetPlacement() {
@@ -271,6 +274,7 @@ struct FloatingVideoPane: View {
             inlineWidth: dockedFrame.width,
             aspectRatio: playerViewModel.videoAspectRatio
         )
+        updatePresentation(isInteracting: true)
     }
 
     private func updatePresentation(isInteracting: Bool) {
@@ -334,6 +338,7 @@ struct FloatingVideoPane: View {
             in: availableBounds,
             aspectRatio: playerViewModel.videoAspectRatio
         )
+        updatePresentation(isInteracting: true)
     }
     #else
     private var macOSFocusBinding: Never? { nil }
@@ -378,5 +383,17 @@ private extension View {
         #else
         self
         #endif
+    }
+
+    @ViewBuilder
+    func floatingResetAccessibilityAction(
+        isFloating: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        if isFloating {
+            accessibilityAction(named: "Reset position", action)
+        } else {
+            self
+        }
     }
 }
