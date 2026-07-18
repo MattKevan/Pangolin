@@ -1091,4 +1091,30 @@ struct TranscriptFollowPolicyTests {
         #expect(restartedDeadline == Date(timeIntervalSinceReferenceDate: 106.5))
         #expect(restartedDeadline > firstDeadline)
     }
+
+    @Test("Playing paragraph without geometry uses an ID fallback")
+    func missingGeometryFallsBack() {
+        #expect(TranscriptFollowPolicy.shouldScrollToIDFallback(
+            hasActiveParagraph: true,
+            hasMeasurement: false,
+            isPlaying: true,
+            isSuppressed: false
+        ))
+    }
+
+    @Test("Suppression prevents the missing-geometry fallback")
+    func suppressionPreventsFallback() {
+        #expect(!TranscriptFollowPolicy.shouldScrollToIDFallback(
+            hasActiveParagraph: true,
+            hasMeasurement: false,
+            isPlaying: true,
+            isSuppressed: true
+        ))
+    }
+
+    @Test("Removing the active paragraph requires lifecycle reset")
+    func removalRequiresReset() {
+        #expect(TranscriptFollowPolicy.shouldResetLifecycle(activeParagraphID: nil))
+        #expect(!TranscriptFollowPolicy.shouldResetLifecycle(activeParagraphID: "paragraph-1"))
+    }
 }

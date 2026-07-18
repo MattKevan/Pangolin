@@ -41,6 +41,22 @@ enum TranscriptFollowPolicy {
         return isBelowSafeArea || (mode == .resume && isAboveSafeArea)
     }
 
+    static func shouldScrollToIDFallback(
+        hasActiveParagraph: Bool,
+        hasMeasurement: Bool,
+        isPlaying: Bool,
+        isSuppressed: Bool
+    ) -> Bool {
+        hasActiveParagraph
+            && !hasMeasurement
+            && isPlaying
+            && !isSuppressed
+    }
+
+    static func shouldResetLifecycle(activeParagraphID: String?) -> Bool {
+        activeParagraphID == nil
+    }
+
     private static func isValid(_ frame: CGRect) -> Bool {
         frame.origin.x.isFinite
             && frame.origin.y.isFinite
@@ -356,7 +372,8 @@ struct DetailView: View {
                 onActiveParagraphChange: { paragraphID in
                     updateActiveTranscriptParagraph(
                         paragraphID,
-                        selectedVideoID: selectedVideo.id
+                        selectedVideoID: selectedVideo.id,
+                        scrollProxy: scrollProxy
                     )
                 }
             )
@@ -372,7 +389,8 @@ struct DetailView: View {
 
     private func updateActiveTranscriptParagraph(
         _ paragraphID: String?,
-        selectedVideoID: UUID?
+        selectedVideoID: UUID?,
+        scrollProxy: ScrollViewProxy
     ) {
         guard selectedInspectorTab == .transcript,
               let selectedVideoID,
@@ -381,8 +399,20 @@ struct DetailView: View {
         }
         guard activeTranscriptParagraphID != paragraphID else { return }
 
+        if TranscriptFollowPolicy.shouldResetLifecycle(
+            activeParagraphID: paragraphID
+        ) {
+            resetTranscriptFollowState()
+            return
+        }
+
         activeTranscriptParagraphID = paragraphID
         activeTranscriptMeasurement = nil
+        attemptTranscriptFollow(
+            mode: .playbackAdvance,
+            selectedVideoID: selectedVideoID,
+            scrollProxy: scrollProxy
+        )
     }
 
     private func updateActiveTranscriptMeasurement(
@@ -513,9 +543,9 @@ struct DetailView: View {
         }
 
         let viewport = CGRect(origin: .zero, size: detailViewportSize)
-        if let measurement = activeTranscriptMeasurement,
-           measurement.videoID == selectedVideoID,
-           measurement.paragraphID == paragraphID {
+        let hasCurrentMeasurement = activeTranscriptMeasurement?.videoID == selectedVideoID
+            && activeTranscriptMeasurement?.paragraphID == paragraphID
+        if hasCurrentMeasurement, let measurement = activeTranscriptMeasurement {
             guard TranscriptFollowPolicy.shouldScroll(
                 paragraphFrame: measurement.frame,
                 viewport: viewport,
@@ -525,8 +555,13 @@ struct DetailView: View {
             ) else {
                 return
             }
-        } else if mode != .resume {
-            return
+        } else {
+            guard TranscriptFollowPolicy.shouldScrollToIDFallback(
+                hasActiveParagraph: true,
+                hasMeasurement: false,
+                isPlaying: playerViewModel.isPlaying,
+                isSuppressed: isTranscriptFollowSuppressed
+            ) else { return }
         }
 
         withAnimation(.easeInOut(duration: 0.2)) {
