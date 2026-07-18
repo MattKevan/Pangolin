@@ -25,6 +25,7 @@ struct MainView: View {
 
     @EnvironmentObject var libraryManager: LibraryManager
     @EnvironmentObject var videoFileManager: VideoFileManager
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @StateObject private var folderStore: FolderNavigationStore
     @StateObject private var searchManager = SearchManager()
     @StateObject private var playerViewModel = VideoPlayerViewModel()
@@ -149,9 +150,34 @@ struct MainView: View {
         }
     }
 
+    @ViewBuilder
     private var rootNavigationSplitView: some View {
-        baseNavigationSplitView
-            .toolbar(removing: .sidebarToggle)
+        if workspaceToolbarOwnership == .appOwned {
+            baseNavigationSplitView
+                .toolbar(removing: .sidebarToggle)
+        } else {
+            baseNavigationSplitView
+        }
+    }
+
+    private var isWorkspaceVideoDetail: Bool {
+        folderStore.showsVideoBackButton
+    }
+
+    private var workspaceToolbarOwnership: WorkspaceToolbarOwnership {
+        VideoToolbarPolicy.ownership(
+            shell: .workspace,
+            isVideoDetail: isWorkspaceVideoDetail,
+            supportsAppOwnedSidebarButton: supportsAppOwnedWorkspaceSidebarButton
+        )
+    }
+
+    private var supportsAppOwnedWorkspaceSidebarButton: Bool {
+        #if os(macOS)
+        true
+        #else
+        horizontalSizeClass != .compact
+        #endif
     }
 
     private var baseNavigationSplitView: some View {
@@ -186,6 +212,119 @@ struct MainView: View {
 
     private var detailColumn: some View {
         configuredDetailColumn
+            .toolbar {
+                workspaceToolbarContent
+            }
+    }
+
+    @ToolbarContentBuilder
+    private var workspaceToolbarContent: some ToolbarContent {
+        ToolbarItemGroup(placement: .navigation) {
+            if VideoToolbarPolicy.showsSidebarButton(
+                shell: .workspace,
+                isVideoDetail: isWorkspaceVideoDetail,
+                supportsAppOwnedSidebarButton: supportsAppOwnedWorkspaceSidebarButton
+            ) {
+                Button {
+                    standardColumnVisibility = WorkspaceSidebarVisibilityPolicy.toggled(
+                        from: standardColumnVisibility
+                    )
+                } label: {
+                    Image(systemName: "sidebar.left")
+                }
+                .help(standardColumnVisibility == .detailOnly ? "Show Sidebar" : "Hide Sidebar")
+                .accessibilityLabel(standardColumnVisibility == .detailOnly ? "Show Sidebar" : "Hide Sidebar")
+            }
+
+            if VideoToolbarPolicy.showsVideoBackButton(
+                shell: .workspace,
+                isVideoDetail: isWorkspaceVideoDetail,
+                supportsAppOwnedSidebarButton: supportsAppOwnedWorkspaceSidebarButton
+            ) {
+                Button {
+                    folderStore.navigateBackFromDetail()
+                } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .help("Back")
+                .accessibilityLabel("Back")
+            } else if !isStartingUp && !folderStore.isSearchMode {
+                if folderStore.showsProjectBackButton {
+                    Button {
+                        folderStore.navigateBackFromDetail()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                    }
+                    .help("Back")
+                    .accessibilityLabel("Back")
+                }
+
+                Button {
+                    showingImportPicker = true
+                } label: {
+                    Image(systemName: "video.badge.plus")
+                }
+                .help("Import videos")
+                .disabled(libraryManager.currentLibrary == nil)
+
+                #if os(macOS)
+                Button {
+                    showingURLImportSheet = true
+                } label: {
+                    Image(systemName: "link.badge.plus")
+                }
+                .help("Import from URL")
+                .disabled(libraryManager.currentLibrary == nil)
+                #endif
+            }
+        }
+
+        ToolbarItemGroup(placement: .primaryAction) {
+            if !isStartingUp && (processingQueueManager.visibleActiveTaskCount > 0 || processingQueueManager.failedTasks > 0 || videoFileManager.failedTransferCount > 0) {
+                Button {
+                    showTaskPopover.toggle()
+                } label: {
+                    let hasActiveTasks = processingQueueManager.visibleActiveTaskCount > 0
+                    let failedProcessingCount = processingQueueManager.failedTasks
+                    let transferIssueCount = videoFileManager.failedTransferCount
+                    let nonActiveIssueCount = transferIssueCount + failedProcessingCount
+                    let badgeCount = nonActiveIssueCount > 0 ? nonActiveIssueCount : max(0, processingQueueManager.visibleActiveTaskCount - 1)
+
+                    ZStack(alignment: .topTrailing) {
+                        if hasActiveTasks {
+                            ProgressView()
+                                .controlSize(.small)
+                                .frame(width: 16, height: 16)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 3)
+                        } else {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 3)
+                        }
+
+                        if badgeCount > 0 {
+                            Text("\(min(badgeCount, 99))")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundColor(.white)
+                                .frame(width: 12, height: 12)
+                                .background(Color.red)
+                                .clipShape(Circle())
+                                .offset(x: 4, y: -2)
+                        }
+                    }
+                    .frame(minWidth: 24, minHeight: 22, alignment: .center)
+                    .contentShape(Rectangle())
+                    .accessibilityLabel("Background tasks")
+                    .accessibilityValue("\(processingQueueManager.visibleActiveTaskCount) active tasks, \(processingQueueManager.failedTasks) failed tasks, \(videoFileManager.failedTransferCount) transfer issues")
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $showTaskPopover, arrowEdge: .top) {
+                    ProcessingPopoverView(processingManager: processingQueueManager)
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -199,7 +338,6 @@ struct MainView: View {
             )
             .navigationSplitViewColumnWidth(min: 420, ideal: 760)
         } else {
-            let isVideoDetail = folderStore.showsVideoBackButton
             let baseDetailColumn = DetailColumnView(
                 playerViewModel: playerViewModel,
                 floatingVideoState: floatingVideoState
@@ -209,109 +347,6 @@ struct MainView: View {
                 .environmentObject(libraryManager)
                 .environmentObject(transcriptionService)
                 .navigationSplitViewColumnWidth(min: 420, ideal: 760)
-                .toolbar {
-                    ToolbarItemGroup(placement: .navigation) {
-                        if VideoToolbarPolicy.showsSidebarButton(
-                            shell: .workspace,
-                            isVideoDetail: isVideoDetail,
-                            supportsAppOwnedSidebarButton: true
-                        ) {
-                            Button {
-                                standardColumnVisibility = standardColumnVisibility == .detailOnly ? .all : .detailOnly
-                            } label: {
-                                Image(systemName: "sidebar.left")
-                            }
-                            .help(standardColumnVisibility == .detailOnly ? "Show Sidebar" : "Hide Sidebar")
-                            .accessibilityLabel(standardColumnVisibility == .detailOnly ? "Show Sidebar" : "Hide Sidebar")
-                        }
-
-                        if VideoToolbarPolicy.showsVideoBackButton(
-                            shell: .workspace,
-                            isVideoDetail: isVideoDetail
-                        ) {
-                            Button {
-                                folderStore.navigateBackFromDetail()
-                            } label: {
-                                Image(systemName: "chevron.left")
-                            }
-                            .help("Back")
-                        } else if !folderStore.isSearchMode {
-                            if folderStore.showsProjectBackButton {
-                                Button {
-                                    folderStore.navigateBackFromDetail()
-                                } label: {
-                                    Image(systemName: "chevron.left")
-                                }
-                                .help("Back")
-                            }
-
-                            Button {
-                                showingImportPicker = true
-                            } label: {
-                                Image(systemName: "video.badge.plus")
-                            }
-                            .help("Import videos")
-                            .disabled(libraryManager.currentLibrary == nil)
-
-                            #if os(macOS)
-                            Button {
-                                showingURLImportSheet = true
-                            } label: {
-                                Image(systemName: "link.badge.plus")
-                            }
-                            .help("Import from URL")
-                            .disabled(libraryManager.currentLibrary == nil)
-                            #endif
-                        }
-                    }
-
-                    ToolbarItemGroup(placement: .primaryAction) {
-                        if processingQueueManager.visibleActiveTaskCount > 0 || processingQueueManager.failedTasks > 0 || videoFileManager.failedTransferCount > 0 {
-                            Button {
-                                showTaskPopover.toggle()
-                            } label: {
-                                let hasActiveTasks = processingQueueManager.visibleActiveTaskCount > 0
-                                let failedProcessingCount = processingQueueManager.failedTasks
-                                let transferIssueCount = videoFileManager.failedTransferCount
-                                let nonActiveIssueCount = transferIssueCount + failedProcessingCount
-                                let badgeCount = nonActiveIssueCount > 0 ? nonActiveIssueCount : max(0, processingQueueManager.visibleActiveTaskCount - 1)
-
-                                ZStack(alignment: .topTrailing) {
-                                    if hasActiveTasks {
-                                        ProgressView()
-                                            .controlSize(.small)
-                                            .frame(width: 16, height: 16)
-                                        .padding(.horizontal, 4)
-                                        .padding(.vertical, 3)
-                                    } else {
-                                        Image(systemName: "exclamationmark.triangle.fill")
-                                            .foregroundColor(.orange)
-                                            .padding(.horizontal, 4)
-                                            .padding(.vertical, 3)
-                                    }
-
-                                    if badgeCount > 0 {
-                                        Text("\(min(badgeCount, 99))")
-                                            .font(.system(size: 8, weight: .bold))
-                                            .foregroundColor(.white)
-                                            .frame(width: 12, height: 12)
-                                            .background(Color.red)
-                                            .clipShape(Circle())
-                                            .offset(x: 4, y: -2)
-                                    }
-                                }
-                                .frame(minWidth: 24, minHeight: 22, alignment: .center)
-                                .contentShape(Rectangle())
-                                .accessibilityLabel("Background tasks")
-                                .accessibilityValue("\(processingQueueManager.visibleActiveTaskCount) active tasks, \(processingQueueManager.failedTasks) failed tasks, \(videoFileManager.failedTransferCount) transfer issues")
-                            }
-                            .buttonStyle(.plain)
-                            .popover(isPresented: $showTaskPopover, arrowEdge: .top) {
-                                ProcessingPopoverView(processingManager: processingQueueManager)
-                            }
-                        }
-                    }
-                }
             .onChange(of: folderStore.isSearchMode) { _, isSearchMode in
                 isSearchFieldPresented = isSearchMode
                 if isSearchMode {

@@ -107,22 +107,66 @@ enum VideoNavigationShell: Equatable {
     case phone
 }
 
+enum WorkspaceToolbarOwnership: Equatable {
+    case appOwned
+    case systemOwned
+    case none
+}
+
 enum VideoToolbarPolicy {
+    static func ownership(
+        shell: VideoNavigationShell,
+        isVideoDetail: Bool,
+        supportsAppOwnedSidebarButton: Bool
+    ) -> WorkspaceToolbarOwnership {
+        guard shell == .workspace else { return .none }
+        return isVideoDetail || supportsAppOwnedSidebarButton ? .appOwned : .systemOwned
+    }
+
+    static func removesSystemSidebarButton(
+        shell: VideoNavigationShell,
+        isVideoDetail: Bool,
+        supportsAppOwnedSidebarButton: Bool
+    ) -> Bool {
+        ownership(
+            shell: shell,
+            isVideoDetail: isVideoDetail,
+            supportsAppOwnedSidebarButton: supportsAppOwnedSidebarButton
+        ) == .appOwned
+    }
+
     static func showsSidebarButton(
         shell: VideoNavigationShell,
         isVideoDetail: Bool,
         supportsAppOwnedSidebarButton: Bool
     ) -> Bool {
-        shell == .workspace
-            && supportsAppOwnedSidebarButton
+        ownership(
+            shell: shell,
+            isVideoDetail: isVideoDetail,
+            supportsAppOwnedSidebarButton: supportsAppOwnedSidebarButton
+        ) == .appOwned
             && !isVideoDetail
     }
 
     static func showsVideoBackButton(
         shell: VideoNavigationShell,
-        isVideoDetail: Bool
+        isVideoDetail: Bool,
+        supportsAppOwnedSidebarButton: Bool
     ) -> Bool {
-        shell == .workspace && isVideoDetail
+        ownership(
+            shell: shell,
+            isVideoDetail: isVideoDetail,
+            supportsAppOwnedSidebarButton: supportsAppOwnedSidebarButton
+        ) == .appOwned
+            && isVideoDetail
+    }
+}
+
+enum WorkspaceSidebarVisibilityPolicy {
+    static func toggled(
+        from visibility: NavigationSplitViewVisibility
+    ) -> NavigationSplitViewVisibility {
+        visibility == .detailOnly ? .all : .detailOnly
     }
 }
 

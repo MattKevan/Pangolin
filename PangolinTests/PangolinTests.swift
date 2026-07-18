@@ -1430,8 +1430,18 @@ struct PhoneProjectVideoRouteSyncPolicyTests {
 
 @Suite("Video toolbar policy")
 struct VideoToolbarPolicyTests {
-    @Test("Collapsed ordinary workspace keeps its app-owned sidebar button to reopen the sidebar")
-    func collapsedWorkspaceShowsSidebarButton() {
+    @Test("Regular workspace owns ordinary sidebar navigation")
+    func regularWorkspaceOwnsSidebarNavigation() {
+        #expect(VideoToolbarPolicy.ownership(
+            shell: .workspace,
+            isVideoDetail: false,
+            supportsAppOwnedSidebarButton: true
+        ) == .appOwned)
+        #expect(VideoToolbarPolicy.removesSystemSidebarButton(
+            shell: .workspace,
+            isVideoDetail: false,
+            supportsAppOwnedSidebarButton: true
+        ))
         #expect(VideoToolbarPolicy.showsSidebarButton(
             shell: .workspace,
             isVideoDetail: false,
@@ -1439,8 +1449,18 @@ struct VideoToolbarPolicyTests {
         ))
     }
 
-    @Test("Ordinary workspace hides its sidebar button when app ownership is unsupported")
-    func workspaceWithoutAppOwnedSidebarSupportHidesSidebarButton() {
+    @Test("Compact workspace retains native ordinary split navigation")
+    func compactWorkspaceUsesSystemSidebarNavigation() {
+        #expect(VideoToolbarPolicy.ownership(
+            shell: .workspace,
+            isVideoDetail: false,
+            supportsAppOwnedSidebarButton: false
+        ) == .systemOwned)
+        #expect(!VideoToolbarPolicy.removesSystemSidebarButton(
+            shell: .workspace,
+            isVideoDetail: false,
+            supportsAppOwnedSidebarButton: false
+        ))
         #expect(!VideoToolbarPolicy.showsSidebarButton(
             shell: .workspace,
             isVideoDetail: false,
@@ -1448,30 +1468,61 @@ struct VideoToolbarPolicyTests {
         ))
     }
 
-    @Test("Workspace video detail replaces the sidebar button with Back")
-    func workspaceVideoDetailShowsBackButton() {
-        #expect(!VideoToolbarPolicy.showsSidebarButton(
-            shell: .workspace,
+    @Test("Every workspace video detail replaces split navigation with store-aware Back")
+    func everyWorkspaceVideoDetailUsesAppOwnedBack() {
+        for supportsAppOwnedSidebarButton in [false, true] {
+            #expect(VideoToolbarPolicy.ownership(
+                shell: .workspace,
+                isVideoDetail: true,
+                supportsAppOwnedSidebarButton: supportsAppOwnedSidebarButton
+            ) == .appOwned)
+            #expect(VideoToolbarPolicy.removesSystemSidebarButton(
+                shell: .workspace,
+                isVideoDetail: true,
+                supportsAppOwnedSidebarButton: supportsAppOwnedSidebarButton
+            ))
+            #expect(!VideoToolbarPolicy.showsSidebarButton(
+                shell: .workspace,
+                isVideoDetail: true,
+                supportsAppOwnedSidebarButton: supportsAppOwnedSidebarButton
+            ))
+            #expect(VideoToolbarPolicy.showsVideoBackButton(
+                shell: .workspace,
+                isVideoDetail: true,
+                supportsAppOwnedSidebarButton: supportsAppOwnedSidebarButton
+            ))
+        }
+    }
+
+    @Test("Phone navigation remains native")
+    func phoneUsesNativeNavigation() {
+        #expect(VideoToolbarPolicy.ownership(
+            shell: .phone,
+            isVideoDetail: true,
+            supportsAppOwnedSidebarButton: true
+        ) == .none)
+        #expect(!VideoToolbarPolicy.removesSystemSidebarButton(
+            shell: .phone,
             isVideoDetail: true,
             supportsAppOwnedSidebarButton: true
         ))
-        #expect(VideoToolbarPolicy.showsVideoBackButton(
-            shell: .workspace,
-            isVideoDetail: true
-        ))
-    }
-
-    @Test("Phone video detail does not use workspace navigation controls")
-    func phoneVideoDetailHidesWorkspaceControls() {
         #expect(!VideoToolbarPolicy.showsSidebarButton(
             shell: .phone,
             isVideoDetail: true,
-            supportsAppOwnedSidebarButton: false
+            supportsAppOwnedSidebarButton: true
         ))
         #expect(!VideoToolbarPolicy.showsVideoBackButton(
             shell: .phone,
-            isVideoDetail: true
+            isVideoDetail: true,
+            supportsAppOwnedSidebarButton: true
         ))
+    }
+
+    @Test("Sidebar toggle reopens detail-only and collapses every other visible state")
+    func sidebarVisibilityToggleTransitions() {
+        #expect(WorkspaceSidebarVisibilityPolicy.toggled(from: .detailOnly) == .all)
+        #expect(WorkspaceSidebarVisibilityPolicy.toggled(from: .all) == .detailOnly)
+        #expect(WorkspaceSidebarVisibilityPolicy.toggled(from: .automatic) == .detailOnly)
     }
 }
 
