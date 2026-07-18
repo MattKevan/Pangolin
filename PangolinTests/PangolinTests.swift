@@ -999,4 +999,17 @@ struct TranscriptFollowPolicyTests {
             mode: .resume
         ))
     }
+
+    @Test("Suppression deadline restarts from the latest user input")
+    func suppressionDeadlineRestarts() {
+        let firstInput = Date(timeIntervalSinceReferenceDate: 100)
+        let laterInput = Date(timeIntervalSinceReferenceDate: 102.5)
+
+        let firstDeadline = TranscriptFollowPolicy.suppressionDeadline(after: firstInput)
+        let restartedDeadline = TranscriptFollowPolicy.suppressionDeadline(after: laterInput)
+
+        #expect(firstDeadline == Date(timeIntervalSinceReferenceDate: 104))
+        #expect(restartedDeadline == Date(timeIntervalSinceReferenceDate: 106.5))
+        #expect(restartedDeadline > firstDeadline)
+    }
 }

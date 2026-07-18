@@ -15,7 +15,12 @@ enum TranscriptFollowMode: Equatable {
 enum TranscriptFollowPolicy {
     static let bottomMargin: CGFloat = 96
     static let topMargin: CGFloat = 40
+    static let suppressionInterval: TimeInterval = 4
     static let suppressionDuration: Duration = .seconds(4)
+
+    static func suppressionDeadline(after inputDate: Date) -> Date {
+        inputDate.addingTimeInterval(suppressionInterval)
+    }
 
     static func shouldScroll(
         paragraphFrame: CGRect,
@@ -64,6 +69,25 @@ private struct InlineVideoGeometryPreferenceKey: PreferenceKey {
     }
 }
 
+private struct ActiveTranscriptGeometry: Equatable {
+    let videoID: UUID
+    let paragraphID: String
+    let frame: CGRect
+}
+
+private struct ActiveTranscriptGeometryPreferenceKey: PreferenceKey {
+    static let defaultValue: ActiveTranscriptGeometry? = nil
+
+    static func reduce(
+        value: inout ActiveTranscriptGeometry?,
+        nextValue: () -> ActiveTranscriptGeometry?
+    ) {
+        if let nextValue = nextValue() {
+            value = nextValue
+        }
+    }
+}
+
 struct DetailView: View {
     @EnvironmentObject private var store: FolderNavigationStore
     @EnvironmentObject private var libraryManager: LibraryManager
@@ -78,6 +102,13 @@ struct DetailView: View {
     @State private var isControlsInspectorPresented = false
     @State private var isSearchVisibleOnPhone = false
     @State private var pageScrollPosition: String?
+    @State private var detailViewportSize = CGSize.zero
+    @State private var activeTranscriptParagraphID: String?
+    @State private var activeTranscriptMeasurement: ActiveTranscriptGeometry?
+    @State private var isTranscriptFollowSuppressed = false
+    @State private var isUserScrollingTranscript = false
+    @State private var transcriptFollowSuppressionDeadline: Date?
+    @State private var transcriptFollowResumeTask: Task<Void, Never>?
 
     init(
         video: Video?,
@@ -119,6 +150,7 @@ struct DetailView: View {
             }
         }
         .onChange(of: selectedInspectorTab) { _, newValue in
+            resetTranscriptFollowState()
             if newValue != .transcript {
                 searchModel.reset()
                 isSearchVisibleOnPhone = false
@@ -206,12 +238,42 @@ struct DetailView: View {
                         selectedVideoID: selectedVideo.id
                     )
                 }
+                .onPreferenceChange(ActiveTranscriptGeometryPreferenceKey.self) { measurement in
+                    updateActiveTranscriptMeasurement(
+                        measurement,
+                        selectedVideoID: selectedVideo.id,
+                        scrollProxy: proxy
+                    )
+                }
+                .onScrollPhaseChange { _, newPhase in
+                    handleScrollPhase(
+                        newPhase,
+                        selectedVideoID: selectedVideo.id,
+                        scrollProxy: proxy
+                    )
+                }
                 .onAppear {
+                    detailViewportSize = viewportGeometry.size
                     pageScrollPosition = topAnchorID
                 }
+                .onChange(of: viewportGeometry.size) { _, newSize in
+                    detailViewportSize = newSize
+                }
                 .onChange(of: selectedVideo.id) { _, _ in
+                    resetTranscriptFollowState()
                     pageScrollPosition = topAnchorID
                     proxy.scrollTo(topAnchorID, anchor: .top)
+                }
+                .onChange(of: playerViewModel.isPlaying) { _, isPlaying in
+                    guard isPlaying else { return }
+                    attemptTranscriptFollow(
+                        mode: .resume,
+                        selectedVideoID: selectedVideo.id,
+                        scrollProxy: proxy
+                    )
+                }
+                .onDisappear {
+                    resetTranscriptFollowState()
                 }
             }
         }
@@ -279,9 +341,19 @@ struct DetailView: View {
                 searchModel: searchModel,
                 preferredTranslationLocaleIdentifier: preferredTranslationLocaleIdentifier,
                 onRequestScrollToParagraph: { paragraphID in
+                    suppressTranscriptFollowForIntentionalNavigation(
+                        selectedVideoID: selectedVideo.id,
+                        scrollProxy: scrollProxy
+                    )
                     withAnimation(.easeInOut(duration: 0.15)) {
                         scrollProxy.scrollTo(paragraphID, anchor: .center)
                     }
+                },
+                onActiveParagraphChange: { paragraphID in
+                    updateActiveTranscriptParagraph(
+                        paragraphID,
+                        selectedVideoID: selectedVideo.id
+                    )
                 }
             )
             .environmentObject(libraryManager)
@@ -293,6 +365,180 @@ struct DetailView: View {
     }
 
     static let detailViewportCoordinateSpace = "videoDetailViewport"
+
+    private func updateActiveTranscriptParagraph(
+        _ paragraphID: String?,
+        selectedVideoID: UUID?
+    ) {
+        guard selectedInspectorTab == .transcript,
+              let selectedVideoID,
+              effectiveSelectedVideo?.id == selectedVideoID else {
+            return
+        }
+        guard activeTranscriptParagraphID != paragraphID else { return }
+
+        activeTranscriptParagraphID = paragraphID
+        activeTranscriptMeasurement = nil
+    }
+
+    private func updateActiveTranscriptMeasurement(
+        _ measurement: ActiveTranscriptGeometry?,
+        selectedVideoID: UUID?,
+        scrollProxy: ScrollViewProxy
+    ) {
+        guard selectedInspectorTab == .transcript,
+              let selectedVideoID,
+              effectiveSelectedVideo?.id == selectedVideoID else {
+            return
+        }
+
+        guard let measurement else {
+            activeTranscriptMeasurement = nil
+            return
+        }
+        guard measurement.videoID == selectedVideoID,
+              measurement.paragraphID == activeTranscriptParagraphID else {
+            return
+        }
+
+        activeTranscriptMeasurement = measurement
+        attemptTranscriptFollow(
+            mode: .playbackAdvance,
+            selectedVideoID: selectedVideoID,
+            scrollProxy: scrollProxy
+        )
+    }
+
+    private func handleScrollPhase(
+        _ phase: ScrollPhase,
+        selectedVideoID: UUID?,
+        scrollProxy: ScrollViewProxy
+    ) {
+        guard selectedInspectorTab == .transcript,
+              let selectedVideoID,
+              effectiveSelectedVideo?.id == selectedVideoID else {
+            return
+        }
+
+        switch phase {
+        case .tracking, .interacting, .decelerating:
+            transcriptFollowResumeTask?.cancel()
+            transcriptFollowResumeTask = nil
+            transcriptFollowSuppressionDeadline = nil
+            isUserScrollingTranscript = true
+            isTranscriptFollowSuppressed = true
+        case .idle:
+            guard isUserScrollingTranscript else { return }
+            isUserScrollingTranscript = false
+            scheduleTranscriptFollowResume(
+                selectedVideoID: selectedVideoID,
+                scrollProxy: scrollProxy
+            )
+        case .animating:
+            break
+        @unknown default:
+            break
+        }
+    }
+
+    private func suppressTranscriptFollowForIntentionalNavigation(
+        selectedVideoID: UUID?,
+        scrollProxy: ScrollViewProxy
+    ) {
+        guard selectedInspectorTab == .transcript,
+              let selectedVideoID,
+              effectiveSelectedVideo?.id == selectedVideoID else {
+            return
+        }
+
+        isUserScrollingTranscript = false
+        isTranscriptFollowSuppressed = true
+        scheduleTranscriptFollowResume(
+            selectedVideoID: selectedVideoID,
+            scrollProxy: scrollProxy
+        )
+    }
+
+    private func scheduleTranscriptFollowResume(
+        selectedVideoID: UUID,
+        scrollProxy: ScrollViewProxy
+    ) {
+        transcriptFollowResumeTask?.cancel()
+        isTranscriptFollowSuppressed = true
+
+        let deadline = TranscriptFollowPolicy.suppressionDeadline(after: Date())
+        transcriptFollowSuppressionDeadline = deadline
+        transcriptFollowResumeTask = Task { @MainActor in
+            let delay = max(0, deadline.timeIntervalSinceNow)
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+
+            guard !Task.isCancelled,
+                  transcriptFollowSuppressionDeadline == deadline,
+                  selectedInspectorTab == .transcript,
+                  effectiveSelectedVideo?.id == selectedVideoID else {
+                return
+            }
+
+            transcriptFollowResumeTask = nil
+            transcriptFollowSuppressionDeadline = nil
+            isTranscriptFollowSuppressed = false
+            attemptTranscriptFollow(
+                mode: .resume,
+                selectedVideoID: selectedVideoID,
+                scrollProxy: scrollProxy
+            )
+        }
+    }
+
+    private func attemptTranscriptFollow(
+        mode: TranscriptFollowMode,
+        selectedVideoID: UUID?,
+        scrollProxy: ScrollViewProxy
+    ) {
+        guard selectedInspectorTab == .transcript,
+              let selectedVideoID,
+              effectiveSelectedVideo?.id == selectedVideoID,
+              let paragraphID = activeTranscriptParagraphID,
+              playerViewModel.isPlaying,
+              !isTranscriptFollowSuppressed else {
+            return
+        }
+
+        let viewport = CGRect(origin: .zero, size: detailViewportSize)
+        if let measurement = activeTranscriptMeasurement,
+           measurement.videoID == selectedVideoID,
+           measurement.paragraphID == paragraphID {
+            guard TranscriptFollowPolicy.shouldScroll(
+                paragraphFrame: measurement.frame,
+                viewport: viewport,
+                isPlaying: playerViewModel.isPlaying,
+                isSuppressed: isTranscriptFollowSuppressed,
+                mode: mode
+            ) else {
+                return
+            }
+        } else if mode != .resume {
+            return
+        }
+
+        withAnimation(.easeInOut(duration: 0.2)) {
+            scrollProxy.scrollTo(paragraphID, anchor: .center)
+        }
+    }
+
+    private func resetTranscriptFollowState() {
+        transcriptFollowResumeTask?.cancel()
+        transcriptFollowResumeTask = nil
+        transcriptFollowSuppressionDeadline = nil
+        isTranscriptFollowSuppressed = false
+        isUserScrollingTranscript = false
+        activeTranscriptParagraphID = nil
+        activeTranscriptMeasurement = nil
+    }
 
     private func updateInlineVideoVisibility(
         _ measurement: InlineVideoGeometry?,
@@ -744,6 +990,7 @@ struct MergedTranscriptView: View {
     @ObservedObject var searchModel: VideoPageSearchModel
     let preferredTranslationLocaleIdentifier: String?
     let onRequestScrollToParagraph: (String) -> Void
+    let onActiveParagraphChange: (String?) -> Void
 
     @State private var timedParagraphs: [TimedParagraph] = []
     @State private var plainParagraphs: [PlainParagraph] = []
@@ -808,6 +1055,23 @@ struct MergedTranscriptView: View {
                                 .padding(.vertical, 4)
                                 .padding(.horizontal, 2)
                                 .background(backgroundColor(for: paragraph.id, active: activeParagraphID == paragraph.id))
+                                .background {
+                                    if activeParagraphID == paragraph.id,
+                                       let videoID = video.id {
+                                        GeometryReader { geometry in
+                                            Color.clear.preference(
+                                                key: ActiveTranscriptGeometryPreferenceKey.self,
+                                                value: ActiveTranscriptGeometry(
+                                                    videoID: videoID,
+                                                    paragraphID: paragraph.id,
+                                                    frame: geometry.frame(
+                                                        in: .named(DetailView.detailViewportCoordinateSpace)
+                                                    )
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
                                 .contentShape(Rectangle())
                                 .onTapGesture {
                                     playerViewModel.seek(to: paragraph.startSeconds, in: video)
@@ -842,6 +1106,7 @@ struct MergedTranscriptView: View {
             refreshSearchState(scrollToMatch: false)
         }
         .onChange(of: video.id) { _, _ in
+            setActiveParagraphID(nil)
             loadContent()
             refreshSearchState(scrollToMatch: false)
         }
@@ -1042,13 +1307,19 @@ struct MergedTranscriptView: View {
 
     private func updateActiveParagraph(for time: TimeInterval) {
         guard !timedParagraphs.isEmpty else {
-            activeParagraphID = nil
+            setActiveParagraphID(nil)
             return
         }
 
-        activeParagraphID = timedParagraphs.last(where: { paragraph in
+        setActiveParagraphID(timedParagraphs.last(where: { paragraph in
             paragraph.startSeconds <= time
-        })?.id
+        })?.id)
+    }
+
+    private func setActiveParagraphID(_ paragraphID: String?) {
+        guard activeParagraphID != paragraphID else { return }
+        activeParagraphID = paragraphID
+        onActiveParagraphChange(paragraphID)
     }
 
     private func makePlainParagraphs(from text: String) -> [PlainParagraph] {
