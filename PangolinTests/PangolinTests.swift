@@ -1430,12 +1430,21 @@ struct PhoneProjectVideoRouteSyncPolicyTests {
 
 @Suite("Video toolbar policy")
 struct VideoToolbarPolicyTests {
-    @Test("Ordinary workspace shows its app-owned sidebar button")
-    func workspaceShowsSidebarButton() {
+    @Test("Collapsed ordinary workspace keeps its app-owned sidebar button to reopen the sidebar")
+    func collapsedWorkspaceShowsSidebarButton() {
         #expect(VideoToolbarPolicy.showsSidebarButton(
             shell: .workspace,
             isVideoDetail: false,
             supportsAppOwnedSidebarButton: true
+        ))
+    }
+
+    @Test("Ordinary workspace hides its sidebar button when app ownership is unsupported")
+    func workspaceWithoutAppOwnedSidebarSupportHidesSidebarButton() {
+        #expect(!VideoToolbarPolicy.showsSidebarButton(
+            shell: .workspace,
+            isVideoDetail: false,
+            supportsAppOwnedSidebarButton: false
         ))
     }
 

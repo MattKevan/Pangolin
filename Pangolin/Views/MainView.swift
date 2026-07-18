@@ -149,18 +149,9 @@ struct MainView: View {
         }
     }
 
-    @ViewBuilder
     private var rootNavigationSplitView: some View {
-        #if os(macOS)
-        if folderStore.showsVideoBackButton {
-            baseNavigationSplitView
-                .toolbar(removing: .sidebarToggle)
-        } else {
-            baseNavigationSplitView
-        }
-        #else
         baseNavigationSplitView
-        #endif
+            .toolbar(removing: .sidebarToggle)
     }
 
     private var baseNavigationSplitView: some View {
@@ -208,6 +199,7 @@ struct MainView: View {
             )
             .navigationSplitViewColumnWidth(min: 420, ideal: 760)
         } else {
+            let isVideoDetail = folderStore.showsVideoBackButton
             let baseDetailColumn = DetailColumnView(
                 playerViewModel: playerViewModel,
                 floatingVideoState: floatingVideoState
@@ -219,7 +211,24 @@ struct MainView: View {
                 .navigationSplitViewColumnWidth(min: 420, ideal: 760)
                 .toolbar {
                     ToolbarItemGroup(placement: .navigation) {
-                        if folderStore.showsVideoBackButton {
+                        if VideoToolbarPolicy.showsSidebarButton(
+                            shell: .workspace,
+                            isVideoDetail: isVideoDetail,
+                            supportsAppOwnedSidebarButton: true
+                        ) {
+                            Button {
+                                standardColumnVisibility = standardColumnVisibility == .detailOnly ? .all : .detailOnly
+                            } label: {
+                                Image(systemName: "sidebar.left")
+                            }
+                            .help(standardColumnVisibility == .detailOnly ? "Show Sidebar" : "Hide Sidebar")
+                            .accessibilityLabel(standardColumnVisibility == .detailOnly ? "Show Sidebar" : "Hide Sidebar")
+                        }
+
+                        if VideoToolbarPolicy.showsVideoBackButton(
+                            shell: .workspace,
+                            isVideoDetail: isVideoDetail
+                        ) {
                             Button {
                                 folderStore.navigateBackFromDetail()
                             } label: {
