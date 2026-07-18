@@ -24,6 +24,7 @@ struct MainView: View {
     @StateObject private var searchManager = SearchManager()
     @StateObject private var playerViewModel = VideoPlayerViewModel()
     @StateObject private var floatingVideoState = FloatingVideoState()
+    @StateObject private var videoPresentationFrameController = VideoPresentationFrameController()
     @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
     
     let isStartingUp: Bool
@@ -161,8 +162,9 @@ struct MainView: View {
                             video: selectedVideo,
                             playerViewModel: playerViewModel,
                             floatingState: floatingVideoState,
-                            availableBounds: rootBounds,
-                            inlineWidth: floatingVideoState.inlineWidth
+                            frameController: videoPresentationFrameController,
+                            dockedFrame: floatingVideoState.inlineFrame,
+                            availableBounds: rootBounds
                         )
                         .zIndex(100)
                     }
