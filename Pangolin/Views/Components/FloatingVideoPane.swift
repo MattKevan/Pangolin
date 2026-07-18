@@ -50,7 +50,11 @@ struct FloatingVideoPane: View {
     }
 
     private var renderedFrame: CGRect {
-        interactionPreviewFrame ?? baseFrame
+        VideoPlayerPresentationPolicy.renderedFrame(
+            isFloating: floatingState.isFloating,
+            baseFrame: baseFrame,
+            interactionPreviewFrame: interactionPreviewFrame
+        )
     }
 
     var body: some View {
@@ -82,6 +86,12 @@ struct FloatingVideoPane: View {
             .focused($isFocused)
             .onMoveCommand(perform: moveWithKeyboard)
             .animation(.easeInOut(duration: 0.25), value: floatingState.isFloating)
+            .onChange(of: floatingState.isFloating) { _, isFloating in
+                guard !isFloating else { return }
+                interactionStartFrame = nil
+                interactionPreviewFrame = nil
+                isFocused = false
+            }
             .accessibilityElement(children: .contain)
             .accessibilityLabel(
                 floatingState.isFloating ? "Floating video player" : "Video player"

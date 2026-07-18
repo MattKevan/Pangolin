@@ -655,6 +655,10 @@ struct FloatingVideoStateTests {
         #expect(!state.isFloating)
 
         state.updateInlineWidth(760)
+        state.prepareFloatingDestination(
+            in: bounds,
+            aspectRatio: aspectRatio
+        )
         state.updateVisibilityMeasurement(0.80)
         #expect(!state.isFloating)
 
@@ -669,23 +673,29 @@ struct FloatingVideoStateTests {
     @Test("Repeated geometry on the same hysteresis side does not republish state")
     func unchangedGeometryDoesNotPublish() {
         let state = FloatingVideoState()
+        state.updateInlineWidth(760)
+        state.prepareFloatingDestination(
+            in: bounds,
+            aspectRatio: aspectRatio
+        )
+
         var changeCount = 0
         let observation = state.objectWillChange.sink {
             changeCount += 1
         }
 
         state.updateInlineWidth(760)
-        #expect(changeCount == 1)
+        #expect(changeCount == 0)
 
         state.updateInlineWidth(760)
         state.updateVisibleFraction(0.80)
-        #expect(changeCount == 1)
+        #expect(changeCount == 0)
 
         state.updateVisibleFraction(0.20)
-        #expect(changeCount == 2)
+        #expect(changeCount == 1)
 
         state.updateVisibleFraction(0.10)
-        #expect(changeCount == 2)
+        #expect(changeCount == 1)
 
         withExtendedLifetime(observation) {}
     }
@@ -902,6 +912,24 @@ struct FloatingVideoStateTests {
         ))
     }
 
+    @Test("First offscreen measurement waits for a floating destination")
+    func firstOffscreenMeasurementWaitsForDestination() {
+        let state = FloatingVideoState()
+
+        state.reset(for: UUID())
+        state.updateInlineWidth(800)
+        state.updateVisibleFraction(0.20)
+        #expect(!state.isFloating)
+
+        state.prepareFloatingDestination(
+            in: bounds,
+            aspectRatio: aspectRatio
+        )
+
+        #expect(state.frame != .zero)
+        #expect(state.isFloating)
+    }
+
     @Test("Transient unusable bounds preserve customized placement")
     func transientBoundsPreserveCustomizedPlacement() {
         let state = FloatingVideoState()
@@ -990,6 +1018,22 @@ struct VideoPlayerPresentationPolicyTests {
         #expect(VideoPlayerPresentationPolicy.shouldAnimate(from: true, to: false))
         #expect(!VideoPlayerPresentationPolicy.shouldAnimate(from: false, to: false))
         #expect(!VideoPlayerPresentationPolicy.shouldAnimate(from: true, to: true))
+    }
+
+    @Test("Docked presentation ignores a stale floating interaction preview")
+    func dockedPresentationIgnoresPreview() {
+        let preview = CGRect(x: 500, y: 200, width: 320, height: 180)
+
+        #expect(VideoPlayerPresentationPolicy.renderedFrame(
+            isFloating: false,
+            baseFrame: inline,
+            interactionPreviewFrame: preview
+        ) == inline)
+        #expect(VideoPlayerPresentationPolicy.renderedFrame(
+            isFloating: true,
+            baseFrame: floating,
+            interactionPreviewFrame: preview
+        ) == preview)
     }
 }
 

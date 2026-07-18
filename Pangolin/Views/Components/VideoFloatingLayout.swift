@@ -24,6 +24,15 @@ enum VideoPlayerPresentationPolicy {
         oldValue != newValue
     }
 
+    static func renderedFrame(
+        isFloating: Bool,
+        baseFrame: CGRect,
+        interactionPreviewFrame: CGRect?
+    ) -> CGRect {
+        guard isFloating else { return baseFrame }
+        return interactionPreviewFrame ?? baseFrame
+    }
+
     private static func isValid(_ frame: CGRect) -> Bool {
         frame.minX.isFinite
             && frame.minY.isFinite
@@ -347,6 +356,7 @@ final class FloatingVideoState: ObservableObject {
     @Published private(set) var videoID: UUID?
     @Published private(set) var inlineWidth: CGFloat = 0
     @Published private(set) var inlineFrame = CGRect.zero
+    private var latestVisibleFraction: Double?
 
     func reset(for videoID: UUID?) {
         guard self.videoID != videoID else { return }
@@ -356,6 +366,7 @@ final class FloatingVideoState: ObservableObject {
         frame = .zero
         inlineWidth = 0
         inlineFrame = .zero
+        latestVisibleFraction = nil
     }
 
     func updateInlineWidth(_ width: CGFloat) {
@@ -404,13 +415,22 @@ final class FloatingVideoState: ObservableObject {
             inlineWidth: inlineWidth,
             aspectRatio: aspectRatio
         )
+        if frame != .zero, let latestVisibleFraction {
+            applyVisibleFraction(latestVisibleFraction)
+        }
     }
 
     func updateVisibleFraction(_ visibleFraction: Double) {
+        latestVisibleFraction = visibleFraction
+        applyVisibleFraction(visibleFraction)
+    }
+
+    private func applyVisibleFraction(_ visibleFraction: Double) {
         let shouldFloat = VideoFloatingLayout.shouldFloat(
             isFloating: isFloating,
             visibleFraction: visibleFraction
         )
+        guard !shouldFloat || frame != .zero else { return }
         guard shouldFloat != isFloating else { return }
         isFloating = shouldFloat
     }

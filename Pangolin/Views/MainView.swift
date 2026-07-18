@@ -198,7 +198,7 @@ struct MainView: View {
 
         return floatingVideoState.videoID == selectedVideoID
             && VideoPlayerPresentationPolicy.destination(
-                isFloating: false,
+                isFloating: floatingVideoState.isFloating,
                 inlineFrame: floatingVideoState.inlineFrame,
                 floatingFrame: floatingVideoState.frame
             ) != nil
