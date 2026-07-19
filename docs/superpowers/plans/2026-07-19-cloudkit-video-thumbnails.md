@@ -322,7 +322,7 @@ xcodebuild -project Pangolin.xcodeproj -scheme Pangolin -destination 'platform=m
 
 Expected: FAIL because binary validity and project video resolution do not exist.
 
-- [ ] **Step 3: Replace URL/path helpers**
+- [ ] **Step 3: Add binary helpers alongside the temporary URL/path helpers**
 
 ```swift
 extension Video {
@@ -348,7 +348,7 @@ extension Folder {
 }
 ```
 
-Remove `thumbnailURL`, `resolvedProjectThumbnailPath`, `projectThumbnailURL`, and path recursion. Update `backfillProjectMetadataIfNeeded` to persist `resolvedProjectThumbnailVideo?.id` whenever the stored ID is absent or stale.
+Add these binary helpers without removing `thumbnailURL`, `resolvedProjectThumbnailPath`, `projectThumbnailURL`, or their path recursion yet; later UI tasks still compile against them. Update `backfillProjectMetadataIfNeeded` to persist `resolvedProjectThumbnailVideo?.id` whenever the stored ID is absent or stale. The temporary legacy helpers and legacy backfill branch are removed together in Task 8 after all consumers have moved.
 
 - [ ] **Step 4: Run project and navigation tests**
 
