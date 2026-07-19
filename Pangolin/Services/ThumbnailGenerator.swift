@@ -71,7 +71,12 @@ actor ThumbnailGenerator: ThumbnailGenerating {
             throw ThumbnailGenerationError.encodingFailed
         }
 
-        return data as Data
+        let encodedData = data as Data
+        guard isValidJPEG(encodedData) else {
+            throw ThumbnailGenerationError.encodingFailed
+        }
+
+        return encodedData
     }
 }
 
