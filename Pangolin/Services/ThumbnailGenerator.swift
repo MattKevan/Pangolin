@@ -38,8 +38,20 @@ actor ThumbnailGenerator: ThumbnailGenerating {
 
     static func pixelSize(ofJPEG data: Data) -> CGSize? {
         guard
+            data.count >= 2,
+            data[data.index(data.endIndex, offsetBy: -2)] == 0xFF,
+            data[data.index(before: data.endIndex)] == 0xD9,
             let source = CGImageSourceCreateWithData(data as CFData, nil),
             CGImageSourceGetType(source) as String? == UTType.jpeg.identifier,
+            CGImageSourceGetStatus(source) == .statusComplete,
+            CGImageSourceCreateImageAtIndex(
+                source,
+                0,
+                [
+                    kCGImageSourceShouldCache: true,
+                    kCGImageSourceShouldCacheImmediately: true,
+                ] as CFDictionary
+            ) != nil,
             let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
             let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
             let height = properties[kCGImagePropertyPixelHeight] as? NSNumber,

@@ -35,6 +35,14 @@ struct ThumbnailGeneratorTests {
         #expect(size.width <= ThumbnailGenerator.maximumSize.width)
         #expect(size.height <= ThumbnailGenerator.maximumSize.height)
         #expect(size == CGSize(width: 320, height: 180))
+
+        let truncatedData = Data(data.prefix(data.count / 2))
+        #expect(!ThumbnailGenerator.isValidJPEG(truncatedData))
+        #expect(ThumbnailGenerator.pixelSize(ofJPEG: truncatedData) == nil)
+
+        let missingEndMarker = Data(data.dropLast(2))
+        #expect(!ThumbnailGenerator.isValidJPEG(missingEndMarker))
+        #expect(ThumbnailGenerator.pixelSize(ofJPEG: missingEndMarker) == nil)
     }
 }
 
@@ -67,8 +75,29 @@ private func makeTestVideo(at url: URL, width: Int, height: Int) async throws {
     writer.startSession(atSourceTime: .zero)
 
     for frame in 0..<30 {
+        let clock = ContinuousClock()
+        let readinessDeadline = clock.now.advanced(by: .seconds(5))
         while !input.isReadyForMoreMediaData {
-            try await Task.sleep(for: .milliseconds(1))
+            if let error = writer.error {
+                throw error
+            }
+            switch writer.status {
+            case .failed:
+                throw TestVideoError.writerFailed
+            case .cancelled:
+                throw TestVideoError.writerCancelled
+            case .completed, .unknown:
+                throw TestVideoError.writerStoppedBeforeInputWasReady
+            case .writing:
+                break
+            @unknown default:
+                throw TestVideoError.writerStoppedBeforeInputWasReady
+            }
+            guard clock.now < readinessDeadline else {
+                writer.cancelWriting()
+                throw TestVideoError.inputReadinessTimedOut
+            }
+            await Task.yield()
         }
         let buffer = try makePixelBuffer(width: width, height: height)
         let time = CMTime(value: CMTimeValue(frame), timescale: 30)
@@ -118,4 +147,8 @@ private enum TestVideoError: Error {
     case cannotAppendFrame
     case cannotFinishWriting
     case cannotCreatePixelBuffer
+    case writerFailed
+    case writerCancelled
+    case writerStoppedBeforeInputWasReady
+    case inputReadinessTimedOut
 }
