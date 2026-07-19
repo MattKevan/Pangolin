@@ -218,21 +218,12 @@ struct ContentRowView: View {
         case .folder:
             Image(systemName: "folder.fill")
         case .video(let video):
-            if let thumbnailURL = video.thumbnailURL,
-               FileManager.default.fileExists(atPath: thumbnailURL.path) {
-                AsyncImage(url: thumbnailURL) { image in
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    Image(systemName: "video.fill")
-                        .foregroundColor(.gray)
-                }
-                .frame(width: viewMode == .grid ? 80 : 20, height: viewMode == .grid ? 45 : 15)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-            } else {
+            SyncedThumbnailImage(video: video, contentMode: .fill) {
                 Image(systemName: "video.fill")
+                    .foregroundColor(.gray)
             }
+            .frame(width: viewMode == .grid ? 80 : 20, height: viewMode == .grid ? 45 : 15)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
         }
     }
 

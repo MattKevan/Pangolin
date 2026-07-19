@@ -409,13 +409,8 @@ struct ProjectDetailView: View {
     @ViewBuilder
     private func projectThumbnail(size: CGFloat, cornerRadius: CGFloat) -> some View {
         Group {
-            if let thumbnailURL = project.projectThumbnailURL,
-               FileManager.default.fileExists(atPath: thumbnailURL.path) {
-                AsyncImage(url: thumbnailURL) { image in
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                } placeholder: {
+            if let thumbnailVideo = project.resolvedProjectThumbnailVideo {
+                SyncedThumbnailImage(video: thumbnailVideo, contentMode: .fill) {
                     placeholderThumbnail(cornerRadius: cornerRadius)
                 }
             } else {
@@ -602,13 +597,8 @@ private struct ProjectCard: View {
 
     @ViewBuilder
     private var thumbnail: some View {
-        if let thumbnailURL = project.projectThumbnailURL,
-           FileManager.default.fileExists(atPath: thumbnailURL.path) {
-            AsyncImage(url: thumbnailURL) { image in
-                image
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } placeholder: {
+        if let thumbnailVideo = project.resolvedProjectThumbnailVideo {
+            SyncedThumbnailImage(video: thumbnailVideo, contentMode: .fill) {
                 placeholderThumbnail
             }
         } else {

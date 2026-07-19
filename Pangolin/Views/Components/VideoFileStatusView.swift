@@ -202,11 +202,7 @@ struct VideoRowWithStatusView: View {
 
     var body: some View {
         HStack {
-            AsyncImage(url: video.thumbnailURL) { image in
-                image
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } placeholder: {
+            SyncedThumbnailImage(video: video, contentMode: .fill) {
                 Rectangle()
                     .fill(.tertiary)
                     .overlay {

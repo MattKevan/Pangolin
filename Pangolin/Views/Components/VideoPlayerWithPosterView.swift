@@ -80,15 +80,10 @@ struct VideoPlayerWithPosterView: View {
 
     @ViewBuilder
     private func posterOverlay(for video: Video) -> some View {
-        if let thumbnailURL = video.thumbnailURL,
-           let platformImage = platformImage(from: thumbnailURL) {
-            Image(platformImage: platformImage)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
+        SyncedThumbnailImage(video: video, contentMode: .fit) {
             Color.black
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     #endif
 }

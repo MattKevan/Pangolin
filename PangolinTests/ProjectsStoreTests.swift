@@ -161,6 +161,48 @@ struct ProjectsStoreTests {
         await manager.closeCurrentLibrary()
     }
 
+    @Test("Project refresh replaces artwork moved out of the project")
+    @MainActor
+    func projectRefreshReplacesMovedArtwork() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Editing", in: context, parent: nil, library: library)
+        let otherProject = try makeFolder(named: "Archive", in: context, parent: nil, library: library)
+        let selectedVideo = try makeVideo(
+            title: "Selected Artwork",
+            thumbnailData: try makeValidJPEG(),
+            in: context,
+            folder: project,
+            library: library
+        )
+        let replacementData = try makeValidJPEG()
+        let replacementVideo = try makeVideo(
+            title: "Replacement Artwork",
+            thumbnailData: replacementData,
+            in: context,
+            folder: project,
+            library: library
+        )
+        project.projectThumbnailVideoID = selectedVideo.id
+        try context.save()
+
+        selectedVideo.folder = otherProject
+        try context.save()
+
+        let store = FolderNavigationStore(libraryManager: manager)
+        let refreshedProject = try #require(
+            store.projects().first(where: { $0.objectID == project.objectID })
+        )
+
+        #expect(refreshedProject.projectThumbnailVideoID == replacementVideo.id)
+        #expect(refreshedProject.resolvedProjectThumbnailVideo?.id == replacementVideo.id)
+        #expect(refreshedProject.resolvedProjectThumbnailVideo?.thumbnailData == replacementData)
+
+        await manager.closeCurrentLibrary()
+    }
+
     @Test("Duplicate descendant names resolve artwork in stable UUID order")
     @MainActor
     func duplicateDescendantNamesResolveInStableUUIDOrder() async throws {
