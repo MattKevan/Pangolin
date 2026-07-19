@@ -201,6 +201,7 @@ struct ProjectsStoreTests {
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Lifecycle", in: context, parent: nil, library: library)
         let otherProject = try makeFolder(named: "Other", in: context, parent: nil, library: library)
+        let thirdProject = try makeFolder(named: "Third", in: context, parent: nil, library: library)
         let selectedVideo = try makeVideo(
             title: "Selected",
             thumbnailData: try makeValidJPEG(),
@@ -215,8 +216,30 @@ struct ProjectsStoreTests {
             folder: project,
             library: library
         )
+        let unrelatedVideo = try makeVideo(
+            title: "Unrelated",
+            thumbnailData: try makeValidJPEG(),
+            in: context,
+            folder: otherProject,
+            library: library
+        )
         project.projectThumbnailVideoID = selectedVideo.id
         try context.save()
+
+        func refreshes(
+            _ notification: Notification,
+            previous: ProjectThumbnailMembership,
+            current: ProjectThumbnailMembership
+        ) -> Bool {
+            ProjectThumbnailChangePolicy.shouldRefresh(
+                notification: notification,
+                in: context,
+                previous: previous,
+                current: current
+            )
+        }
+
+        let initial = ProjectThumbnailMembership(project: project)
 
         selectedVideo.playbackPosition = 42
         let playbackNotification = Notification(
@@ -224,11 +247,16 @@ struct ProjectsStoreTests {
             object: context,
             userInfo: [NSUpdatedObjectsKey: Set<NSManagedObject>([selectedVideo])]
         )
-        #expect(!ProjectThumbnailChangePolicy.shouldRefresh(
-            project: project,
-            for: playbackNotification
-        ))
+        #expect(!refreshes(playbackNotification, previous: initial, current: initial))
         context.rollback()
+
+        let wrongContext = NSManagedObjectContext(concurrencyType: .mainQueueConcurrencyType)
+        let wrongContextNotification = Notification(
+            name: .NSManagedObjectContextObjectsDidChange,
+            object: wrongContext,
+            userInfo: [NSInvalidatedObjectsKey: Set<NSManagedObject>([selectedVideo])]
+        )
+        #expect(!refreshes(wrongContextNotification, previous: initial, current: initial))
 
         movingVideo.folder = otherProject
         let moveNotification = Notification(
@@ -236,9 +264,36 @@ struct ProjectsStoreTests {
             object: context,
             userInfo: [NSUpdatedObjectsKey: Set<NSManagedObject>([movingVideo])]
         )
-        #expect(ProjectThumbnailChangePolicy.shouldRefresh(
-            project: project,
-            for: moveNotification
+        #expect(refreshes(
+            moveNotification,
+            previous: initial,
+            current: ProjectThumbnailMembership(project: project)
+        ))
+        context.rollback()
+
+        unrelatedVideo.folder = thirdProject
+        let unrelatedMoveNotification = Notification(
+            name: .NSManagedObjectContextObjectsDidChange,
+            object: context,
+            userInfo: [NSUpdatedObjectsKey: Set<NSManagedObject>([unrelatedVideo])]
+        )
+        #expect(!refreshes(
+            unrelatedMoveNotification,
+            previous: initial,
+            current: ProjectThumbnailMembership(project: project)
+        ))
+        context.rollback()
+
+        unrelatedVideo.folder = project
+        let moveInNotification = Notification(
+            name: .NSManagedObjectContextObjectsDidChange,
+            object: context,
+            userInfo: [NSUpdatedObjectsKey: Set<NSManagedObject>([unrelatedVideo])]
+        )
+        #expect(refreshes(
+            moveInNotification,
+            previous: initial,
+            current: ProjectThumbnailMembership(project: project)
         ))
         context.rollback()
 
@@ -254,40 +309,66 @@ struct ProjectsStoreTests {
             object: context,
             userInfo: [NSInsertedObjectsKey: Set<NSManagedObject>([insertedVideo])]
         )
-        #expect(ProjectThumbnailChangePolicy.shouldRefresh(
-            project: project,
-            for: insertedNotification
+        #expect(refreshes(
+            insertedNotification,
+            previous: initial,
+            current: ProjectThumbnailMembership(project: project)
         ))
+        context.rollback()
+
+        let unrelatedInsertedVideo = try makeVideo(
+            title: "Unrelated Insert",
+            thumbnailData: try makeValidJPEG(),
+            in: context,
+            folder: otherProject,
+            library: library
+        )
+        let unrelatedInsertedNotification = Notification(
+            name: .NSManagedObjectContextObjectsDidChange,
+            object: context,
+            userInfo: [NSInsertedObjectsKey: Set<NSManagedObject>([unrelatedInsertedVideo])]
+        )
+        #expect(!refreshes(
+            unrelatedInsertedNotification,
+            previous: initial,
+            current: ProjectThumbnailMembership(project: project)
+        ))
+        context.rollback()
 
         let deletedNotification = Notification(
             name: .NSManagedObjectContextObjectsDidChange,
             object: context,
             userInfo: [NSDeletedObjectsKey: Set<NSManagedObject>([selectedVideo])]
         )
-        #expect(ProjectThumbnailChangePolicy.shouldRefresh(
-            project: project,
-            for: deletedNotification
-        ))
+        #expect(refreshes(deletedNotification, previous: initial, current: initial))
+
+        let unrelatedDeletedNotification = Notification(
+            name: .NSManagedObjectContextObjectsDidChange,
+            object: context,
+            userInfo: [NSDeletedObjectsKey: Set<NSManagedObject>([unrelatedVideo])]
+        )
+        #expect(!refreshes(unrelatedDeletedNotification, previous: initial, current: initial))
 
         let invalidatedNotification = Notification(
             name: .NSManagedObjectContextObjectsDidChange,
             object: context,
             userInfo: [NSInvalidatedObjectsKey: Set<NSManagedObject>([selectedVideo])]
         )
-        #expect(ProjectThumbnailChangePolicy.shouldRefresh(
-            project: project,
-            for: invalidatedNotification
-        ))
+        #expect(refreshes(invalidatedNotification, previous: initial, current: initial))
+
+        let unrelatedInvalidatedNotification = Notification(
+            name: .NSManagedObjectContextObjectsDidChange,
+            object: context,
+            userInfo: [NSInvalidatedObjectsKey: Set<NSManagedObject>([unrelatedVideo])]
+        )
+        #expect(!refreshes(unrelatedInvalidatedNotification, previous: initial, current: initial))
 
         let invalidatedAllNotification = Notification(
             name: .NSManagedObjectContextObjectsDidChange,
             object: context,
             userInfo: [NSInvalidatedAllObjectsKey: true]
         )
-        #expect(ProjectThumbnailChangePolicy.shouldRefresh(
-            project: project,
-            for: invalidatedAllNotification
-        ))
+        #expect(refreshes(invalidatedAllNotification, previous: initial, current: initial))
 
         await manager.closeCurrentLibrary()
     }
@@ -302,7 +383,24 @@ struct ProjectsStoreTests {
         let project = try makeFolder(named: "Structure", in: context, parent: nil, library: library)
         let otherProject = try makeFolder(named: "Other", in: context, parent: nil, library: library)
         let section = try makeFolder(named: "Section", in: context, parent: project, library: library)
+        let unrelatedSection = try makeFolder(named: "Unrelated Section", in: context, parent: otherProject, library: library)
+        let thirdProject = try makeFolder(named: "Third", in: context, parent: nil, library: library)
         try context.save()
+
+        func refreshes(
+            _ notification: Notification,
+            previous: ProjectThumbnailMembership,
+            current: ProjectThumbnailMembership
+        ) -> Bool {
+            ProjectThumbnailChangePolicy.shouldRefresh(
+                notification: notification,
+                in: context,
+                previous: previous,
+                current: current
+            )
+        }
+
+        let initial = ProjectThumbnailMembership(project: project)
 
         section.name = "Renamed"
         let renameNotification = Notification(
@@ -310,10 +408,7 @@ struct ProjectsStoreTests {
             object: context,
             userInfo: [NSUpdatedObjectsKey: Set<NSManagedObject>([section])]
         )
-        #expect(!ProjectThumbnailChangePolicy.shouldRefresh(
-            project: project,
-            for: renameNotification
-        ))
+        #expect(!refreshes(renameNotification, previous: initial, current: initial))
         context.rollback()
 
         let insertedFolder = try makeFolder(
@@ -327,10 +422,30 @@ struct ProjectsStoreTests {
             object: context,
             userInfo: [NSInsertedObjectsKey: Set<NSManagedObject>([insertedFolder])]
         )
-        #expect(ProjectThumbnailChangePolicy.shouldRefresh(
-            project: project,
-            for: insertedNotification
+        #expect(refreshes(
+            insertedNotification,
+            previous: initial,
+            current: ProjectThumbnailMembership(project: project)
         ))
+        context.rollback()
+
+        let unrelatedInsertedFolder = try makeFolder(
+            named: "Unrelated Insert",
+            in: context,
+            parent: otherProject,
+            library: library
+        )
+        let unrelatedInsertedNotification = Notification(
+            name: .NSManagedObjectContextObjectsDidChange,
+            object: context,
+            userInfo: [NSInsertedObjectsKey: Set<NSManagedObject>([unrelatedInsertedFolder])]
+        )
+        #expect(!refreshes(
+            unrelatedInsertedNotification,
+            previous: initial,
+            current: ProjectThumbnailMembership(project: project)
+        ))
+        context.rollback()
 
         section.parentFolder = otherProject
         let moveNotification = Notification(
@@ -338,10 +453,38 @@ struct ProjectsStoreTests {
             object: context,
             userInfo: [NSUpdatedObjectsKey: Set<NSManagedObject>([section])]
         )
-        #expect(ProjectThumbnailChangePolicy.shouldRefresh(
-            project: project,
-            for: moveNotification
+        #expect(refreshes(
+            moveNotification,
+            previous: initial,
+            current: ProjectThumbnailMembership(project: project)
         ))
+        context.rollback()
+
+        unrelatedSection.parentFolder = thirdProject
+        let unrelatedMoveNotification = Notification(
+            name: .NSManagedObjectContextObjectsDidChange,
+            object: context,
+            userInfo: [NSUpdatedObjectsKey: Set<NSManagedObject>([unrelatedSection])]
+        )
+        #expect(!refreshes(
+            unrelatedMoveNotification,
+            previous: initial,
+            current: ProjectThumbnailMembership(project: project)
+        ))
+        context.rollback()
+
+        unrelatedSection.parentFolder = project
+        let moveInNotification = Notification(
+            name: .NSManagedObjectContextObjectsDidChange,
+            object: context,
+            userInfo: [NSUpdatedObjectsKey: Set<NSManagedObject>([unrelatedSection])]
+        )
+        #expect(refreshes(
+            moveInNotification,
+            previous: initial,
+            current: ProjectThumbnailMembership(project: project)
+        ))
+        context.rollback()
 
         for key in [NSDeletedObjectsKey, NSRefreshedObjectsKey, NSInvalidatedObjectsKey] {
             let notification = Notification(
@@ -349,11 +492,75 @@ struct ProjectsStoreTests {
                 object: context,
                 userInfo: [key: Set<NSManagedObject>([section])]
             )
-            #expect(ProjectThumbnailChangePolicy.shouldRefresh(
-                project: project,
-                for: notification
-            ))
+            #expect(refreshes(notification, previous: initial, current: initial))
+
+            let unrelatedNotification = Notification(
+                name: .NSManagedObjectContextObjectsDidChange,
+                object: context,
+                userInfo: [key: Set<NSManagedObject>([unrelatedSection])]
+            )
+            #expect(!refreshes(unrelatedNotification, previous: initial, current: initial))
         }
+
+        await manager.closeCurrentLibrary()
+    }
+
+    @Test("Project thumbnail reconciler persists initial and replacement artwork")
+    @MainActor
+    func projectThumbnailReconcilerPersistsResolvedArtwork() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Reconciled", in: context, parent: nil, library: library)
+        let otherProject = try makeFolder(named: "Other", in: context, parent: nil, library: library)
+        let first = try makeVideo(
+            title: "A First",
+            thumbnailData: try makeValidJPEG(),
+            in: context,
+            folder: project,
+            library: library
+        )
+        let replacement = try makeVideo(
+            title: "B Replacement",
+            thumbnailData: try makeValidJPEG(),
+            in: context,
+            folder: project,
+            library: library
+        )
+        project.projectThumbnailVideoID = nil
+        try context.save()
+
+        #expect(ProjectThumbnailReconciler.reconcile(project))
+        #expect(project.projectThumbnailVideoID == first.id)
+        #expect(!context.hasChanges)
+
+        let previous = ProjectThumbnailMembership(project: project)
+        first.folder = otherProject
+        try context.save()
+        let current = ProjectThumbnailMembership(project: project)
+        let notification = Notification(
+            name: .NSManagedObjectContextObjectsDidChange,
+            object: context,
+            userInfo: [NSUpdatedObjectsKey: Set<NSManagedObject>([first])]
+        )
+        #expect(ProjectThumbnailChangePolicy.shouldRefresh(
+            notification: notification,
+            in: context,
+            previous: previous,
+            current: current
+        ))
+        #expect(ProjectThumbnailReconciler.reconcile(project))
+        #expect(project.projectThumbnailVideoID == replacement.id)
+        #expect(!context.hasChanges)
+
+        project.projectThumbnailVideoID = first.id
+        try context.save()
+        library.name = "Unrelated pending edit"
+        #expect(!ProjectThumbnailReconciler.reconcile(project))
+        #expect(project.projectThumbnailVideoID == first.id)
+        #expect(context.hasChanges)
+        context.rollback()
 
         await manager.closeCurrentLibrary()
     }

@@ -1,6 +1,35 @@
 import CoreData
 import SwiftUI
 
+struct ProjectThumbnailMembership: Equatable {
+    let videoIDs: Set<NSManagedObjectID>
+    let folderIDs: Set<NSManagedObjectID>
+
+    init(project: Folder) {
+        var visitedFolderIDs: Set<NSManagedObjectID> = []
+        var collectedVideoIDs: Set<NSManagedObjectID> = []
+
+        func collect(_ folder: Folder) {
+            guard visitedFolderIDs.insert(folder.objectID).inserted else { return }
+            collectedVideoIDs.formUnion(folder.videosArray.map(\.objectID))
+            folder.childFoldersArray.forEach(collect)
+        }
+
+        collect(project)
+        videoIDs = collectedVideoIDs
+        folderIDs = visitedFolderIDs
+    }
+
+    var objectIDs: Set<NSManagedObjectID> {
+        videoIDs.union(folderIDs)
+    }
+}
+
+enum ProjectThumbnailChange {
+    case invalidatedAll
+    case objects(Set<NSManagedObjectID>)
+}
+
 enum ProjectThumbnailChangePolicy {
     private static let thumbnailKeys: Set<String> = [
         "thumbnailData",
@@ -28,60 +57,77 @@ enum ProjectThumbnailChangePolicy {
         return changedKeys.isEmpty || !thumbnailKeys.isDisjoint(with: changedKeys)
     }
 
-    static func shouldRefresh(project: Folder, for notification: Notification) -> Bool {
-        guard let projectContext = project.managedObjectContext,
-              let changedContext = notification.object as? NSManagedObjectContext,
-              changedContext === projectContext else {
-            return false
+    static func shouldRefresh(
+        notification: Notification,
+        in context: NSManagedObjectContext,
+        previous: ProjectThumbnailMembership,
+        current: ProjectThumbnailMembership
+    ) -> Bool {
+        guard let change = change(for: notification, in: context) else { return false }
+        return shouldRefresh(change: change, previous: previous, current: current)
+    }
+
+    static func change(
+        for notification: Notification,
+        in context: NSManagedObjectContext
+    ) -> ProjectThumbnailChange? {
+        guard let changedContext = notification.object as? NSManagedObjectContext,
+              changedContext === context else {
+            return nil
         }
 
         if notification.userInfo?[NSInvalidatedAllObjectsKey] != nil {
-            return true
+            return .invalidatedAll
         }
 
+        var objectIDs: Set<NSManagedObjectID> = []
         for key in [NSInsertedObjectsKey, NSDeletedObjectsKey, NSInvalidatedObjectsKey] {
-            if managedObjects(for: key, in: notification).contains(where: isArtworkStructureObject) {
-                return true
+            objectIDs.formUnion(
+                managedObjects(for: key, in: notification)
+                    .filter(isArtworkStructureObject)
+                    .map(\.objectID)
+            )
+        }
+
+        for object in managedObjects(for: NSUpdatedObjectsKey, in: notification) {
+            let changedKeys = Set(object.changedValuesForCurrentEvent().keys)
+            switch object {
+            case is Video where changedKeys.isEmpty
+                || !thumbnailKeys.isDisjoint(with: changedKeys)
+                || !videoStructuralKeys.isDisjoint(with: changedKeys):
+                objectIDs.insert(object.objectID)
+            case is Folder where changedKeys.isEmpty
+                || !folderStructuralKeys.isDisjoint(with: changedKeys):
+                objectIDs.insert(object.objectID)
+            default:
+                break
             }
         }
 
-        let updatedObjects = managedObjects(for: NSUpdatedObjectsKey, in: notification)
-        let updatedFolders = updatedObjects.compactMap { $0 as? Folder }
-        if updatedFolders.contains(where: {
-            !folderStructuralKeys.isDisjoint(with: Set($0.changedValuesForCurrentEvent().keys))
-        }) {
-            return true
-        }
+        objectIDs.formUnion(
+            managedObjects(for: NSRefreshedObjectsKey, in: notification)
+                .filter(isArtworkStructureObject)
+                .map(\.objectID)
+        )
 
-        let updatedVideos = updatedObjects.compactMap { $0 as? Video }
-        if updatedVideos.contains(where: {
-            !videoStructuralKeys.isDisjoint(with: Set($0.changedValuesForCurrentEvent().keys))
-        }) {
-            return true
-        }
-        if updatedVideos.contains(where: {
-            shouldRefresh(
-                project: project,
-                video: $0,
-                changedKeys: Set($0.changedValuesForCurrentEvent().keys)
-            )
-        }) {
-            return true
-        }
+        return objectIDs.isEmpty ? nil : .objects(objectIDs)
+    }
 
-        let refreshedObjects = managedObjects(for: NSRefreshedObjectsKey, in: notification)
-        if refreshedObjects.contains(where: { $0 is Folder }) {
+    static func shouldRefresh(
+        change: ProjectThumbnailChange,
+        previous: ProjectThumbnailMembership,
+        current: ProjectThumbnailMembership
+    ) -> Bool {
+        switch change {
+        case .invalidatedAll:
             return true
-        }
-
-        let refreshedVideos = refreshedObjects.compactMap { $0 as? Video }
-        return refreshedVideos.contains {
-            shouldRefresh(project: project, video: $0, changedKeys: [])
+        case .objects(let changedObjectIDs):
+            return !changedObjectIDs.isDisjoint(with: previous.objectIDs.union(current.objectIDs))
         }
     }
 
     private static func isArtworkStructureObject(_ object: NSManagedObject) -> Bool {
-        object is Video || object is Folder
+        object.entity.name == "Video" || object.entity.name == "Folder"
     }
 
     private static func managedObjects(
@@ -89,6 +135,29 @@ enum ProjectThumbnailChangePolicy {
         in notification: Notification
     ) -> Set<NSManagedObject> {
         notification.userInfo?[key] as? Set<NSManagedObject> ?? []
+    }
+}
+
+@MainActor
+enum ProjectThumbnailReconciler {
+    @discardableResult
+    static func reconcile(_ project: Folder) -> Bool {
+        guard let context = project.managedObjectContext,
+              !context.hasChanges else {
+            return false
+        }
+
+        let resolvedVideoID = project.resolvedProjectThumbnailVideo?.id
+        guard project.projectThumbnailVideoID != resolvedVideoID else { return false }
+
+        project.projectThumbnailVideoID = resolvedVideoID
+        do {
+            try context.save()
+            return true
+        } catch {
+            context.rollback()
+            return false
+        }
     }
 }
 
@@ -706,6 +775,7 @@ private struct ProjectSyncedThumbnailImage<Placeholder: View>: View {
     let placeholder: Placeholder
 
     @State private var thumbnailRevision: UInt64 = 0
+    @State private var membership: ProjectThumbnailMembership
 
     init(
         project: Folder,
@@ -715,6 +785,7 @@ private struct ProjectSyncedThumbnailImage<Placeholder: View>: View {
         self.project = project
         self.contentMode = contentMode
         self.placeholder = placeholder()
+        _membership = State(initialValue: ProjectThumbnailMembership(project: project))
     }
 
     private var resolvedVideo: Video? {
@@ -736,11 +807,27 @@ private struct ProjectSyncedThumbnailImage<Placeholder: View>: View {
             for: .NSManagedObjectContextObjectsDidChange,
             object: project.managedObjectContext
         )) { notification in
-            guard ProjectThumbnailChangePolicy.shouldRefresh(
-                project: project,
-                for: notification
-            ) else { return }
-            thumbnailRevision &+= 1
+            guard let context = project.managedObjectContext,
+                  let change = ProjectThumbnailChangePolicy.change(
+                    for: notification,
+                    in: context
+                  ) else { return }
+
+            let currentMembership = ProjectThumbnailMembership(project: project)
+            let shouldRefresh = ProjectThumbnailChangePolicy.shouldRefresh(
+                change: change,
+                previous: membership,
+                current: currentMembership
+            )
+            membership = currentMembership
+            if shouldRefresh {
+                thumbnailRevision &+= 1
+            }
+        }
+        .task(id: thumbnailRevision) {
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            ProjectThumbnailReconciler.reconcile(project)
         }
     }
 }
