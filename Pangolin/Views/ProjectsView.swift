@@ -19,6 +19,13 @@ enum ProjectVideoSelectionPolicy {
         }
         return selectedID
     }
+
+    static func primaryActionID(
+        selection: Set<UUID>,
+        visibleIDs: Set<UUID>
+    ) -> UUID? {
+        activationID(selection: selection, visibleIDs: visibleIDs)
+    }
 }
 
 struct ProjectsGridView: View {
@@ -184,10 +191,7 @@ struct ProjectDetailView: View {
                                     isSelected: false,
                                     showsSelectionAccessory: false,
                                     usesNativeListStyling: true,
-                                    tapAction: nil,
-                                    doubleClickAction: {
-                                        store.openProjectVideo(video, in: project)
-                                    }
+                                    tapAction: nil
                                 )
                                 .tag(videoID)
                                 .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12))
@@ -209,6 +213,18 @@ struct ProjectDetailView: View {
             }
         }
         .listStyle(.plain)
+        .contextMenu(forSelectionType: UUID.self) { selection in
+            if ProjectVideoSelectionPolicy.primaryActionID(
+                selection: selection,
+                visibleIDs: displayedVideoIDs
+            ) != nil {
+                Button("Open Video") {
+                    _ = openProjectVideo(from: selection)
+                }
+            }
+        } primaryAction: { selection in
+            _ = openProjectVideo(from: selection)
+        }
         .accessibilityIdentifier("project-video-list")
         .onChange(of: displayedVideoIDs) { _, visibleIDs in
             store.selectedProjectVideoIDs = ProjectVideoSelectionPolicy.reconciledSelection(
@@ -248,6 +264,18 @@ struct ProjectDetailView: View {
     private func openSelectedProjectVideo() -> Bool {
         guard let selectedID = ProjectVideoSelectionPolicy.activationID(
             selection: store.selectedProjectVideoIDs,
+            visibleIDs: displayedVideoIDs
+        ), let video = orderedDisplayedVideos.first(where: { $0.id == selectedID }) else {
+            return false
+        }
+
+        store.openProjectVideo(video, in: project)
+        return true
+    }
+
+    private func openProjectVideo(from selection: Set<UUID>) -> Bool {
+        guard let selectedID = ProjectVideoSelectionPolicy.primaryActionID(
+            selection: selection,
             visibleIDs: displayedVideoIDs
         ), let video = orderedDisplayedVideos.first(where: { $0.id == selectedID }) else {
             return false
@@ -314,8 +342,7 @@ struct ProjectDetailView: View {
                                     } else {
                                         handleSelection(for: video)
                                     }
-                                },
-                                doubleClickAction: nil
+                                }
                             )
                         }
                     }
@@ -649,7 +676,6 @@ private struct ProjectVideoRow: View {
     let showsSelectionAccessory: Bool
     let usesNativeListStyling: Bool
     let tapAction: (() -> Void)?
-    let doubleClickAction: (() -> Void)?
 
     init(
         video: Video,
@@ -657,8 +683,7 @@ private struct ProjectVideoRow: View {
         isSelected: Bool,
         showsSelectionAccessory: Bool,
         usesNativeListStyling: Bool = false,
-        tapAction: (() -> Void)?,
-        doubleClickAction: (() -> Void)?
+        tapAction: (() -> Void)?
     ) {
         self.video = video
         self.ordinal = ordinal
@@ -666,7 +691,6 @@ private struct ProjectVideoRow: View {
         self.showsSelectionAccessory = showsSelectionAccessory
         self.usesNativeListStyling = usesNativeListStyling
         self.tapAction = tapAction
-        self.doubleClickAction = doubleClickAction
     }
 
     var body: some View {
@@ -745,9 +769,8 @@ private struct ProjectVideoRow: View {
         .contentShape(Rectangle())
     }
 
-    @ViewBuilder
     private var activationContent: some View {
-        let content = HStack(spacing: 12) {
+        HStack(spacing: 12) {
             Text("\(ordinal)")
                 .font(.subheadline.monospacedDigit())
                 .foregroundStyle(.secondary)
@@ -760,17 +783,6 @@ private struct ProjectVideoRow: View {
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-        }
-
-        if let doubleClickAction {
-            content
-                .contentShape(Rectangle())
-                .simultaneousGesture(
-                    TapGesture(count: 2)
-                        .onEnded { doubleClickAction() }
-                )
-        } else {
-            content
         }
     }
 

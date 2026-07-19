@@ -34,6 +34,21 @@ struct ProjectsStoreTests {
         ) == nil)
     }
 
+    @Test("Project list primary action activates exactly one selected visible video")
+    func projectListPrimaryActionRequiresSingleVisibleSelection() {
+        let first = UUID()
+        let second = UUID()
+
+        #expect(ProjectVideoSelectionPolicy.primaryActionID(
+            selection: [first],
+            visibleIDs: [first, second]
+        ) == first)
+        #expect(ProjectVideoSelectionPolicy.primaryActionID(
+            selection: [first, second],
+            visibleIDs: [first, second]
+        ) == nil)
+    }
+
     @Test("Projects becomes the default destination on startup")
     @MainActor
     func projectsIsDefaultStartupDestination() async throws {
