@@ -46,7 +46,7 @@ enum ProcessingTaskType: String, CaseIterable, Codable {
         case .importVideo:
             return []
         case .generateThumbnail:
-            return [.ensureLocalAvailability]
+            return []
         case .transcribe:
             return [.ensureLocalAvailability]
         case .translate:

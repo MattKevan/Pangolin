@@ -30,6 +30,35 @@ enum ThumbnailStage: Equatable, Sendable {
     case restoringStorage
 }
 
+enum ThumbnailWorkPolicy {
+    static func needsGeneration(data: Data?, version: Int16, force: Bool) -> Bool {
+        if force { return true }
+        guard version == ThumbnailGenerator.currentVersion,
+              let data else { return true }
+        return !ThumbnailGenerator.isValidJPEG(data)
+    }
+}
+
+struct ThumbnailTaskPresentation: Equatable {
+    let progress: Double
+    let message: String
+
+    static func update(for stage: ThumbnailStage) -> ThumbnailTaskPresentation {
+        switch stage {
+        case .preparing:
+            return ThumbnailTaskPresentation(progress: 0.05, message: "Preparing thumbnail…")
+        case .downloadingVideo:
+            return ThumbnailTaskPresentation(progress: 0.20, message: "Downloading video for thumbnail…")
+        case .generating:
+            return ThumbnailTaskPresentation(progress: 0.45, message: "Generating thumbnail…")
+        case .saving:
+            return ThumbnailTaskPresentation(progress: 0.75, message: "Saving thumbnail…")
+        case .restoringStorage:
+            return ThumbnailTaskPresentation(progress: 0.90, message: "Restoring cloud-only video…")
+        }
+    }
+}
+
 enum ThumbnailCoordinatorError: LocalizedError {
     case missingVideoID
     case invalidGeneratedData
@@ -350,6 +379,10 @@ final class ThumbnailCoordinator {
     typealias BackgroundContextFactory = @MainActor (NSPersistentStoreCoordinator) -> NSManagedObjectContext
 
     static let retryDelays: [TimeInterval] = [5, 15, 45]
+    static let shared = ThumbnailCoordinator(
+        generator: ThumbnailGenerator(),
+        videoAccess: VideoFileManager.shared
+    )
 
     private let generator: any ThumbnailGenerating
     private let videoAccess: any ThumbnailVideoAccessing
@@ -383,7 +416,11 @@ final class ThumbnailCoordinator {
         force: Bool = false,
         onStage: @escaping StageHandler = { _ in }
     ) async throws {
-        if !force, video.hasCurrentThumbnail {
+        if !ThumbnailWorkPolicy.needsGeneration(
+            data: video.thumbnailData,
+            version: video.thumbnailGenerationVersion,
+            force: force
+        ) {
             return
         }
         guard let videoID = video.id else {

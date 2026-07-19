@@ -9,6 +9,44 @@ import UniformTypeIdentifiers
 @Suite("Thumbnail coordinator", .serialized)
 @MainActor
 struct ThumbnailCoordinatorTests {
+    @Test("Thumbnail tasks have no queue dependencies")
+    func thumbnailTasksHaveNoDependencies() {
+        #expect(ProcessingTaskType.generateThumbnail.dependencies.isEmpty)
+    }
+
+    @Test("Thumbnail work policy detects missing, stale, corrupt, and forced work")
+    func thumbnailWorkPolicy() throws {
+        let jpeg = try makeValidJPEG()
+        let currentVersion = ThumbnailGenerator.currentVersion
+
+        #expect(ThumbnailWorkPolicy.needsGeneration(data: nil, version: 0, force: false))
+        #expect(!ThumbnailWorkPolicy.needsGeneration(data: jpeg, version: currentVersion, force: false))
+        #expect(ThumbnailWorkPolicy.needsGeneration(data: jpeg, version: currentVersion, force: true))
+        #expect(ThumbnailWorkPolicy.needsGeneration(data: Data("not jpeg".utf8), version: currentVersion, force: false))
+        #expect(ThumbnailWorkPolicy.needsGeneration(data: jpeg, version: currentVersion - 1, force: false))
+    }
+
+    @Test("Thumbnail stages map to exact monotonic queue updates")
+    func thumbnailStagePresentation() {
+        let stages: [ThumbnailStage] = [
+            .preparing,
+            .downloadingVideo,
+            .generating,
+            .saving,
+            .restoringStorage,
+        ]
+        let updates = stages.map(ThumbnailTaskPresentation.update(for:))
+
+        #expect(updates.map(\.message) == [
+            "Preparing thumbnail…",
+            "Downloading video for thumbnail…",
+            "Generating thumbnail…",
+            "Saving thumbnail…",
+            "Restoring cloud-only video…",
+        ])
+        #expect(updates.map(\.progress) == updates.map(\.progress).sorted())
+    }
+
     @Test("Cloud-only optimized video downloads, generates, saves, then restores storage")
     func cloudOnlyOptimizedSequence() async throws {
         let fixture = try makeFixture(storage: .optimizeStorage)

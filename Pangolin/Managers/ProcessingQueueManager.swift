@@ -64,7 +64,6 @@ class ProcessingQueueManager: ObservableObject {
     private var cloudSyncHideTask: Task<Void, Never>?
 
     let transcriptionService = SpeechTranscriptionService()
-    private let fileSystemManager = FileSystemManager.shared
     private let videoFileManager = VideoFileManager.shared
     private let importer = VideoImporter()
     private let remoteDownloadService = RemoteVideoDownloadService()
@@ -128,6 +127,10 @@ class ProcessingQueueManager: ObservableObject {
         }
 
         activeCloudSyncEvents.removeValue(forKey: eventID)
+
+        if event.error == nil, event.type == .import {
+            enqueueMissingThumbnailsForCurrentLibrary()
+        }
 
         if !activeCloudSyncEvents.isEmpty {
             cloudSyncQueueStatus = CloudSyncQueueStatus(
@@ -263,17 +266,7 @@ class ProcessingQueueManager: ObservableObject {
     func enqueueThumbnails(for videos: [Video], force: Bool = false) {
         let videoIDs = videos.compactMap { $0.id }
         for video in videos {
-            guard let id = video.id else { continue }
-            ensureDependencies(for: video, type: .generateThumbnail)
-            if let existing = processingQueue.taskForVideo(id, type: .generateThumbnail) {
-                if force {
-                    processingQueue.removeTask(existing)
-                } else {
-                    continue
-                }
-            }
-            let task = ProcessingTask(videoID: id, type: .generateThumbnail, itemName: video.title ?? video.fileName, force: force)
-            processingQueue.addTask(task)
+            enqueueThumbnailTask(for: video, force: force)
         }
         refreshStats()
         if !videoIDs.isEmpty {
@@ -358,6 +351,10 @@ class ProcessingQueueManager: ObservableObject {
         for video in videos {
             guard let id = video.id else { continue }
             for type in types {
+                if type == .generateThumbnail {
+                    enqueueThumbnailTask(for: video, force: force)
+                    continue
+                }
                 ensureDependencies(for: video, type: type)
                 if let existing = processingQueue.taskForVideo(id, type: type) {
                     if force {
@@ -414,6 +411,9 @@ class ProcessingQueueManager: ObservableObject {
     }
 
     func cancelTask(_ task: ProcessingTask) {
+        if task.type == .generateThumbnail, let videoID = task.videoID {
+            ThumbnailCoordinator.shared.cancel(videoID: videoID)
+        }
         processingQueue.cancelTask(task)
         refreshStats()
         if task.type == .transcribe {
@@ -685,10 +685,8 @@ class ProcessingQueueManager: ObservableObject {
 
         await StoragePolicyManager.shared.applyPolicy(for: library)
 
-        // Enqueue thumbnail if missing
-        if video.thumbnailPath == nil, let id = video.id {
-            let thumbTask = ProcessingTask(videoID: id, type: .generateThumbnail, itemName: video.title ?? video.fileName)
-            processingQueue.addTask(thumbTask)
+        if !video.hasCurrentThumbnail {
+            enqueueThumbnails(for: [video])
         }
 
         // Enqueue follow-ups if requested
@@ -715,16 +713,21 @@ class ProcessingQueueManager: ObservableObject {
     }
 
     private func executeThumbnail(_ task: ProcessingTask) async throws {
-        guard let video = fetchVideo(for: task),
-              let library = video.library else {
+        guard let video = fetchVideo(for: task) else {
             throw FileSystemError.fileNotFound
         }
 
-        let thumbnailPath = try await fileSystemManager.generateThumbnail(for: video, in: library)
-        video.thumbnailPath = thumbnailPath
-        if let context = LibraryManager.shared.viewContext {
-            try context.save()
+        try await ThumbnailCoordinator.shared.generateThumbnail(
+            for: video,
+            force: task.force
+        ) { stage in
+            let update = ThumbnailTaskPresentation.update(for: stage)
+            task.updateProgress(update.progress, message: update.message)
         }
+        guard video.hasCurrentThumbnail else {
+            throw TaskFailure(message: "Thumbnail generation completed without valid current thumbnail data.")
+        }
+        task.updateProgress(1.0, message: "Thumbnail ready")
     }
 
     private func executeTranscription(_ task: ProcessingTask) async throws {
@@ -797,7 +800,42 @@ class ProcessingQueueManager: ObservableObject {
 
     // MARK: - Helpers
 
+    private func enqueueThumbnailTask(for video: Video, force: Bool) {
+        guard let id = video.id,
+              ThumbnailWorkPolicy.needsGeneration(
+                  data: video.thumbnailData,
+                  version: video.thumbnailGenerationVersion,
+                  force: force
+              ) else { return }
+
+        if let existing = processingQueue.taskForVideo(id, type: .generateThumbnail) {
+            guard force else { return }
+            ThumbnailCoordinator.shared.cancel(videoID: id)
+            processingQueue.cancelTask(existing)
+            processingQueue.removeTask(existing)
+        }
+
+        let task = ProcessingTask(
+            videoID: id,
+            type: .generateThumbnail,
+            itemName: video.title ?? video.fileName,
+            force: force
+        )
+        processingQueue.addTask(task)
+    }
+
+    private func enqueueMissingThumbnailsForCurrentLibrary() {
+        guard let library = LibraryManager.shared.currentLibrary,
+              LibraryManager.shared.isLibraryOpen,
+              let context = LibraryManager.shared.viewContext else { return }
+        let request = Video.fetchRequest()
+        request.predicate = NSPredicate(format: "library == %@", library)
+        let videos = (try? context.fetch(request)) ?? []
+        enqueueThumbnails(for: videos)
+    }
+
     private func ensureDependencies(for video: Video, type: ProcessingTaskType) {
+        guard type != .generateThumbnail else { return }
         guard let id = video.id else { return }
         for dependency in type.dependencies {
             if let existingDependencyTask = processingQueue.taskForVideo(id, type: dependency) {
@@ -949,7 +987,7 @@ class ProcessingQueueManager: ObservableObject {
             }
             return false
         case .generateThumbnail:
-            return video.thumbnailPath != nil
+            return video.hasCurrentThumbnail
         case .transcribe:
             if let text = video.transcriptText { return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             return false

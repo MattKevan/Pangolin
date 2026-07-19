@@ -25,6 +25,7 @@ class LibraryManager: ObservableObject {
     private let userDefaults = UserDefaults.standard
     private let fileManager = FileManager.default
     private var coreDataStack: CoreDataStack?
+    private var thumbnailReconciliationTask: Task<Void, Never>?
     var textArtifactsCloudRootURLProvider: () -> URL? = {
         let fileManager = FileManager.default
         return fileManager.url(forUbiquityContainerIdentifier: VideoFileManager.shared.cloudContainerIdentifier)
@@ -225,6 +226,8 @@ class LibraryManager: ObservableObject {
     
     /// Create a new library at the specified URL
     func createLibrary(at url: URL, name: String) async throws -> Library {
+        thumbnailReconciliationTask?.cancel()
+        thumbnailReconciliationTask = nil
         print("📝 CREATE_LIBRARY: Starting createLibrary...")
         print("📝 CREATE_LIBRARY: URL: \(url.path)")
         print("📝 CREATE_LIBRARY: Library name: \(name)")
@@ -314,12 +317,16 @@ class LibraryManager: ObservableObject {
         saveLastOpenedLibrary(url)
         
         loadingProgress = 1.0
+
+        scheduleThumbnailReconciliation(for: library)
         
         return library
     }
     
     /// Open an existing library at the given URL
     func openLibrary(at url: URL) async throws -> Library {
+        thumbnailReconciliationTask?.cancel()
+        thumbnailReconciliationTask = nil
         isLoading = true
         loadingProgress = 0
         
@@ -383,18 +390,15 @@ class LibraryManager: ObservableObject {
         
         loadingProgress = 1.0
         
-        Task { @MainActor in
-            let request = Video.fetchRequest()
-            request.predicate = NSPredicate(format: "library == %@ AND thumbnailPath == nil", library)
-            let videos = (try? context.fetch(request)) ?? []
-            ProcessingQueueManager.shared.enqueueThumbnails(for: videos)
-        }
+        scheduleThumbnailReconciliation(for: library)
         
         return library
     }
     
     /// Close the current library
     func closeCurrentLibrary() async {
+        thumbnailReconciliationTask?.cancel()
+        thumbnailReconciliationTask = nil
         guard let library = currentLibrary else { return }
         
         await save()
@@ -406,6 +410,29 @@ class LibraryManager: ObservableObject {
         coreDataStack = nil
         currentLibrary = nil
         isLibraryOpen = false
+    }
+
+    private func scheduleThumbnailReconciliation(for library: Library) {
+        thumbnailReconciliationTask?.cancel()
+        let libraryIdentity = library.objectID.uriRepresentation()
+        thumbnailReconciliationTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(10))
+            } catch {
+                return
+            }
+
+            guard let self,
+                  self.isLibraryOpen,
+                  let currentLibrary = self.currentLibrary,
+                  currentLibrary.objectID.uriRepresentation() == libraryIdentity,
+                  let context = self.viewContext else { return }
+
+            let request = Video.fetchRequest()
+            request.predicate = NSPredicate(format: "library == %@", currentLibrary)
+            let videos = (try? context.fetch(request)) ?? []
+            ProcessingQueueManager.shared.enqueueThumbnails(for: videos)
+        }
     }
     
     /// Switch to a different library

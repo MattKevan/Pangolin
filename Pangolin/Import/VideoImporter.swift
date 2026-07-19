@@ -145,6 +145,14 @@ class VideoImporter: ObservableObject {
            let relativePath = video.relativePath {
             let localStagingURL = libraryURL.appendingPathComponent("Videos").appendingPathComponent(relativePath)
             do {
+                try await ThumbnailCoordinator.shared.generateNewImportThumbnail(
+                    for: video,
+                    sourceURL: localStagingURL
+                )
+            } catch {
+                print("⚠️ IMPORT: Thumbnail generation deferred for \(video.title ?? video.fileName ?? "Unknown"): \(error.localizedDescription)")
+            }
+            do {
                 try await videoFileManager.uploadImportedVideoToCloud(localURL: localStagingURL, for: video)
             } catch {
                 videoFileManager.markTransferFailure(
