@@ -1,4 +1,61 @@
+import CoreData
 import SwiftUI
+
+enum ProjectThumbnailChangePolicy {
+    private static let thumbnailKeys: Set<String> = [
+        "thumbnailData",
+        "thumbnailGeneratedAt",
+        "thumbnailGenerationVersion",
+        "folder",
+    ]
+
+    static func shouldRefresh(
+        project: Folder,
+        video: Video,
+        changedKeys: Set<String>
+    ) -> Bool {
+        let belongsToProject = project.descendantVideos.contains {
+            $0.objectID == video.objectID
+        }
+        let suppliedCurrentArtwork = project.projectThumbnailVideoID == video.id
+        guard belongsToProject || suppliedCurrentArtwork else { return false }
+
+        return changedKeys.isEmpty || !thumbnailKeys.isDisjoint(with: changedKeys)
+    }
+
+    static func shouldRefresh(project: Folder, for notification: Notification) -> Bool {
+        guard let projectContext = project.managedObjectContext,
+              let changedContext = notification.object as? NSManagedObjectContext,
+              changedContext === projectContext else {
+            return false
+        }
+
+        let updatedVideos = managedObjects(for: NSUpdatedObjectsKey, in: notification)
+            .compactMap { $0 as? Video }
+        if updatedVideos.contains(where: {
+            shouldRefresh(
+                project: project,
+                video: $0,
+                changedKeys: Set($0.changedValuesForCurrentEvent().keys)
+            )
+        }) {
+            return true
+        }
+
+        let refreshedVideos = managedObjects(for: NSRefreshedObjectsKey, in: notification)
+            .compactMap { $0 as? Video }
+        return refreshedVideos.contains {
+            shouldRefresh(project: project, video: $0, changedKeys: [])
+        }
+    }
+
+    private static func managedObjects(
+        for key: String,
+        in notification: Notification
+    ) -> Set<NSManagedObject> {
+        notification.userInfo?[key] as? Set<NSManagedObject> ?? []
+    }
+}
 
 enum ProjectVideoSelectionPolicy {
     static func reconciledSelection(
@@ -408,14 +465,8 @@ struct ProjectDetailView: View {
 
     @ViewBuilder
     private func projectThumbnail(size: CGFloat, cornerRadius: CGFloat) -> some View {
-        Group {
-            if let thumbnailVideo = project.resolvedProjectThumbnailVideo {
-                SyncedThumbnailImage(video: thumbnailVideo, contentMode: .fill) {
-                    placeholderThumbnail(cornerRadius: cornerRadius)
-                }
-            } else {
-                placeholderThumbnail(cornerRadius: cornerRadius)
-            }
+        ProjectSyncedThumbnailImage(project: project, contentMode: .fill) {
+            placeholderThumbnail(cornerRadius: cornerRadius)
         }
         .frame(width: size, height: size)
         .clipShape(.rect(cornerRadius: cornerRadius))
@@ -597,11 +648,7 @@ private struct ProjectCard: View {
 
     @ViewBuilder
     private var thumbnail: some View {
-        if let thumbnailVideo = project.resolvedProjectThumbnailVideo {
-            SyncedThumbnailImage(video: thumbnailVideo, contentMode: .fill) {
-                placeholderThumbnail
-            }
-        } else {
+        ProjectSyncedThumbnailImage(project: project, contentMode: .fill) {
             placeholderThumbnail
         }
     }
@@ -614,6 +661,51 @@ private struct ProjectCard: View {
             Image(systemName: "play.rectangle.on.rectangle")
                 .font(.system(size: 36, weight: .medium))
                 .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct ProjectSyncedThumbnailImage<Placeholder: View>: View {
+    @ObservedObject var project: Folder
+    let contentMode: ContentMode
+    let placeholder: Placeholder
+
+    @State private var thumbnailRevision: UInt64 = 0
+
+    init(
+        project: Folder,
+        contentMode: ContentMode,
+        @ViewBuilder placeholder: () -> Placeholder
+    ) {
+        self.project = project
+        self.contentMode = contentMode
+        self.placeholder = placeholder()
+    }
+
+    private var resolvedVideo: Video? {
+        _ = thumbnailRevision
+        return project.resolvedProjectThumbnailVideo
+    }
+
+    var body: some View {
+        Group {
+            if let resolvedVideo {
+                SyncedThumbnailImage(video: resolvedVideo, contentMode: contentMode) {
+                    placeholder
+                }
+            } else {
+                placeholder
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: .NSManagedObjectContextObjectsDidChange,
+            object: project.managedObjectContext
+        )) { notification in
+            guard ProjectThumbnailChangePolicy.shouldRefresh(
+                project: project,
+                for: notification
+            ) else { return }
+            thumbnailRevision &+= 1
         }
     }
 }

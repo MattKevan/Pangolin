@@ -7,6 +7,15 @@
 
 import SwiftUI
 
+enum ContentRowThumbnailPresentation: Equatable {
+    case icon
+    case thumbnail
+
+    static func forVideo(_ video: Video) -> Self {
+        video.thumbnailData == nil ? .icon : .thumbnail
+    }
+}
+
 struct ContentRowView: View {
     let content: ContentType
     let isSelected: Bool
@@ -218,12 +227,7 @@ struct ContentRowView: View {
         case .folder:
             Image(systemName: "folder.fill")
         case .video(let video):
-            SyncedThumbnailImage(video: video, contentMode: .fill) {
-                Image(systemName: "video.fill")
-                    .foregroundColor(.gray)
-            }
-            .frame(width: viewMode == .grid ? 80 : 20, height: viewMode == .grid ? 45 : 15)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            ContentRowVideoIcon(video: video, viewMode: viewMode)
         }
     }
 
@@ -301,6 +305,26 @@ struct ContentRowView: View {
                 }
             }
             cancelDeletion()
+        }
+    }
+}
+
+private struct ContentRowVideoIcon: View {
+    @ObservedObject var video: Video
+    let viewMode: ContentRowView.ViewMode
+
+    @ViewBuilder
+    var body: some View {
+        switch ContentRowThumbnailPresentation.forVideo(video) {
+        case .icon:
+            Image(systemName: "video.fill")
+        case .thumbnail:
+            SyncedThumbnailImage(video: video, contentMode: .fill) {
+                Image(systemName: "video.fill")
+                    .foregroundColor(.gray)
+            }
+            .frame(width: viewMode == .grid ? 80 : 20, height: viewMode == .grid ? 45 : 15)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
         }
     }
 }

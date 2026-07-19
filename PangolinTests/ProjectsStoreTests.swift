@@ -124,6 +124,74 @@ struct ProjectsStoreTests {
         await manager.closeCurrentLibrary()
     }
 
+    @Test("Content rows keep the bare icon until thumbnail data exists")
+    @MainActor
+    func contentRowThumbnailPresentationTracksDataAvailability() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Rows", in: context, parent: nil, library: library)
+        let video = try makeVideo(
+            title: "Row",
+            thumbnailData: nil,
+            in: context,
+            folder: project,
+            library: library
+        )
+
+        #expect(ContentRowThumbnailPresentation.forVideo(video) == .icon)
+
+        video.thumbnailData = try makeValidJPEG()
+
+        #expect(ContentRowThumbnailPresentation.forVideo(video) == .thumbnail)
+
+        await manager.closeCurrentLibrary()
+    }
+
+    @Test("Project artwork refreshes only for relevant descendant thumbnail changes")
+    @MainActor
+    func projectThumbnailChangePolicyFiltersRelevantVideosAndKeys() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Observed", in: context, parent: nil, library: library)
+        let otherProject = try makeFolder(named: "Other", in: context, parent: nil, library: library)
+        let descendant = try makeVideo(
+            title: "Descendant",
+            thumbnailData: nil,
+            in: context,
+            folder: project,
+            library: library
+        )
+        let unrelated = try makeVideo(
+            title: "Unrelated",
+            thumbnailData: nil,
+            in: context,
+            folder: otherProject,
+            library: library
+        )
+
+        #expect(ProjectThumbnailChangePolicy.shouldRefresh(
+            project: project,
+            video: descendant,
+            changedKeys: ["thumbnailData"]
+        ))
+        #expect(!ProjectThumbnailChangePolicy.shouldRefresh(
+            project: project,
+            video: descendant,
+            changedKeys: ["title"]
+        ))
+        #expect(!ProjectThumbnailChangePolicy.shouldRefresh(
+            project: project,
+            video: unrelated,
+            changedKeys: ["thumbnailData"]
+        ))
+
+        await manager.closeCurrentLibrary()
+    }
+
     @Test("Project metadata replaces invalid stored artwork with valid descendant data")
     @MainActor
     func projectMetadataFallsBackToExistingData() async throws {
