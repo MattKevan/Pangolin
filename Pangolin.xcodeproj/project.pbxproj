@@ -30,6 +30,7 @@
 		32D30A3C1029DD8820B6CC7C /* DraggableSplitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 010A5B83922FC98F95915E1B /* DraggableSplitter.swift */; };
 		3922661902D5C0EE3DDA696E /* TranscriptWordWrapLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 092308F52224A524D8B4AC17 /* TranscriptWordWrapLayout.swift */; };
 		3DF35C9D6B1BEC261EACA352 /* PangolinTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AED33C7E1B0F16EC012EFE88 /* PangolinTests.swift */; };
+		4012BA7004C3375340D2937E /* ThumbnailCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B77B9C9A5137B55B46BAC248 /* ThumbnailCoordinator.swift */; };
 		41F7162C225EBB77989817C2 /* VideoDropDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE3F76497DFE65EFEF8C56F7 /* VideoDropDelegate.swift */; };
 		4533CB65CBE866864FF3BED1 /* VideoPlayerWithPosterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AB79366C9C180F9583DB911 /* VideoPlayerWithPosterView.swift */; };
 		45A2508BC3053408F3C51029 /* FolderTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 310B404B1B230FF1B09DD729 /* FolderTransfer.swift */; };
@@ -97,6 +98,7 @@
 		EBFDFC4A9483355B2ABC6FE6 /* SearchPresentationModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9505F39918347E4BA4039BC9 /* SearchPresentationModels.swift */; };
 		F01F76261A130E674800A1D1 /* ProjectsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78B3F445583D16F809991AED /* ProjectsView.swift */; };
 		F80BF1985F25AC8076A1BE06 /* VideoPresentationFrameController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C89C9AECDD53743EEF15DA29 /* VideoPresentationFrameController.swift */; };
+		F84A0D82CFD2B6F232B80FDF /* ThumbnailCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C959C2624799003EBCD37F8 /* ThumbnailCoordinatorTests.swift */; };
 		F9B841C4C410F7C86B8C6765 /* FolderOutlineRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAF1956461F145BF4A555D6F /* FolderOutlineRow.swift */; };
 		FCAD5122E1D3D0ABCE29116D /* SubtitleMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F15031DC46A09DBA22A04B7 /* SubtitleMatcher.swift */; };
 /* End PBXBuildFile section */
@@ -171,6 +173,7 @@
 		96E65EE14F17FAD0C4A95166 /* CoreDataStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreDataStack.swift; sourceTree = "<group>"; };
 		97BCAF698EB3460169543E9B /* ThumbnailModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailModelTests.swift; sourceTree = "<group>"; };
 		99ACA89AE7A7E00054087363 /* VideoFileManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFileManager.swift; sourceTree = "<group>"; };
+		9C959C2624799003EBCD37F8 /* ThumbnailCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailCoordinatorTests.swift; sourceTree = "<group>"; };
 		9F9329B526137D7325808278 /* AllVideosImportDropModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AllVideosImportDropModifier.swift; sourceTree = "<group>"; };
 		A045487B2FE1283F242CCC3B /* VideoImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoImporter.swift; sourceTree = "<group>"; };
 		A1A9B81E039A968477C16F58 /* PangolinUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PangolinUITests.swift; sourceTree = "<group>"; };
@@ -186,6 +189,7 @@
 		B48AC61F9B3044E9AF10C8FE /* PangolinTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PangolinTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B667E82EE2E6FA1FF993AE85 /* FolderNavigationHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderNavigationHeader.swift; sourceTree = "<group>"; };
 		B6FC785A62810E36F1519BF8 /* ProcessingQueueManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessingQueueManager.swift; sourceTree = "<group>"; };
+		B77B9C9A5137B55B46BAC248 /* ThumbnailCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailCoordinator.swift; sourceTree = "<group>"; };
 		B7E1B57D048336E48879E966 /* FolderNavigationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderNavigationStore.swift; sourceTree = "<group>"; };
 		B9AF4F7D6AB775BE65B16281 /* StorageSettingsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageSettingsPane.swift; sourceTree = "<group>"; };
 		BBB8F6F646D0193937B61A73 /* Pangolin.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Pangolin.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -360,6 +364,7 @@
 				460FB924FE1BD275776D10BA /* SearchEvidenceBuilder.swift */,
 				75E24246155926F87F9ACD93 /* SearchManager.swift */,
 				89DD7E34D0188A5E58511B76 /* StoragePolicyManager.swift */,
+				B77B9C9A5137B55B46BAC248 /* ThumbnailCoordinator.swift */,
 				99ACA89AE7A7E00054087363 /* VideoFileManager.swift */,
 			);
 			path = Managers;
@@ -374,6 +379,7 @@
 				AED33C7E1B0F16EC012EFE88 /* PangolinTests.swift */,
 				346FC9F3477015577CC63631 /* ProjectsStoreTests.swift */,
 				A2FEE876C0C2B4C24C1D791C /* RemediationTests.swift */,
+				9C959C2624799003EBCD37F8 /* ThumbnailCoordinatorTests.swift */,
 				B2346E0EC9B27AD701DF008D /* ThumbnailGeneratorTests.swift */,
 				97BCAF698EB3460169543E9B /* ThumbnailModelTests.swift */,
 				C89494E75B3F5670DC22BCE5 /* TimedTranscriptTests.swift */,
@@ -643,6 +649,7 @@
 				3DF35C9D6B1BEC261EACA352 /* PangolinTests.swift in Sources */,
 				7FED2BBECB69485730C29B49 /* ProjectsStoreTests.swift in Sources */,
 				4AB94E061F34B472BC2CBBA8 /* RemediationTests.swift in Sources */,
+				F84A0D82CFD2B6F232B80FDF /* ThumbnailCoordinatorTests.swift in Sources */,
 				7EF2B5F36C99B3C24F358182 /* ThumbnailGeneratorTests.swift in Sources */,
 				4B46AD9E945D539AC9A21379 /* ThumbnailModelTests.swift in Sources */,
 				0AA75B388DBB5E7239A80752 /* TimedTranscriptTests.swift in Sources */,
@@ -708,6 +715,7 @@
 				FCAD5122E1D3D0ABCE29116D /* SubtitleMatcher.swift in Sources */,
 				4D4D7B161BF23E1643421A28 /* SummaryControlsInspectorPane.swift in Sources */,
 				181E418B66DFA1C1FD968271 /* SummaryView.swift in Sources */,
+				4012BA7004C3375340D2937E /* ThumbnailCoordinator.swift in Sources */,
 				A5A239C99E6B28B73E0EFE28 /* ThumbnailGenerator.swift in Sources */,
 				1921EE75648C8527AD2F6A3C /* TimedTranscript.swift in Sources */,
 				C50D5400D8E2727DAEF77FC0 /* TimedTranslation.swift in Sources */,
