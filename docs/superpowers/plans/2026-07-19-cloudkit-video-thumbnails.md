@@ -43,7 +43,7 @@
 - `PangolinTests/FileSystemManagerTests.swift`
 - `Pangolin.xcodeproj/project.pbxproj` — regenerate with XcodeGen as new files are added.
 
-## Task 1: Replace the active Core Data schema
+## Task 1: Add the CloudKit thumbnail fields
 
 **Files:**
 - Modify: `Pangolin/Pangolin.xcdatamodeld/Pangolin.xcdatamodel/contents`
@@ -58,7 +58,7 @@ import Testing
 @testable import Pangolin
 
 struct ThumbnailModelTests {
-    @Test("Active model uses CloudKit binary thumbnails without path fields")
+    @Test("Active model provides CloudKit binary thumbnail fields")
     func activeModelUsesBinaryThumbnails() throws {
         let model = try #require(NSManagedObjectModel.mergedModel(from: [Bundle.main]))
         let video = try #require(model.entitiesByName["Video"])
@@ -70,8 +70,6 @@ struct ThumbnailModelTests {
         #expect((video.attributesByName["thumbnailGenerationVersion"]?.defaultValue as? NSNumber)?.int16Value == 0)
         #expect(video.attributesByName["thumbnailGeneratedAt"]?.attributeType == .dateAttributeType)
         #expect(folder.attributesByName["projectThumbnailVideoID"]?.attributeType == .UUIDAttributeType)
-        #expect(video.attributesByName["thumbnailPath"] == nil)
-        #expect(folder.attributesByName["projectThumbnailPath"] == nil)
     }
 }
 ```
@@ -83,23 +81,25 @@ xcodegen generate
 xcodebuild -project Pangolin.xcodeproj -scheme Pangolin -destination 'platform=macOS' -derivedDataPath /tmp/Pangolin-ThumbnailModel -only-testing:PangolinTests/ThumbnailModelTests test
 ```
 
-Expected: FAIL because the binary fields do not exist and path fields still do.
+Expected: FAIL because the binary fields do not exist.
 
 - [ ] **Step 3: Change the model**
 
-Replace `Folder.projectThumbnailPath` with:
+Add to `Folder` alongside the temporary legacy field:
 
 ```xml
 <attribute name="projectThumbnailVideoID" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
 ```
 
-Replace `Video.thumbnailPath` with:
+Add to `Video` alongside the temporary legacy field:
 
 ```xml
 <attribute name="thumbnailData" optional="YES" attributeType="Binary" allowsExternalBinaryDataStorage="YES"/>
 <attribute name="thumbnailGeneratedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
 <attribute name="thumbnailGenerationVersion" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
 ```
+
+The two legacy attributes remain temporarily so each intermediate commit compiles. They are not read or written by the new implementation and are removed in Task 8 before final verification.
 
 - [ ] **Step 4: Run the focused test**
 
@@ -675,12 +675,14 @@ git commit -m "refactor: use synced thumbnails throughout the UI"
 ## Task 8: Remove and audit the old implementation
 
 **Files:**
+- Modify: `Pangolin/Pangolin.xcdatamodeld/Pangolin.xcdatamodel/contents`
 - Modify: `Pangolin/Managers/FileSystemManager.swift`
 - Modify: `Pangolin/Managers/LibraryManager.swift`
 - Modify: `Pangolin/Stores/FolderNavigationStore.swift`
 - Modify: `Pangolin/Models/VideoModel.swift`
 - Modify: `Pangolin/Utilities/Color+App.swift` if URL image loading becomes unused
 - Modify: `PangolinTests/FileSystemManagerTests.swift`
+- Modify: `PangolinTests/ThumbnailModelTests.swift`
 
 - [ ] **Step 1: Capture the failing audit**
 
@@ -700,13 +702,16 @@ Remove:
 - `Thumbnails` from new-library directory creation and folder-store scaffolding.
 - Obsolete `mediaRelativePath` tests.
 - `platformImage(from:)` if no non-thumbnail caller remains.
+- The `Video.thumbnailPath` and `Folder.projectThumbnailPath` attributes from the active Core Data model.
+
+Extend `ThumbnailModelTests` here to assert that both legacy attributes are absent. Keeping those literal names in this single schema test is intentional evidence of the hard break, not an operational compatibility reference.
 
 Do not add a compatibility accessor, migration reader, fallback URL, or filesystem write.
 
 - [ ] **Step 3: Prove the audit is clean**
 
 ```bash
-if rg -n 'thumbnailPath|projectThumbnailPath|thumbnailURL|projectThumbnailURL|"Thumbnails"|mediaRelativePath|generateMissingThumbnails|rebuildAllThumbnails' Pangolin PangolinTests; then exit 1; fi
+if rg -n 'thumbnailPath|projectThumbnailPath|thumbnailURL|projectThumbnailURL|"Thumbnails"|mediaRelativePath|generateMissingThumbnails|rebuildAllThumbnails' Pangolin PangolinTests --glob '!ThumbnailModelTests.swift'; then exit 1; fi
 ```
 
 Expected: exit 0 with no matches.
@@ -754,7 +759,7 @@ Expected: both builds succeed and the script reports a successful launch.
 - [ ] **Step 3: Repeat the hard-break audit**
 
 ```bash
-if rg -n 'thumbnailPath|projectThumbnailPath|thumbnailURL|projectThumbnailURL|"Thumbnails"|mediaRelativePath|generateMissingThumbnails|rebuildAllThumbnails' Pangolin PangolinTests; then exit 1; fi
+if rg -n 'thumbnailPath|projectThumbnailPath|thumbnailURL|projectThumbnailURL|"Thumbnails"|mediaRelativePath|generateMissingThumbnails|rebuildAllThumbnails' Pangolin PangolinTests --glob '!ThumbnailModelTests.swift'; then exit 1; fi
 git diff --check
 git status --short
 ```
