@@ -5,6 +5,16 @@ struct ProjectThumbnailMembership: Equatable {
     let videoIDs: Set<NSManagedObjectID>
     let folderIDs: Set<NSManagedObjectID>
 
+    static let empty = ProjectThumbnailMembership(videoIDs: [], folderIDs: [])
+
+    private init(
+        videoIDs: Set<NSManagedObjectID>,
+        folderIDs: Set<NSManagedObjectID>
+    ) {
+        self.videoIDs = videoIDs
+        self.folderIDs = folderIDs
+    }
+
     init(project: Folder) {
         var visitedFolderIDs: Set<NSManagedObjectID> = []
         var collectedVideoIDs: Set<NSManagedObjectID> = []
@@ -28,6 +38,88 @@ struct ProjectThumbnailMembership: Equatable {
 enum ProjectThumbnailChange {
     case invalidatedAll
     case objects(Set<NSManagedObjectID>)
+}
+
+enum ProjectThumbnailReconciliationResult: Equatable {
+    case saved
+    case alreadyCurrent
+    case deferredDirty
+    case failed
+}
+
+struct ProjectThumbnailObservationState {
+    private(set) var membership: ProjectThumbnailMembership
+    private(set) var isContextInvalidated = false
+    private(set) var reconciliationPending = true
+    private var reconciliationInFlight = false
+
+    init(project: Folder) {
+        membership = ProjectThumbnailMembership(project: project)
+    }
+
+    mutating func handle(
+        change: ProjectThumbnailChange,
+        currentMembership: () -> ProjectThumbnailMembership
+    ) -> Bool {
+        guard !isContextInvalidated else { return false }
+
+        switch change {
+        case .invalidatedAll:
+            isContextInvalidated = true
+            membership = .empty
+            reconciliationPending = false
+            reconciliationInFlight = false
+            return true
+        case .objects:
+            let current = currentMembership()
+            let shouldRefresh = ProjectThumbnailChangePolicy.shouldRefresh(
+                change: change,
+                previous: membership,
+                current: current
+            )
+            membership = current
+            if shouldRefresh {
+                reconciliationPending = true
+            }
+            return shouldRefresh
+        }
+    }
+
+    mutating func markReconciliationPending() {
+        guard !isContextInvalidated else { return }
+        reconciliationPending = true
+    }
+
+    func shouldScheduleReconciliation(contextIsClean: Bool) -> Bool {
+        reconciliationPending
+            && !reconciliationInFlight
+            && !isContextInvalidated
+            && contextIsClean
+    }
+
+    var canQueueLifecycleRetry: Bool {
+        !reconciliationInFlight && !isContextInvalidated
+    }
+
+    mutating func beginReconciliation() -> Bool {
+        guard reconciliationPending,
+              !reconciliationInFlight,
+              !isContextInvalidated else {
+            return false
+        }
+        reconciliationInFlight = true
+        return true
+    }
+
+    mutating func recordReconciliation(_ result: ProjectThumbnailReconciliationResult) {
+        reconciliationInFlight = false
+        switch result {
+        case .saved, .alreadyCurrent:
+            reconciliationPending = false
+        case .deferredDirty, .failed:
+            reconciliationPending = !isContextInvalidated
+        }
+    }
 }
 
 enum ProjectThumbnailChangePolicy {
@@ -141,22 +233,22 @@ enum ProjectThumbnailChangePolicy {
 @MainActor
 enum ProjectThumbnailReconciler {
     @discardableResult
-    static func reconcile(_ project: Folder) -> Bool {
-        guard let context = project.managedObjectContext,
-              !context.hasChanges else {
-            return false
-        }
+    static func reconcile(_ project: Folder) -> ProjectThumbnailReconciliationResult {
+        guard let context = project.managedObjectContext else { return .failed }
+        guard !context.hasChanges else { return .deferredDirty }
 
         let resolvedVideoID = project.resolvedProjectThumbnailVideo?.id
-        guard project.projectThumbnailVideoID != resolvedVideoID else { return false }
+        guard project.projectThumbnailVideoID != resolvedVideoID else {
+            return .alreadyCurrent
+        }
 
         project.projectThumbnailVideoID = resolvedVideoID
         do {
             try context.save()
-            return true
+            return .saved
         } catch {
             context.rollback()
-            return false
+            return .failed
         }
     }
 }
@@ -572,6 +664,7 @@ struct ProjectDetailView: View {
         ProjectSyncedThumbnailImage(project: project, contentMode: .fill) {
             placeholderThumbnail(cornerRadius: cornerRadius)
         }
+        .id(ObjectIdentifier(project))
         .frame(width: size, height: size)
         .clipShape(.rect(cornerRadius: cornerRadius))
         .overlay {
@@ -755,6 +848,7 @@ private struct ProjectCard: View {
         ProjectSyncedThumbnailImage(project: project, contentMode: .fill) {
             placeholderThumbnail
         }
+        .id(ObjectIdentifier(project))
     }
 
     private var placeholderThumbnail: some View {
@@ -773,9 +867,12 @@ private struct ProjectSyncedThumbnailImage<Placeholder: View>: View {
     @ObservedObject var project: Folder
     let contentMode: ContentMode
     let placeholder: Placeholder
+    let context: NSManagedObjectContext?
 
     @State private var thumbnailRevision: UInt64 = 0
-    @State private var membership: ProjectThumbnailMembership
+    @State private var contextLifecycleRevision: UInt64 = 0
+    @State private var reconciliationAttempt: UInt64 = 0
+    @State private var observationState: ProjectThumbnailObservationState
 
     init(
         project: Folder,
@@ -785,10 +882,14 @@ private struct ProjectSyncedThumbnailImage<Placeholder: View>: View {
         self.project = project
         self.contentMode = contentMode
         self.placeholder = placeholder()
-        _membership = State(initialValue: ProjectThumbnailMembership(project: project))
+        context = project.managedObjectContext
+        _observationState = State(
+            initialValue: ProjectThumbnailObservationState(project: project)
+        )
     }
 
     private var resolvedVideo: Video? {
+        guard !observationState.isContextInvalidated else { return nil }
         _ = thumbnailRevision
         return project.resolvedProjectThumbnailVideo
     }
@@ -805,30 +906,56 @@ private struct ProjectSyncedThumbnailImage<Placeholder: View>: View {
         }
         .onReceive(NotificationCenter.default.publisher(
             for: .NSManagedObjectContextObjectsDidChange,
-            object: project.managedObjectContext
+            object: context
         )) { notification in
-            guard let context = project.managedObjectContext,
-                  let change = ProjectThumbnailChangePolicy.change(
+            guard let context,
+                  notification.object as? NSManagedObjectContext === context else { return }
+
+            if let change = ProjectThumbnailChangePolicy.change(
                     for: notification,
                     in: context
-                  ) else { return }
-
-            let currentMembership = ProjectThumbnailMembership(project: project)
-            let shouldRefresh = ProjectThumbnailChangePolicy.shouldRefresh(
-                change: change,
-                previous: membership,
-                current: currentMembership
-            )
-            membership = currentMembership
-            if shouldRefresh {
-                thumbnailRevision &+= 1
+                  ) {
+                let shouldRefresh = observationState.handle(change: change) {
+                    ProjectThumbnailMembership(project: project)
+                }
+                if shouldRefresh {
+                    thumbnailRevision &+= 1
+                }
+            }
+            if observationState.canQueueLifecycleRetry {
+                contextLifecycleRevision &+= 1
             }
         }
-        .task(id: thumbnailRevision) {
-            await Task.yield()
-            guard !Task.isCancelled else { return }
-            ProjectThumbnailReconciler.reconcile(project)
+        .onReceive(NotificationCenter.default.publisher(
+            for: .NSManagedObjectContextDidSave,
+            object: context
+        )) { notification in
+            guard let savedContext = notification.object as? NSManagedObjectContext,
+                  savedContext === context else { return }
+            if observationState.canQueueLifecycleRetry {
+                contextLifecycleRevision &+= 1
+            }
         }
+        .task(id: contextLifecycleRevision) {
+            guard contextLifecycleRevision > 0 else { return }
+            await Task.yield()
+            guard !Task.isCancelled, let context else { return }
+            scheduleReconciliationIfPossible(in: context)
+        }
+        .task(id: reconciliationAttempt) {
+            await Task.yield()
+            guard !Task.isCancelled,
+                  observationState.beginReconciliation() else { return }
+            let result = ProjectThumbnailReconciler.reconcile(project)
+            observationState.recordReconciliation(result)
+        }
+    }
+
+    private func scheduleReconciliationIfPossible(in context: NSManagedObjectContext) {
+        guard observationState.shouldScheduleReconciliation(
+            contextIsClean: !context.hasChanges
+        ) else { return }
+        reconciliationAttempt &+= 1
     }
 }
 

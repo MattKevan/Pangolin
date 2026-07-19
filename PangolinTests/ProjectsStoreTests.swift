@@ -531,7 +531,7 @@ struct ProjectsStoreTests {
         project.projectThumbnailVideoID = nil
         try context.save()
 
-        #expect(ProjectThumbnailReconciler.reconcile(project))
+        #expect(ProjectThumbnailReconciler.reconcile(project) == .saved)
         #expect(project.projectThumbnailVideoID == first.id)
         #expect(!context.hasChanges)
 
@@ -550,17 +550,161 @@ struct ProjectsStoreTests {
             previous: previous,
             current: current
         ))
-        #expect(ProjectThumbnailReconciler.reconcile(project))
+        #expect(ProjectThumbnailReconciler.reconcile(project) == .saved)
         #expect(project.projectThumbnailVideoID == replacement.id)
         #expect(!context.hasChanges)
 
         project.projectThumbnailVideoID = first.id
         try context.save()
         library.name = "Unrelated pending edit"
-        #expect(!ProjectThumbnailReconciler.reconcile(project))
+        #expect(ProjectThumbnailReconciler.reconcile(project) == .deferredDirty)
         #expect(project.projectThumbnailVideoID == first.id)
         #expect(context.hasChanges)
         context.rollback()
+
+        await manager.closeCurrentLibrary()
+    }
+
+    @Test("Project thumbnail observation invalidates without traversing reset objects")
+    @MainActor
+    func projectThumbnailObservationStopsAtContextReset() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Reset", in: context, parent: nil, library: library)
+        _ = try makeVideo(
+            title: "Artwork",
+            thumbnailData: try makeValidJPEG(),
+            in: context,
+            folder: project,
+            library: library
+        )
+        try context.save()
+
+        var state = ProjectThumbnailObservationState(project: project)
+        var didTraverseAfterInvalidation = false
+        var observedInvalidatedAll = false
+        let observer = NotificationCenter.default.addObserver(
+            forName: .NSManagedObjectContextObjectsDidChange,
+            object: context,
+            queue: nil
+        ) { notification in
+            MainActor.assumeIsolated {
+                guard let change = ProjectThumbnailChangePolicy.change(
+                    for: notification,
+                    in: context
+                ), case .invalidatedAll = change else { return }
+                observedInvalidatedAll = true
+                _ = state.handle(change: change) {
+                    didTraverseAfterInvalidation = true
+                    return .empty
+                }
+            }
+        }
+
+        context.reset()
+        NotificationCenter.default.removeObserver(observer)
+
+        #expect(observedInvalidatedAll)
+        #expect(state.isContextInvalidated)
+        #expect(state.membership == .empty)
+        #expect(!state.reconciliationPending)
+        #expect(!didTraverseAfterInvalidation)
+
+        await manager.closeCurrentLibrary()
+    }
+
+    @Test("Project thumbnail reconciliation retries after unrelated save and rollback")
+    @MainActor
+    func projectThumbnailReconciliationRetriesWhenContextBecomesClean() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Retry", in: context, parent: nil, library: library)
+        let selected = try makeVideo(
+            title: "Selected",
+            thumbnailData: try makeValidJPEG(),
+            in: context,
+            folder: project,
+            library: library
+        )
+        try context.save()
+
+        var state = ProjectThumbnailObservationState(project: project)
+        library.name = "Unrelated save"
+        let deferredSave = ProjectThumbnailReconciler.reconcile(project)
+        state.recordReconciliation(deferredSave)
+        #expect(deferredSave == .deferredDirty)
+        #expect(state.reconciliationPending)
+
+        var didScheduleAfterSave = false
+        let didSaveObserver = NotificationCenter.default.addObserver(
+            forName: .NSManagedObjectContextDidSave,
+            object: context,
+            queue: nil
+        ) { _ in
+            MainActor.assumeIsolated {
+                didScheduleAfterSave = state.shouldScheduleReconciliation(
+                    contextIsClean: !context.hasChanges
+                )
+            }
+        }
+        try context.save()
+        NotificationCenter.default.removeObserver(didSaveObserver)
+        #expect(didScheduleAfterSave)
+        let saved = ProjectThumbnailReconciler.reconcile(project)
+        state.recordReconciliation(saved)
+        #expect(saved == .saved)
+        #expect(project.projectThumbnailVideoID == selected.id)
+        #expect(!state.reconciliationPending)
+
+        project.projectThumbnailVideoID = UUID()
+        try context.save()
+        state.markReconciliationPending()
+        library.name = "Unrelated rollback"
+        let deferredRollback = ProjectThumbnailReconciler.reconcile(project)
+        state.recordReconciliation(deferredRollback)
+        #expect(deferredRollback == .deferredDirty)
+
+        var observedRollbackLifecycle = false
+        let rollbackObserver = NotificationCenter.default.addObserver(
+            forName: .NSManagedObjectContextObjectsDidChange,
+            object: context,
+            queue: nil
+        ) { _ in
+            MainActor.assumeIsolated {
+                observedRollbackLifecycle = true
+            }
+        }
+        context.rollback()
+        NotificationCenter.default.removeObserver(rollbackObserver)
+        await Task.yield()
+        #expect(observedRollbackLifecycle)
+        #expect(state.shouldScheduleReconciliation(contextIsClean: !context.hasChanges))
+        ThumbnailValidityCache.shared.removeAllObjects()
+        let savedAfterRollback = ProjectThumbnailReconciler.reconcile(project)
+        state.recordReconciliation(savedAfterRollback)
+        #expect(savedAfterRollback == .saved || savedAfterRollback == .alreadyCurrent)
+        #expect(project.projectThumbnailVideoID == selected.id)
+
+        var saveCount = 0
+        let saveObserver = NotificationCenter.default.addObserver(
+            forName: .NSManagedObjectContextDidSave,
+            object: context,
+            queue: nil
+        ) { _ in
+            saveCount += 1
+        }
+        state.markReconciliationPending()
+        let alreadyCurrent = ProjectThumbnailReconciler.reconcile(project)
+        state.recordReconciliation(alreadyCurrent)
+        NotificationCenter.default.removeObserver(saveObserver)
+
+        #expect(alreadyCurrent == .alreadyCurrent)
+        #expect(saveCount == 0)
+        #expect(!state.reconciliationPending)
 
         await manager.closeCurrentLibrary()
     }
