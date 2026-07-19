@@ -133,19 +133,25 @@ struct ThumbnailReconciliationGate {
     }
 }
 
+enum CloudEventSourceScope: Equatable {
+    case closed
+    case unbound
+    case library(UUID)
+}
+
 struct CloudEventSourceLifecycle {
-    private var closedSourceIDs: Set<UUID> = []
+    private var scopes: [UUID: CloudEventSourceScope] = [:]
 
     mutating func abandon(_ sourceID: UUID) {
-        closedSourceIDs.insert(sourceID)
+        scopes[sourceID] = .closed
     }
 
-    mutating func activate(_ sourceID: UUID) {
-        closedSourceIDs.remove(sourceID)
+    mutating func activate(_ sourceID: UUID, libraryID: UUID) {
+        scopes[sourceID] = .library(libraryID)
     }
 
-    func accepts(_ sourceID: UUID) -> Bool {
-        !closedSourceIDs.contains(sourceID)
+    func scope(for sourceID: UUID) -> CloudEventSourceScope {
+        scopes[sourceID] ?? .unbound
     }
 }
 

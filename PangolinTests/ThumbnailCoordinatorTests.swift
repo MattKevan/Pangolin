@@ -186,11 +186,26 @@ struct ThumbnailCoordinatorTests {
         gate.eventStarted(id: UUID(), sourceID: oldSource, isImport: true, libraryID: nil)
         lifecycle.abandon(oldSource)
         #expect(gate.abandon(sourceID: oldSource) == nil)
-        #expect(!lifecycle.accepts(oldSource))
-        lifecycle.activate(newSource)
+        #expect(lifecycle.scope(for: oldSource) == .closed)
+        lifecycle.activate(newSource, libraryID: newLibrary)
         gate.bindUnscopedImports(from: newSource, to: newLibrary)
-        #expect(lifecycle.accepts(newSource))
+        #expect(lifecycle.scope(for: newSource) == .library(newLibrary))
         #expect(gate.request(libraryID: newLibrary) == newLibrary)
+    }
+
+    @Test("Unseen store sources remain unbound despite another current library")
+    func cloudEventSourceLifecycleDoesNotInferCurrentLibrary() {
+        let sourceA = UUID()
+        let sourceB = UUID()
+        let libraryA = UUID()
+        var lifecycle = CloudEventSourceLifecycle()
+
+        lifecycle.activate(sourceA, libraryID: libraryA)
+        #expect(lifecycle.scope(for: sourceA) == .library(libraryA))
+        #expect(lifecycle.scope(for: sourceB) == .unbound)
+        lifecycle.abandon(sourceA)
+        #expect(lifecycle.scope(for: sourceA) == .closed)
+        #expect(lifecycle.scope(for: sourceB) == .unbound)
     }
 
     @Test("Thumbnail work remains rejected until explicit activation after close")

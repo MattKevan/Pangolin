@@ -123,27 +123,32 @@ class ProcessingQueueManager: ObservableObject {
     }
 
     func handleCloudKitEvent(_ event: NSPersistentCloudKitContainer.Event, sourceID: UUID) {
-        guard cloudEventSourceLifecycle.accepts(sourceID) else { return }
+        let sourceLibraryID: UUID?
+        switch cloudEventSourceLifecycle.scope(for: sourceID) {
+        case .closed:
+            return
+        case .unbound:
+            sourceLibraryID = nil
+        case .library(let libraryID):
+            guard !closingThumbnailLibraryIDs.contains(libraryID) else { return }
+            sourceLibraryID = libraryID
+        }
         cloudSyncHideTask?.cancel()
         let now = Date()
         let eventID = event.identifier
 
         if event.endDate == nil {
-            let libraryID = LibraryManager.shared.currentLibrary?.id
-            if let libraryID, closingThumbnailLibraryIDs.contains(libraryID) {
-                return
-            }
             activeCloudSyncEvents[eventID] = ActiveCloudSyncEvent(
                 id: eventID,
                 sourceID: sourceID,
                 type: event.type,
-                libraryID: libraryID
+                libraryID: sourceLibraryID
             )
             thumbnailReconciliationGate.eventStarted(
                 id: eventID,
                 sourceID: sourceID,
                 isImport: event.type == .import,
-                libraryID: libraryID
+                libraryID: sourceLibraryID
             )
             cloudSyncQueueStatus = CloudSyncQueueStatus(
                 phase: .syncing,
@@ -157,17 +162,14 @@ class ProcessingQueueManager: ObservableObject {
         guard activeCloudSyncEvents[eventID]?.sourceID == sourceID,
               let completedEvent = activeCloudSyncEvents.removeValue(forKey: eventID) else { return }
         let eventLibraryID = completedEvent.libraryID
-        let reconciliationLibraryID = LibraryManager.shared.currentLibrary?.id == eventLibraryID
-            ? eventLibraryID
-            : nil
 
         if let libraryID = thumbnailReconciliationGate.eventCompleted(
             id: eventID,
             sourceID: sourceID,
             isImport: event.type == .import,
             succeeded: event.error == nil,
-            libraryID: reconciliationLibraryID
-        ) {
+            libraryID: eventLibraryID
+        ), LibraryManager.shared.currentLibrary?.id == libraryID {
             startThumbnailReconciliationScan(for: libraryID)
         }
 
@@ -321,7 +323,7 @@ class ProcessingQueueManager: ObservableObject {
     }
 
     func activateThumbnailWork(for libraryID: UUID, sourceID: UUID) {
-        cloudEventSourceLifecycle.activate(sourceID)
+        cloudEventSourceLifecycle.activate(sourceID, libraryID: libraryID)
         bindUnscopedCloudImports(from: sourceID, to: libraryID)
         thumbnailLibraryLifecycle.activate(libraryID)
     }
