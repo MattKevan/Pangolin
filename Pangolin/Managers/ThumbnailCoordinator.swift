@@ -34,6 +34,8 @@ enum ThumbnailCoordinatorError: LocalizedError {
     case missingVideoID
     case invalidGeneratedData
     case missingManagedObjectContext
+    case existingVideoNotPersisted
+    case thumbnailSaveNotificationMissing
 
     var errorDescription: String? {
         switch self {
@@ -43,33 +45,100 @@ enum ThumbnailCoordinatorError: LocalizedError {
             return "The generated thumbnail is not valid JPEG data."
         case .missingManagedObjectContext:
             return "The video is not attached to a library context, so its thumbnail cannot be saved."
+        case .existingVideoNotPersisted:
+            return "The existing video is not stored persistently, so its thumbnail cannot be saved safely."
+        case .thumbnailSaveNotificationMissing:
+            return "The thumbnail was saved, but its library update could not be merged."
         }
     }
+}
+
+private final class ThumbnailWaiterGroup: @unchecked Sendable {
+    typealias Lease = UUID
+
+    private enum LeaseState {
+        case active
+        case canceled
+    }
+
+    private let lock = NSLock()
+    private let cancelOperation: @Sendable () -> Void
+    private var leases: [Lease: LeaseState] = [:]
+    private var activeCount = 0
+
+    init(cancelOperation: @escaping @Sendable () -> Void) {
+        self.cancelOperation = cancelOperation
+    }
+
+    func acquire() -> Lease {
+        lock.lock()
+        defer { lock.unlock() }
+        let lease = UUID()
+        leases[lease] = .active
+        activeCount += 1
+        return lease
+    }
+
+    func cancel(_ lease: Lease) {
+        var shouldCancelOperation = false
+        lock.lock()
+        if leases[lease] == .active {
+            leases[lease] = .canceled
+            activeCount -= 1
+            shouldCancelOperation = activeCount == 0
+        }
+        lock.unlock()
+        if shouldCancelOperation {
+            cancelOperation()
+        }
+    }
+
+    func release(_ lease: Lease) {
+        lock.lock()
+        defer { lock.unlock() }
+        if leases.removeValue(forKey: lease) == .active {
+            activeCount -= 1
+        }
+    }
+}
+
+private final class ThumbnailSaveNotificationBox: @unchecked Sendable {
+    var notification: Notification?
 }
 
 @MainActor
 final class ThumbnailCoordinator {
     typealias Sleep = @MainActor @Sendable (TimeInterval) async throws -> Void
     typealias StageHandler = @MainActor (ThumbnailStage) -> Void
+    typealias BackgroundContextFactory = @MainActor (NSPersistentStoreCoordinator) -> NSManagedObjectContext
 
     static let retryDelays: [TimeInterval] = [5, 15, 45]
 
     private let generator: any ThumbnailGenerating
     private let videoAccess: any ThumbnailVideoAccessing
     private let sleep: Sleep
+    private let backgroundContextFactory: BackgroundContextFactory
     private var inFlight: [UUID: Task<Void, Error>] = [:]
     private var generations: [UUID: UUID] = [:]
+    private var waiterGroups: [UUID: ThumbnailWaiterGroup] = [:]
+    private var serialTail: Task<Void, Never>?
 
     init(
         generator: any ThumbnailGenerating,
         videoAccess: any ThumbnailVideoAccessing,
         sleep: @escaping Sleep = { delay in
             try await Task.sleep(for: .seconds(delay))
+        },
+        backgroundContextFactory: @escaping BackgroundContextFactory = { coordinator in
+            let context = NSManagedObjectContext(concurrencyType: .privateQueueConcurrencyType)
+            context.persistentStoreCoordinator = coordinator
+            return context
         }
     ) {
         self.generator = generator
         self.videoAccess = videoAccess
         self.sleep = sleep
+        self.backgroundContextFactory = backgroundContextFactory
     }
 
     func generateThumbnail(
@@ -85,12 +154,26 @@ final class ThumbnailCoordinator {
         }
 
         if let task = inFlight[videoID] {
-            try await awaitTask(task, videoID: videoID, generation: generations[videoID])
+            guard let waiterGroup = waiterGroups[videoID] else {
+                throw ThumbnailCoordinatorError.existingVideoNotPersisted
+            }
+            try await awaitTask(
+                task,
+                waiterGroup: waiterGroup,
+                videoID: videoID,
+                generation: generations[videoID]
+            )
             return
         }
 
         let generation = UUID()
+        let predecessor = serialTail
+        let backgroundContextFactory = self.backgroundContextFactory
         let task = Task { @MainActor [generator, videoAccess, sleep] in
+            if let predecessor {
+                await predecessor.value
+            }
+            try Task.checkCancellation()
             onStage(.preparing)
             let originalStatus = await videoAccess.thumbnailStatus(for: video)
             onStage(.downloadingVideo)
@@ -107,17 +190,35 @@ final class ThumbnailCoordinator {
             }
             try Task.checkCancellation()
             onStage(.saving)
-            try Self.save(data, for: video)
+            try await Self.saveExisting(
+                data,
+                for: video,
+                backgroundContextFactory: backgroundContextFactory
+            )
+            try Task.checkCancellation()
 
             if originalStatus == .cloudOnly,
                video.library?.storagePreference == .optimizeStorage {
                 onStage(.restoringStorage)
+                try Task.checkCancellation()
                 try await videoAccess.evictThumbnailSource(for: video)
             }
         }
+        let waiterGroup = ThumbnailWaiterGroup {
+            task.cancel()
+        }
         inFlight[videoID] = task
         generations[videoID] = generation
-        try await awaitTask(task, videoID: videoID, generation: generation)
+        waiterGroups[videoID] = waiterGroup
+        serialTail = Task { @MainActor in
+            _ = try? await task.value
+        }
+        try await awaitTask(
+            task,
+            waiterGroup: waiterGroup,
+            videoID: videoID,
+            generation: generation
+        )
     }
 
     func generateNewImportThumbnail(for video: Video, sourceURL: URL) async throws {
@@ -126,7 +227,7 @@ final class ThumbnailCoordinator {
             throw ThumbnailCoordinatorError.invalidGeneratedData
         }
         try Task.checkCancellation()
-        try Self.save(data, for: video)
+        try Self.saveNewImport(data, for: video)
     }
 
     func reconcile(videos: [Video]) async {
@@ -148,17 +249,23 @@ final class ThumbnailCoordinator {
 
     private func awaitTask(
         _ task: Task<Void, Error>,
+        waiterGroup: ThumbnailWaiterGroup,
         videoID: UUID,
         generation: UUID?
     ) async throws {
+        let lease = waiterGroup.acquire()
+        defer { waiterGroup.release(lease) }
         do {
             try await withTaskCancellationHandler {
-                try await task.value
-            } onCancel: {
-                Task { @MainActor [weak self] in
-                    guard self?.generations[videoID] == generation else { return }
-                    self?.inFlight[videoID]?.cancel()
+                do {
+                    try await task.value
+                } catch {
+                    if Task.isCancelled { throw CancellationError() }
+                    throw error
                 }
+                try Task.checkCancellation()
+            } onCancel: {
+                waiterGroup.cancel(lease)
             }
             cleanInFlight(videoID: videoID, generation: generation)
         } catch {
@@ -171,6 +278,7 @@ final class ThumbnailCoordinator {
         guard generations[videoID] == generation else { return }
         inFlight.removeValue(forKey: videoID)
         generations.removeValue(forKey: videoID)
+        waiterGroups.removeValue(forKey: videoID)
     }
 
     private static func acquireLocalURL(
@@ -200,7 +308,53 @@ final class ThumbnailCoordinator {
         }
     }
 
-    private static func save(_ data: Data, for video: Video) throws {
+    private static func saveExisting(
+        _ data: Data,
+        for video: Video,
+        backgroundContextFactory: BackgroundContextFactory
+    ) async throws {
+        guard let sourceContext = video.managedObjectContext else {
+            throw ThumbnailCoordinatorError.missingManagedObjectContext
+        }
+        guard let coordinator = sourceContext.persistentStoreCoordinator,
+              !coordinator.persistentStores.isEmpty,
+              !video.objectID.isTemporaryID,
+              !video.isInserted,
+              !video.isDeleted else {
+            throw ThumbnailCoordinatorError.existingVideoNotPersisted
+        }
+
+        let objectID = video.objectID
+        let generatedAt = Date()
+        let backgroundContext = backgroundContextFactory(coordinator)
+        let notification = try await backgroundContext.perform {
+            guard let backgroundVideo = try backgroundContext.existingObject(with: objectID) as? Video else {
+                throw ThumbnailCoordinatorError.existingVideoNotPersisted
+            }
+            let notificationBox = ThumbnailSaveNotificationBox()
+            let observer = NotificationCenter.default.addObserver(
+                forName: NSManagedObjectContext.didSaveObjectsNotification,
+                object: backgroundContext,
+                queue: nil
+            ) { notification in
+                notificationBox.notification = notification
+            }
+            defer { NotificationCenter.default.removeObserver(observer) }
+
+            backgroundVideo.thumbnailData = data
+            backgroundVideo.thumbnailGenerationVersion = ThumbnailGenerator.currentVersion
+            backgroundVideo.thumbnailGeneratedAt = generatedAt
+            try backgroundContext.save()
+            guard let notification = notificationBox.notification else {
+                throw ThumbnailCoordinatorError.thumbnailSaveNotificationMissing
+            }
+            return notification
+        }
+
+        sourceContext.mergeChanges(fromContextDidSave: notification)
+    }
+
+    private static func saveNewImport(_ data: Data, for video: Video) throws {
         guard let context = video.managedObjectContext else {
             throw ThumbnailCoordinatorError.missingManagedObjectContext
         }

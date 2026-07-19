@@ -17,7 +17,7 @@ struct ThumbnailCoordinatorTests {
         let access = FakeThumbnailVideoAccess(status: .cloudOnly)
         let coordinator = ThumbnailCoordinator(generator: generator, videoAccess: access)
         var stages: [ThumbnailStage] = []
-        let saves = SaveCounter(context: fixture.context)
+        let saves = SaveCounter(video: fixture.video)
 
         try await coordinator.generateThumbnail(for: fixture.video) { stages.append($0) }
 
@@ -38,7 +38,7 @@ struct ThumbnailCoordinatorTests {
         let generator = FakeThumbnailGenerator(results: [.failure(FakeError.generation)])
         let access = FakeThumbnailVideoAccess(status: .cloudOnly)
         let coordinator = ThumbnailCoordinator(generator: generator, videoAccess: access)
-        let saves = SaveCounter(context: fixture.context)
+        let saves = SaveCounter(video: fixture.video)
 
         await #expect(throws: FakeError.self) {
             try await coordinator.generateThumbnail(for: fixture.video)
@@ -97,7 +97,7 @@ struct ThumbnailCoordinatorTests {
         let generator = FakeThumbnailGenerator(results: [.success(Data("not jpeg".utf8))])
         let access = FakeThumbnailVideoAccess(status: .cloudOnly)
         let coordinator = ThumbnailCoordinator(generator: generator, videoAccess: access)
-        let saves = SaveCounter(context: fixture.context)
+        let saves = SaveCounter(video: fixture.video)
 
         await #expect(throws: ThumbnailCoordinatorError.self) {
             try await coordinator.generateThumbnail(for: fixture.video)
@@ -131,7 +131,7 @@ struct ThumbnailCoordinatorTests {
         let generator = FakeThumbnailGenerator(results: [.success(try makeValidJPEG())], suspendCalls: true)
         let access = FakeThumbnailVideoAccess(status: .cloudOnly)
         let coordinator = ThumbnailCoordinator(generator: generator, videoAccess: access)
-        let saves = SaveCounter(context: fixture.context)
+        let saves = SaveCounter(video: fixture.video)
 
         let operation = Task { try await coordinator.generateThumbnail(for: fixture.video) }
         await waitUntil { await generator.callCount == 1 }
@@ -152,7 +152,7 @@ struct ThumbnailCoordinatorTests {
         let generator = FakeThumbnailGenerator(results: [.success(try makeValidJPEG())])
         let access = FakeThumbnailVideoAccess(status: .cloudOnly, suspendLocalURL: true)
         let coordinator = ThumbnailCoordinator(generator: generator, videoAccess: access)
-        let saves = SaveCounter(context: fixture.context)
+        let saves = SaveCounter(video: fixture.video)
 
         let operation = Task { try await coordinator.generateThumbnail(for: fixture.video) }
         await waitUntil { access.localURLCount == 1 }
@@ -173,7 +173,7 @@ struct ThumbnailCoordinatorTests {
         let generator = FakeThumbnailGenerator(results: [.success(try makeValidJPEG())], suspendCalls: true)
         let access = FakeThumbnailVideoAccess(status: .local)
         let coordinator = ThumbnailCoordinator(generator: generator, videoAccess: access)
-        let saves = SaveCounter(context: fixture.context)
+        let saves = SaveCounter(video: fixture.video)
 
         let first = Task { try await coordinator.generateThumbnail(for: fixture.video) }
         await waitUntil { await generator.callCount == 1 }
@@ -187,6 +187,106 @@ struct ThumbnailCoordinatorTests {
         try await first.value
         try await second.value
         #expect(saves.count == 1)
+    }
+
+    @Test("Different videos run serially through the complete lifecycle")
+    func differentVideosAreSerialized() async throws {
+        let fixture = try makeFixture()
+        let secondVideo = try fixture.makeVideo()
+        try fixture.context.save()
+        let generator = FakeThumbnailGenerator(
+            results: [.success(try makeValidJPEG(red: 0x21)), .success(try makeValidJPEG(red: 0x42))],
+            suspendCalls: true
+        )
+        let access = FakeThumbnailVideoAccess(status: .local)
+        let coordinator = ThumbnailCoordinator(generator: generator, videoAccess: access)
+
+        let first = Task { try await coordinator.generateThumbnail(for: fixture.video) }
+        await waitUntil { await generator.callCount == 1 }
+        let second = Task { try await coordinator.generateThumbnail(for: secondVideo) }
+        for _ in 0..<20 { await Task.yield() }
+
+        #expect(access.statusCount == 1)
+        #expect(access.localURLCount == 1)
+        #expect(await generator.callCount == 1)
+
+        await generator.releaseSuspendedCalls()
+        try await first.value
+        try await second.value
+        #expect(access.statusCount == 2)
+        #expect(access.localURLCount == 2)
+        #expect(await generator.callCount == 2)
+    }
+
+    @Test("A canceled queued video never begins source access")
+    func canceledQueuedVideoDoesNotStart() async throws {
+        let fixture = try makeFixture()
+        let queuedVideo = try fixture.makeVideo()
+        try fixture.context.save()
+        let generator = FakeThumbnailGenerator(results: [.success(try makeValidJPEG())], suspendCalls: true)
+        let access = FakeThumbnailVideoAccess(status: .local)
+        let coordinator = ThumbnailCoordinator(generator: generator, videoAccess: access)
+
+        let first = Task { try await coordinator.generateThumbnail(for: fixture.video) }
+        await waitUntil { await generator.callCount == 1 }
+        let queued = Task { try await coordinator.generateThumbnail(for: queuedVideo) }
+        for _ in 0..<20 { await Task.yield() }
+        queued.cancel()
+        await generator.releaseSuspendedCalls()
+
+        try await first.value
+        await #expect(throws: CancellationError.self) { try await queued.value }
+        #expect(access.statusCount == 1)
+        #expect(access.localURLCount == 1)
+        #expect(await generator.callCount == 1)
+        #expect(queuedVideo.thumbnailData == nil)
+    }
+
+    @Test("Canceling one joined caller does not cancel shared work")
+    func joinedCallerCancellationIsIsolated() async throws {
+        let fixture = try makeFixture()
+        let generator = FakeThumbnailGenerator(results: [.success(try makeValidJPEG())], suspendCalls: true)
+        let access = FakeThumbnailVideoAccess(status: .local)
+        let coordinator = ThumbnailCoordinator(generator: generator, videoAccess: access)
+        let saves = SaveCounter(video: fixture.video)
+
+        let survivor = Task { try await coordinator.generateThumbnail(for: fixture.video) }
+        await waitUntil { await generator.callCount == 1 }
+        let canceledJoiner = Task { try await coordinator.generateThumbnail(for: fixture.video) }
+        for _ in 0..<20 { await Task.yield() }
+        canceledJoiner.cancel()
+        await generator.releaseSuspendedCalls()
+
+        try await survivor.value
+        await #expect(throws: CancellationError.self) { try await canceledJoiner.value }
+        #expect(await generator.callCount == 1)
+        #expect(access.statusCount == 1)
+        #expect(access.localURLCount == 1)
+        #expect(saves.count == 1)
+        #expect(fixture.video.hasCurrentThumbnail)
+    }
+
+    @Test("Cancellation at storage restoration keeps saved thumbnail and skips eviction")
+    func cancellationBeforeEvictionKeepsSavedThumbnail() async throws {
+        let fixture = try makeFixture()
+        let jpeg = try makeValidJPEG()
+        let generator = FakeThumbnailGenerator(results: [.success(jpeg)])
+        let access = FakeThumbnailVideoAccess(status: .cloudOnly)
+        let coordinator = ThumbnailCoordinator(generator: generator, videoAccess: access)
+
+        await #expect(throws: CancellationError.self) {
+            try await coordinator.generateThumbnail(for: fixture.video) { stage in
+                if stage == .restoringStorage, let videoID = fixture.video.id {
+                    coordinator.cancel(videoID: videoID)
+                }
+            }
+        }
+
+        #expect(fixture.video.thumbnailData == jpeg)
+        #expect(fixture.video.hasCurrentThumbnail)
+        #expect(access.evictionCount == 0)
+        let persisted = try freshThumbnailValues(for: fixture.video)
+        #expect(persisted.data == jpeg)
     }
 
     @Test("Transient download errors use the exact retry schedule")
@@ -288,7 +388,7 @@ struct ThumbnailCoordinatorTests {
         let generator = FakeThumbnailGenerator(results: [.success(jpeg)])
         let access = FakeThumbnailVideoAccess(status: .cloudOnly, evictionError: FakeError.eviction)
         let coordinator = ThumbnailCoordinator(generator: generator, videoAccess: access)
-        let saves = SaveCounter(context: fixture.context)
+        let saves = SaveCounter(video: fixture.video)
 
         await #expect(throws: FakeError.self) {
             try await coordinator.generateThumbnail(for: fixture.video)
@@ -303,21 +403,47 @@ struct ThumbnailCoordinatorTests {
     @Test("New import generates directly from its source URL")
     func newImportUsesProvidedSource() async throws {
         let fixture = try makeFixture()
+        let importVideo = try fixture.makeVideo()
+        #expect(importVideo.objectID.isTemporaryID)
         let source = URL(fileURLWithPath: "/tmp/import.mov")
         let jpeg = try makeValidJPEG()
         let generator = FakeThumbnailGenerator(results: [.success(jpeg)])
         let access = FakeThumbnailVideoAccess(status: .cloudOnly)
         let coordinator = ThumbnailCoordinator(generator: generator, videoAccess: access)
-        let saves = SaveCounter(context: fixture.context)
 
-        try await coordinator.generateNewImportThumbnail(for: fixture.video, sourceURL: source)
+        try await coordinator.generateNewImportThumbnail(for: importVideo, sourceURL: source)
 
         #expect(await generator.urls == [source])
         #expect(access.statusCount == 0)
         #expect(access.localURLCount == 0)
         #expect(access.evictionCount == 0)
+        #expect(importVideo.thumbnailData == jpeg)
+        #expect(importVideo.thumbnailGenerationVersion == ThumbnailGenerator.currentVersion)
+        #expect(importVideo.thumbnailGeneratedAt != nil)
+        #expect(!importVideo.objectID.isTemporaryID)
+        #expect(!fixture.context.hasChanges)
+    }
+
+    @Test("Existing video thumbnail saves without committing unrelated view-context edits")
+    func existingVideoUsesIsolatedPersistence() async throws {
+        let fixture = try makeFixture()
+        let jpeg = try makeValidJPEG()
+        fixture.library.name = "Pending unsaved library name"
+        let generator = FakeThumbnailGenerator(results: [.success(jpeg)])
+        let access = FakeThumbnailVideoAccess(status: .local)
+        let coordinator = ThumbnailCoordinator(generator: generator, videoAccess: access)
+
+        try await coordinator.generateThumbnail(for: fixture.video)
+
+        #expect(fixture.library.name == "Pending unsaved library name")
+        #expect(fixture.context.hasChanges)
         #expect(fixture.video.thumbnailData == jpeg)
-        #expect(saves.count == 1)
+        let persistedVideo = try freshThumbnailValues(for: fixture.video)
+        let persistedLibraryName = try freshLibraryName(for: fixture.library)
+        #expect(persistedVideo.data == jpeg)
+        #expect(persistedVideo.version == ThumbnailGenerator.currentVersion)
+        #expect(persistedVideo.generatedAt != nil)
+        #expect(persistedLibraryName == "Library")
     }
 
     @Test("Reconcile skips current thumbnails and continues after failures")
@@ -347,7 +473,7 @@ struct ThumbnailCoordinatorTests {
 
     @Test("Save failure restores only coordinator-owned thumbnail fields")
     func saveFailureRestoresThumbnailFields() async throws {
-        let fixture = try makeFixture(failSaves: true)
+        let fixture = try makeFixture()
         let oldData = Data("old invalid thumbnail".utf8)
         let oldDate = Date(timeIntervalSince1970: 42)
         fixture.video.thumbnailData = oldData
@@ -356,7 +482,16 @@ struct ThumbnailCoordinatorTests {
         fixture.library.name = "Unrelated pending edit"
         let generator = FakeThumbnailGenerator(results: [.success(try makeValidJPEG())])
         let access = FakeThumbnailVideoAccess(status: .cloudOnly)
-        let coordinator = ThumbnailCoordinator(generator: generator, videoAccess: access)
+        let coordinator = ThumbnailCoordinator(
+            generator: generator,
+            videoAccess: access,
+            backgroundContextFactory: { coordinator in
+                let context = FailingSaveContext(concurrencyType: .privateQueueConcurrencyType)
+                context.persistentStoreCoordinator = coordinator
+                context.shouldFail = true
+                return context
+            }
+        )
 
         await #expect(throws: (any Error).self) {
             try await coordinator.generateThumbnail(for: fixture.video)
@@ -369,10 +504,7 @@ struct ThumbnailCoordinatorTests {
         #expect(access.evictionCount == 0)
     }
 
-    private func makeFixture(
-        storage: LibraryStoragePreference = .optimizeStorage,
-        failSaves: Bool = false
-    ) throws -> Fixture {
+    private func makeFixture(storage: LibraryStoragePreference = .optimizeStorage) throws -> Fixture {
         let model = try #require(NSManagedObjectModel.mergedModel(from: [Bundle.main]))
         let coordinator = NSPersistentStoreCoordinator(managedObjectModel: model)
         try coordinator.addPersistentStore(ofType: NSInMemoryStoreType, configurationName: nil, at: nil)
@@ -385,7 +517,6 @@ struct ThumbnailCoordinatorTests {
         let fixture = Fixture(context: context, library: library, videoEntity: try #require(model.entitiesByName["Video"]))
         _ = try fixture.makeVideo()
         try context.save()
-        context.shouldFail = failSaves
         return fixture
     }
 
@@ -395,6 +526,25 @@ struct ThumbnailCoordinatorTests {
             await Task.yield()
         }
         Issue.record("Timed out waiting for asynchronous test condition")
+    }
+
+    private func freshThumbnailValues(for video: Video) throws -> (data: Data?, version: Int16, generatedAt: Date?) {
+        let context = try freshContext(for: video.managedObjectContext)
+        let fetched = try #require(context.existingObject(with: video.objectID) as? Video)
+        return (fetched.thumbnailData, fetched.thumbnailGenerationVersion, fetched.thumbnailGeneratedAt)
+    }
+
+    private func freshLibraryName(for library: Library) throws -> String? {
+        let context = try freshContext(for: library.managedObjectContext)
+        let fetched = try #require(context.existingObject(with: library.objectID) as? Library)
+        return fetched.name
+    }
+
+    private func freshContext(for source: NSManagedObjectContext?) throws -> NSManagedObjectContext {
+        let coordinator = try #require(source?.persistentStoreCoordinator)
+        let context = NSManagedObjectContext(concurrencyType: .mainQueueConcurrencyType)
+        context.persistentStoreCoordinator = coordinator
+        return context
     }
 }
 
@@ -523,12 +673,15 @@ private final class SaveCounter: @unchecked Sendable {
     private(set) var count = 0
     private var observer: NSObjectProtocol?
 
-    init(context: NSManagedObjectContext) {
+    init(video: Video) {
+        let objectID = video.objectID
         observer = NotificationCenter.default.addObserver(
             forName: NSManagedObjectContext.didSaveObjectsNotification,
-            object: context,
+            object: nil,
             queue: nil
-        ) { [weak self] _ in
+        ) { [weak self] notification in
+            guard let changedObjects = notification.userInfo?[NSUpdatedObjectsKey] as? Set<NSManagedObject>,
+                  changedObjects.contains(where: { $0.objectID == objectID }) else { return }
             self?.count += 1
         }
     }
