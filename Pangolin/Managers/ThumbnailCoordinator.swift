@@ -64,39 +64,41 @@ enum ThumbnailTaskScope {
 }
 
 struct ThumbnailReconciliationGate {
-    private enum ImportScope: Equatable {
-        case unbound
-        case library(UUID)
+    private struct ImportScope: Equatable {
+        let sourceID: UUID
+        var libraryID: UUID?
     }
 
     private var activeImportScopes: [UUID: ImportScope] = [:]
     private var pendingLibraryIDs: [UUID] = []
 
-    mutating func eventStarted(id: UUID, isImport: Bool, libraryID: UUID?) {
+    mutating func eventStarted(id: UUID, sourceID: UUID, isImport: Bool, libraryID: UUID?) {
         if isImport {
-            activeImportScopes[id] = libraryID.map(ImportScope.library) ?? .unbound
+            activeImportScopes[id] = ImportScope(sourceID: sourceID, libraryID: libraryID)
         }
     }
 
-    mutating func bindUnscopedImports(to libraryID: UUID) {
-        for (eventID, scope) in activeImportScopes where scope == .unbound {
-            activeImportScopes[eventID] = .library(libraryID)
+    mutating func bindUnscopedImports(from sourceID: UUID, to libraryID: UUID) {
+        for (eventID, scope) in activeImportScopes
+            where scope.sourceID == sourceID && scope.libraryID == nil {
+            activeImportScopes[eventID]?.libraryID = libraryID
         }
     }
 
     mutating func eventCompleted(
         id: UUID,
+        sourceID: UUID,
         isImport: Bool,
         succeeded: Bool,
         libraryID: UUID?
     ) -> UUID? {
-        if isImport {
-            let scope = activeImportScopes.removeValue(forKey: id)
-            if succeeded,
-               case .library(let capturedLibraryID)? = scope,
-               capturedLibraryID == libraryID {
-                appendPending(capturedLibraryID)
-            }
+        guard isImport,
+              activeImportScopes[id]?.sourceID == sourceID,
+              let scope = activeImportScopes.removeValue(forKey: id) else { return nil }
+        if succeeded,
+           let capturedLibraryID = scope.libraryID,
+           capturedLibraryID == libraryID {
+            appendPending(capturedLibraryID)
         }
         return flushNextReady()
     }
@@ -106,8 +108,13 @@ struct ThumbnailReconciliationGate {
         return flushNextReady()
     }
 
+    mutating func abandon(sourceID: UUID) -> UUID? {
+        activeImportScopes = activeImportScopes.filter { $0.value.sourceID != sourceID }
+        return flushNextReady()
+    }
+
     mutating func abandon(libraryID: UUID) -> UUID? {
-        activeImportScopes = activeImportScopes.filter { $0.value != .library(libraryID) }
+        activeImportScopes = activeImportScopes.filter { $0.value.libraryID != libraryID }
         pendingLibraryIDs.removeAll { $0 == libraryID }
         return flushNextReady()
     }
@@ -120,9 +127,25 @@ struct ThumbnailReconciliationGate {
 
     private mutating func flushNextReady() -> UUID? {
         guard let index = pendingLibraryIDs.firstIndex(where: { libraryID in
-            !activeImportScopes.values.contains(.library(libraryID))
+            !activeImportScopes.values.contains(where: { $0.libraryID == libraryID })
         }) else { return nil }
         return pendingLibraryIDs.remove(at: index)
+    }
+}
+
+struct CloudEventSourceLifecycle {
+    private var closedSourceIDs: Set<UUID> = []
+
+    mutating func abandon(_ sourceID: UUID) {
+        closedSourceIDs.insert(sourceID)
+    }
+
+    mutating func activate(_ sourceID: UUID) {
+        closedSourceIDs.remove(sourceID)
+    }
+
+    func accepts(_ sourceID: UUID) -> Bool {
+        !closedSourceIDs.contains(sourceID)
     }
 }
 

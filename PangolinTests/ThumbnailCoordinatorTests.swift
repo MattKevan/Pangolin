@@ -65,16 +65,17 @@ struct ThumbnailCoordinatorTests {
         let secondImport = UUID()
         let export = UUID()
         let libraryID = UUID()
+        let sourceID = UUID()
         var gate = ThumbnailReconciliationGate()
 
-        gate.eventStarted(id: firstImport, isImport: true, libraryID: libraryID)
-        gate.eventStarted(id: secondImport, isImport: true, libraryID: libraryID)
-        gate.eventStarted(id: export, isImport: false, libraryID: libraryID)
+        gate.eventStarted(id: firstImport, sourceID: sourceID, isImport: true, libraryID: libraryID)
+        gate.eventStarted(id: secondImport, sourceID: sourceID, isImport: true, libraryID: libraryID)
+        gate.eventStarted(id: export, sourceID: sourceID, isImport: false, libraryID: libraryID)
         #expect(gate.request(libraryID: libraryID) == nil)
-        #expect(gate.eventCompleted(id: firstImport, isImport: true, succeeded: true, libraryID: libraryID) == nil)
-        #expect(gate.eventCompleted(id: secondImport, isImport: true, succeeded: false, libraryID: libraryID) == libraryID)
+        #expect(gate.eventCompleted(id: firstImport, sourceID: sourceID, isImport: true, succeeded: true, libraryID: libraryID) == nil)
+        #expect(gate.eventCompleted(id: secondImport, sourceID: sourceID, isImport: true, succeeded: false, libraryID: libraryID) == libraryID)
 
-        #expect(gate.eventCompleted(id: export, isImport: false, succeeded: true, libraryID: libraryID) == nil)
+        #expect(gate.eventCompleted(id: export, sourceID: sourceID, isImport: false, succeeded: true, libraryID: libraryID) == nil)
         #expect(gate.request(libraryID: libraryID) == libraryID)
     }
 
@@ -83,9 +84,10 @@ struct ThumbnailCoordinatorTests {
         let libraryA = UUID()
         let libraryB = UUID()
         let importA = UUID()
+        let sourceA = UUID()
         var gate = ThumbnailReconciliationGate()
 
-        gate.eventStarted(id: importA, isImport: true, libraryID: libraryA)
+        gate.eventStarted(id: importA, sourceID: sourceA, isImport: true, libraryID: libraryA)
         #expect(gate.request(libraryID: libraryA) == nil)
         #expect(gate.abandon(libraryID: libraryA) == nil)
         #expect(gate.request(libraryID: libraryB) == libraryB)
@@ -95,13 +97,15 @@ struct ThumbnailCoordinatorTests {
     func cloudImportGateBindsUnscopedImport() {
         let libraryID = UUID()
         let importID = UUID()
+        let sourceID = UUID()
         var gate = ThumbnailReconciliationGate()
 
-        gate.eventStarted(id: importID, isImport: true, libraryID: nil)
-        gate.bindUnscopedImports(to: libraryID)
+        gate.eventStarted(id: importID, sourceID: sourceID, isImport: true, libraryID: nil)
+        gate.bindUnscopedImports(from: sourceID, to: libraryID)
         #expect(gate.request(libraryID: libraryID) == nil)
         #expect(gate.eventCompleted(
             id: importID,
+            sourceID: sourceID,
             isImport: true,
             succeeded: true,
             libraryID: libraryID
@@ -112,16 +116,18 @@ struct ThumbnailCoordinatorTests {
     func cloudImportGateCompletesBeforeBinding() {
         let importID = UUID()
         let libraryID = UUID()
+        let sourceID = UUID()
         var gate = ThumbnailReconciliationGate()
 
-        gate.eventStarted(id: importID, isImport: true, libraryID: nil)
+        gate.eventStarted(id: importID, sourceID: sourceID, isImport: true, libraryID: nil)
         #expect(gate.eventCompleted(
             id: importID,
+            sourceID: sourceID,
             isImport: true,
             succeeded: true,
             libraryID: nil
         ) == nil)
-        gate.bindUnscopedImports(to: libraryID)
+        gate.bindUnscopedImports(from: sourceID, to: libraryID)
         #expect(gate.request(libraryID: libraryID) == libraryID)
     }
 
@@ -130,13 +136,61 @@ struct ThumbnailCoordinatorTests {
         let libraryA = UUID()
         let libraryB = UUID()
         let importID = UUID()
+        let sourceID = UUID()
         var gate = ThumbnailReconciliationGate()
 
-        gate.eventStarted(id: importID, isImport: true, libraryID: nil)
-        gate.bindUnscopedImports(to: libraryA)
+        gate.eventStarted(id: importID, sourceID: sourceID, isImport: true, libraryID: nil)
+        gate.bindUnscopedImports(from: sourceID, to: libraryA)
         #expect(gate.request(libraryID: libraryA) == nil)
         #expect(gate.abandon(libraryID: libraryA) == nil)
         #expect(gate.request(libraryID: libraryB) == libraryB)
+    }
+
+    @Test("Binding one store source never captures another store's imports")
+    func cloudImportGateBindsOnlyMatchingSource() {
+        let sourceA = UUID()
+        let sourceB = UUID()
+        let importA = UUID()
+        let importB = UUID()
+        let libraryB = UUID()
+        var gate = ThumbnailReconciliationGate()
+
+        gate.eventStarted(id: importA, sourceID: sourceA, isImport: true, libraryID: nil)
+        gate.eventStarted(id: importB, sourceID: sourceB, isImport: true, libraryID: nil)
+        gate.bindUnscopedImports(from: sourceB, to: libraryB)
+        #expect(gate.request(libraryID: libraryB) == nil)
+        #expect(gate.eventCompleted(
+            id: importA,
+            sourceID: sourceA,
+            isImport: true,
+            succeeded: true,
+            libraryID: libraryB
+        ) == nil)
+        #expect(gate.eventCompleted(
+            id: importB,
+            sourceID: sourceB,
+            isImport: true,
+            succeeded: true,
+            libraryID: libraryB
+        ) == libraryB)
+    }
+
+    @Test("Closed CloudKit sources reject late events and do not block new stores")
+    func cloudEventSourceLifecycleRejectsAbandonedSource() {
+        let oldSource = UUID()
+        let newSource = UUID()
+        let newLibrary = UUID()
+        var lifecycle = CloudEventSourceLifecycle()
+        var gate = ThumbnailReconciliationGate()
+
+        gate.eventStarted(id: UUID(), sourceID: oldSource, isImport: true, libraryID: nil)
+        lifecycle.abandon(oldSource)
+        #expect(gate.abandon(sourceID: oldSource) == nil)
+        #expect(!lifecycle.accepts(oldSource))
+        lifecycle.activate(newSource)
+        gate.bindUnscopedImports(from: newSource, to: newLibrary)
+        #expect(lifecycle.accepts(newSource))
+        #expect(gate.request(libraryID: newLibrary) == newLibrary)
     }
 
     @Test("Thumbnail work remains rejected until explicit activation after close")

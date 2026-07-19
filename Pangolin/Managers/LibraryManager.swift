@@ -319,7 +319,10 @@ class LibraryManager: ObservableObject {
         loadingProgress = 1.0
 
         if let libraryID = library.id {
-            ProcessingQueueManager.shared.activateThumbnailWork(for: libraryID)
+            ProcessingQueueManager.shared.activateThumbnailWork(
+                for: libraryID,
+                sourceID: stack.cloudEventSourceID
+            )
         }
         scheduleThumbnailReconciliation(for: library)
         
@@ -394,7 +397,10 @@ class LibraryManager: ObservableObject {
         loadingProgress = 1.0
 
         if let libraryID = library.id {
-            ProcessingQueueManager.shared.activateThumbnailWork(for: libraryID)
+            ProcessingQueueManager.shared.activateThumbnailWork(
+                for: libraryID,
+                sourceID: stack.cloudEventSourceID
+            )
         }
         scheduleThumbnailReconciliation(for: library)
         
@@ -407,7 +413,14 @@ class LibraryManager: ObservableObject {
         thumbnailReconciliationTask = nil
         guard let library = currentLibrary else { return }
 
-        await ProcessingQueueManager.shared.cancelThumbnailWork(for: library.id)
+        if let sourceID = coreDataStack?.cloudEventSourceID {
+            await ProcessingQueueManager.shared.cancelThumbnailWork(
+                for: library.id,
+                sourceID: sourceID
+            )
+        } else {
+            assertionFailure("An open library must retain its CoreData stack until close drains")
+        }
         await save()
         
         if let libraryURL = library.url {
@@ -504,7 +517,13 @@ class LibraryManager: ObservableObject {
     func resetCorruptedDatabase() async throws -> Library {
         print("🔧 LIBRARY: Resetting corrupted database...")
         let libraryURL = try libraryBaseURL()
-        
+
+        if let sourceID = coreDataStack?.cloudEventSourceID {
+            await ProcessingQueueManager.shared.cancelThumbnailWork(
+                for: currentLibrary?.id,
+                sourceID: sourceID
+            )
+        }
         CoreDataStack.releaseInstance(for: libraryURL)
         
         let databaseURL = libraryURL.appendingPathComponent("Library.sqlite")

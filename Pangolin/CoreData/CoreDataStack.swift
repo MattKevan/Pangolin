@@ -9,6 +9,7 @@ class CoreDataStack {
     private let modelName = "Pangolin"
     private let libraryURL: URL
     private let cloudContainerIdentifier = "iCloud.com.newindustries.pangolin"
+    let cloudEventSourceID = UUID()
 
     static let persistentStoreFileProtectionOptionValue =
         FileProtectionType.completeUntilFirstUserAuthentication.rawValue
@@ -47,12 +48,12 @@ class CoreDataStack {
     /// Release a CoreDataStack instance for the given library URL
     static func releaseInstance(for libraryURL: URL) {
         let key = libraryURL.path
-        instanceQueue.async(flags: .barrier) {
-            if let stack = instances[key] {
-                print("🗑️ STACK: Releasing CoreDataStack for \(key)")
-                stack.cleanup()
-                instances[key] = nil
-            }
+        let stack = instanceQueue.sync(flags: .barrier) {
+            instances.removeValue(forKey: key)
+        }
+        if let stack {
+            print("🗑️ STACK: Releasing CoreDataStack for \(key)")
+            stack.cleanup()
         }
     }
     
@@ -173,6 +174,7 @@ class CoreDataStack {
     }
 
     private func registerCloudEventObserver(for container: NSPersistentCloudKitContainer) {
+        let sourceID = cloudEventSourceID
         cloudEventObserver = NotificationCenter.default.addObserver(
             forName: NSPersistentCloudKitContainer.eventChangedNotification,
             object: container,
@@ -184,7 +186,7 @@ class CoreDataStack {
             }
 
             Task { @MainActor in
-                ProcessingQueueManager.shared.handleCloudKitEvent(event)
+                ProcessingQueueManager.shared.handleCloudKitEvent(event, sourceID: sourceID)
             }
 
             if let error = event.error {
