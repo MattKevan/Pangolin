@@ -52,6 +52,7 @@ class ProcessingQueueManager: ObservableObject {
     private struct ActiveCloudSyncEvent {
         let id: UUID
         let type: NSPersistentCloudKitContainer.EventType
+        let libraryID: UUID?
     }
 
     static let shared = ProcessingQueueManager()
@@ -62,6 +63,11 @@ class ProcessingQueueManager: ObservableObject {
     private var importFolderMaps: [UUID: [String: Folder]] = [:]
     private var activeCloudSyncEvents: [UUID: ActiveCloudSyncEvent] = [:]
     private var cloudSyncHideTask: Task<Void, Never>?
+    private var thumbnailReconciliationGate = ThumbnailReconciliationGate()
+    private var thumbnailReconciliationScanTask: Task<Void, Never>?
+    private var thumbnailReconciliationScanLibraryID: UUID?
+    private var thumbnailReconciliationScanToken: UUID?
+    private var thumbnailReconciliationRescanLibraryID: UUID?
 
     let transcriptionService = SpeechTranscriptionService()
     private let videoFileManager = VideoFileManager.shared
@@ -116,7 +122,12 @@ class ProcessingQueueManager: ObservableObject {
         let eventID = event.identifier
 
         if event.endDate == nil {
-            activeCloudSyncEvents[eventID] = ActiveCloudSyncEvent(id: eventID, type: event.type)
+            activeCloudSyncEvents[eventID] = ActiveCloudSyncEvent(
+                id: eventID,
+                type: event.type,
+                libraryID: LibraryManager.shared.currentLibrary?.id
+            )
+            thumbnailReconciliationGate.eventStarted(id: eventID, isImport: event.type == .import)
             cloudSyncQueueStatus = CloudSyncQueueStatus(
                 phase: .syncing,
                 detail: cloudSyncActiveDetail(),
@@ -126,10 +137,19 @@ class ProcessingQueueManager: ObservableObject {
             return
         }
 
-        activeCloudSyncEvents.removeValue(forKey: eventID)
+        let completedEvent = activeCloudSyncEvents.removeValue(forKey: eventID)
+        let eventLibraryID = completedEvent?.libraryID ?? LibraryManager.shared.currentLibrary?.id
+        let reconciliationLibraryID = LibraryManager.shared.currentLibrary?.id == eventLibraryID
+            ? eventLibraryID
+            : nil
 
-        if event.error == nil, event.type == .import {
-            enqueueMissingThumbnailsForCurrentLibrary()
+        if let libraryID = thumbnailReconciliationGate.eventCompleted(
+            id: eventID,
+            isImport: event.type == .import,
+            succeeded: event.error == nil,
+            libraryID: reconciliationLibraryID
+        ) {
+            startThumbnailReconciliationScan(for: libraryID)
         }
 
         if !activeCloudSyncEvents.isEmpty {
@@ -271,6 +291,48 @@ class ProcessingQueueManager: ObservableObject {
         refreshStats()
         if !videoIDs.isEmpty {
             startProcessingIfNeeded()
+        }
+    }
+
+    func requestThumbnailReconciliation(for libraryID: UUID) {
+        if let readyLibraryID = thumbnailReconciliationGate.request(libraryID: libraryID) {
+            startThumbnailReconciliationScan(for: readyLibraryID)
+        }
+    }
+
+    func cancelThumbnailWork(for libraryID: UUID) async {
+        thumbnailReconciliationGate.cancel(libraryID: libraryID)
+        if thumbnailReconciliationRescanLibraryID == libraryID {
+            thumbnailReconciliationRescanLibraryID = nil
+        }
+
+        let scanTask: Task<Void, Never>?
+        if thumbnailReconciliationScanLibraryID == libraryID {
+            scanTask = thumbnailReconciliationScanTask
+            thumbnailReconciliationScanTask?.cancel()
+        } else {
+            scanTask = nil
+        }
+
+        let thumbnailTasks = processingQueue.tasks.filter {
+            $0.type == .generateThumbnail
+                && ($0.libraryID == libraryID || $0.libraryID == nil)
+        }
+        let videoIDs = Set(thumbnailTasks.compactMap(\.videoID))
+        for task in thumbnailTasks {
+            if task.status.isActive, let videoID = task.videoID {
+                ThumbnailCoordinator.shared.cancel(videoID: videoID)
+                processingQueue.cancelTask(task)
+            }
+            processingQueue.removeTask(task)
+        }
+        refreshStats()
+
+        if let scanTask {
+            await scanTask.value
+        }
+        for videoID in videoIDs {
+            await ThumbnailCoordinator.shared.cancelAndWait(videoID: videoID)
         }
     }
 
@@ -685,14 +747,19 @@ class ProcessingQueueManager: ObservableObject {
 
         await StoragePolicyManager.shared.applyPolicy(for: library)
 
-        if !video.hasCurrentThumbnail {
-            enqueueThumbnails(for: [video])
-        }
-
         // Enqueue follow-ups if requested
         if !task.followUpTypes.isEmpty, let id = video.id {
             for type in task.followUpTypes {
-                let followUp = ProcessingTask(videoID: id, type: type, itemName: video.title ?? video.fileName)
+                if type == .generateThumbnail {
+                    enqueueThumbnails(for: [video])
+                    continue
+                }
+                let followUp = ProcessingTask(
+                    videoID: id,
+                    libraryID: video.library?.id,
+                    type: type,
+                    itemName: video.title ?? video.fileName
+                )
                 processingQueue.addTask(followUp)
             }
         }
@@ -802,36 +869,130 @@ class ProcessingQueueManager: ObservableObject {
 
     private func enqueueThumbnailTask(for video: Video, force: Bool) {
         guard let id = video.id,
+              let libraryID = video.library?.id,
               ThumbnailWorkPolicy.needsGeneration(
                   data: video.thumbnailData,
                   version: video.thumbnailGenerationVersion,
                   force: force
               ) else { return }
 
-        if let existing = processingQueue.taskForVideo(id, type: .generateThumbnail) {
-            guard force else { return }
-            ThumbnailCoordinator.shared.cancel(videoID: id)
-            processingQueue.cancelTask(existing)
-            processingQueue.removeTask(existing)
+        enqueueValidatedThumbnailTask(
+            videoID: id,
+            libraryID: libraryID,
+            itemName: video.title ?? video.fileName,
+            force: force
+        )
+    }
+
+    private func enqueueValidatedThumbnailTask(
+        videoID: UUID,
+        libraryID: UUID,
+        itemName: String?,
+        force: Bool
+    ) {
+        let existingTasks = thumbnailTasks(for: videoID, libraryID: libraryID)
+        let existing = existingTasks.first(where: { $0.status.isActive }) ?? existingTasks.first
+        switch ThumbnailTaskEnqueuePolicy.action(existingStatus: existing?.status, force: force) {
+        case .coalesce:
+            return
+        case .replace:
+            if existingTasks.contains(where: { $0.status.isActive }) {
+                ThumbnailCoordinator.shared.cancel(videoID: videoID)
+            }
+            for existingTask in existingTasks {
+                if existingTask.status.isActive {
+                    processingQueue.cancelTask(existingTask)
+                }
+                processingQueue.removeTask(existingTask)
+            }
+        case .enqueue:
+            break
         }
 
         let task = ProcessingTask(
-            videoID: id,
+            videoID: videoID,
+            libraryID: libraryID,
             type: .generateThumbnail,
-            itemName: video.title ?? video.fileName,
+            itemName: itemName,
             force: force
         )
         processingQueue.addTask(task)
     }
 
-    private func enqueueMissingThumbnailsForCurrentLibrary() {
-        guard let library = LibraryManager.shared.currentLibrary,
-              LibraryManager.shared.isLibraryOpen,
+    private func thumbnailTasks(for videoID: UUID, libraryID: UUID) -> [ProcessingTask] {
+        processingQueue.tasks.filter {
+            $0.videoID == videoID
+                && $0.type == .generateThumbnail
+                && ($0.libraryID == libraryID || $0.libraryID == nil)
+        }
+    }
+
+    private func startThumbnailReconciliationScan(for libraryID: UUID) {
+        guard LibraryManager.shared.isLibraryOpen,
+              LibraryManager.shared.currentLibrary?.id == libraryID,
+              let persistentStoreCoordinator = LibraryManager.shared.viewContext?.persistentStoreCoordinator else { return }
+
+        if thumbnailReconciliationScanTask != nil {
+            thumbnailReconciliationRescanLibraryID = libraryID
+            if thumbnailReconciliationScanLibraryID != libraryID {
+                thumbnailReconciliationScanTask?.cancel()
+            }
+            return
+        }
+
+        let token = UUID()
+        thumbnailReconciliationScanLibraryID = libraryID
+        thumbnailReconciliationScanToken = token
+        thumbnailReconciliationScanTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let ids = (try? await ThumbnailReconciliationScanner().videoIDsNeedingGeneration(
+                libraryID: libraryID,
+                persistentStoreCoordinator: persistentStoreCoordinator
+            )) ?? []
+            guard !Task.isCancelled,
+                  LibraryManager.shared.isLibraryOpen,
+                  LibraryManager.shared.currentLibrary?.id == libraryID else {
+                self.finishThumbnailReconciliationScan(libraryID: libraryID, token: token)
+                return
+            }
+            self.enqueueValidatedThumbnailIDs(ids, libraryID: libraryID)
+            self.finishThumbnailReconciliationScan(libraryID: libraryID, token: token)
+        }
+    }
+
+    private func enqueueValidatedThumbnailIDs(_ videoIDs: [UUID], libraryID: UUID) {
+        guard !videoIDs.isEmpty,
               let context = LibraryManager.shared.viewContext else { return }
         let request = Video.fetchRequest()
-        request.predicate = NSPredicate(format: "library == %@", library)
+        request.predicate = NSPredicate(
+            format: "id IN %@ AND library.id == %@",
+            videoIDs,
+            libraryID as CVarArg
+        )
         let videos = (try? context.fetch(request)) ?? []
-        enqueueThumbnails(for: videos)
+        for video in videos {
+            guard let videoID = video.id else { continue }
+            enqueueValidatedThumbnailTask(
+                videoID: videoID,
+                libraryID: libraryID,
+                itemName: video.title ?? video.fileName,
+                force: false
+            )
+        }
+        refreshStats()
+        startProcessingIfNeeded()
+    }
+
+    private func finishThumbnailReconciliationScan(libraryID: UUID, token: UUID) {
+        guard thumbnailReconciliationScanToken == token else { return }
+        thumbnailReconciliationScanTask = nil
+        thumbnailReconciliationScanLibraryID = nil
+        thumbnailReconciliationScanToken = nil
+        let pendingLibraryID = thumbnailReconciliationRescanLibraryID
+        thumbnailReconciliationRescanLibraryID = nil
+        if let pendingLibraryID {
+            startThumbnailReconciliationScan(for: pendingLibraryID)
+        }
     }
 
     private func ensureDependencies(for video: Video, type: ProcessingTaskType) {
@@ -942,6 +1103,10 @@ class ProcessingQueueManager: ObservableObject {
 
     private func fetchVideo(for task: ProcessingTask) -> Video? {
         guard let videoID = task.videoID,
+              ThumbnailTaskScope.canRun(
+                  taskLibraryID: task.libraryID,
+                  currentLibraryID: LibraryManager.shared.currentLibrary?.id
+              ),
               let context = LibraryManager.shared.viewContext else { return nil }
         let request = Video.fetchRequest()
         request.predicate = NSPredicate(format: "id == %@", videoID as CVarArg)
@@ -952,6 +1117,9 @@ class ProcessingQueueManager: ObservableObject {
     private func shouldSkip(_ task: ProcessingTask) -> Bool {
         if task.force { return false }
         guard let videoID = task.videoID else { return false }
+        if task.type == .generateThumbnail {
+            return fetchVideo(for: task)?.hasCurrentThumbnail == true
+        }
         if task.type == .generateFlashcards, let video = fetchVideo(for: task) {
             return hasFlashcardsArtifact(for: video)
         }

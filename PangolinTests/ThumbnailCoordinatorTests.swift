@@ -47,6 +47,103 @@ struct ThumbnailCoordinatorTests {
         #expect(updates.map(\.progress) == updates.map(\.progress).sorted())
     }
 
+    @Test("Thumbnail enqueue replaces terminal history and coalesces active work")
+    func thumbnailEnqueueDecision() {
+        #expect(ThumbnailTaskEnqueuePolicy.action(existingStatus: nil, force: false) == .enqueue)
+        for status in [ProcessingTaskStatus.completed, .failed, .cancelled] {
+            #expect(ThumbnailTaskEnqueuePolicy.action(existingStatus: status, force: false) == .replace)
+        }
+        for status in [ProcessingTaskStatus.pending, .waitingForDependencies, .processing, .paused] {
+            #expect(ThumbnailTaskEnqueuePolicy.action(existingStatus: status, force: false) == .coalesce)
+            #expect(ThumbnailTaskEnqueuePolicy.action(existingStatus: status, force: true) == .replace)
+        }
+    }
+
+    @Test("Cloud import gate waits for the final active import and ignores exports")
+    func cloudImportReconciliationGate() {
+        let firstImport = UUID()
+        let secondImport = UUID()
+        let export = UUID()
+        let libraryID = UUID()
+        var gate = ThumbnailReconciliationGate()
+
+        gate.eventStarted(id: firstImport, isImport: true)
+        gate.eventStarted(id: secondImport, isImport: true)
+        gate.eventStarted(id: export, isImport: false)
+        #expect(gate.request(libraryID: libraryID) == nil)
+        #expect(gate.eventCompleted(id: firstImport, isImport: true, succeeded: true, libraryID: libraryID) == nil)
+        #expect(gate.eventCompleted(id: secondImport, isImport: true, succeeded: false, libraryID: libraryID) == libraryID)
+
+        #expect(gate.eventCompleted(id: export, isImport: false, succeeded: true, libraryID: libraryID) == nil)
+        #expect(gate.request(libraryID: libraryID) == libraryID)
+    }
+
+    @Test("Thumbnail task library identity survives Codable and rejects another library")
+    func thumbnailTaskLibraryIdentity() throws {
+        let videoID = UUID()
+        let libraryID = UUID()
+        let task = ProcessingTask(
+            videoID: videoID,
+            libraryID: libraryID,
+            type: .generateThumbnail
+        )
+
+        let decoded = try JSONDecoder().decode(
+            ProcessingTask.self,
+            from: JSONEncoder().encode(task)
+        )
+
+        #expect(decoded.videoID == videoID)
+        #expect(decoded.libraryID == libraryID)
+        #expect(ThumbnailTaskScope.canRun(taskLibraryID: libraryID, currentLibraryID: libraryID))
+        #expect(ThumbnailTaskScope.canRun(taskLibraryID: nil, currentLibraryID: libraryID))
+        #expect(!ThumbnailTaskScope.canRun(taskLibraryID: UUID(), currentLibraryID: libraryID))
+    }
+
+    @Test("Background reconciliation scanner returns missing, stale, and corrupt IDs")
+    func reconciliationScannerSelectsWork() async throws {
+        let fixture = try makeFixture()
+        let missing = fixture.video
+        let stale = try fixture.makeVideo()
+        stale.thumbnailData = try makeValidJPEG(red: 0x22)
+        stale.thumbnailGenerationVersion = 0
+        let corrupt = try fixture.makeVideo()
+        corrupt.thumbnailData = Data("corrupt".utf8)
+        corrupt.thumbnailGenerationVersion = ThumbnailGenerator.currentVersion
+        let current = try fixture.makeVideo()
+        current.thumbnailData = try makeValidJPEG(red: 0x44)
+        current.thumbnailGenerationVersion = ThumbnailGenerator.currentVersion
+        try fixture.context.save()
+
+        let scanner = ThumbnailReconciliationScanner()
+        let ids = try await scanner.videoIDsNeedingGeneration(
+            libraryID: try #require(fixture.library.id),
+            persistentStoreCoordinator: try #require(fixture.context.persistentStoreCoordinator)
+        )
+
+        #expect(Set(ids) == Set([missing.id, stale.id, corrupt.id].compactMap { $0 }))
+    }
+
+    @Test("Cancel and wait does not return before thumbnail work stops")
+    func cancelAndWaitStopsOperation() async throws {
+        let fixture = try makeFixture()
+        let generator = FakeThumbnailGenerator(results: [.success(try makeValidJPEG())], suspendCalls: true)
+        let coordinator = ThumbnailCoordinator(
+            generator: generator,
+            videoAccess: FakeThumbnailVideoAccess(status: .local)
+        )
+        let videoID = try #require(fixture.video.id)
+        let operation = Task { try await coordinator.generateThumbnail(for: fixture.video) }
+        await waitUntil { await generator.callCount == 1 }
+
+        await coordinator.cancelAndWait(videoID: videoID)
+
+        await #expect(throws: CancellationError.self) {
+            try await operation.value
+        }
+        #expect(fixture.video.thumbnailData == nil)
+    }
+
     @Test("Cloud-only optimized video downloads, generates, saves, then restores storage")
     func cloudOnlyOptimizedSequence() async throws {
         let fixture = try makeFixture(storage: .optimizeStorage)

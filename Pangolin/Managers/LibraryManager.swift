@@ -402,6 +402,10 @@ class LibraryManager: ObservableObject {
         guard let library = currentLibrary else { return }
         
         await save()
+
+        if let libraryID = library.id {
+            await ProcessingQueueManager.shared.cancelThumbnailWork(for: libraryID)
+        }
         
         if let libraryURL = library.url {
             CoreDataStack.releaseInstance(for: libraryURL)
@@ -414,7 +418,7 @@ class LibraryManager: ObservableObject {
 
     private func scheduleThumbnailReconciliation(for library: Library) {
         thumbnailReconciliationTask?.cancel()
-        let libraryIdentity = library.objectID.uriRepresentation()
+        guard let libraryID = library.id else { return }
         thumbnailReconciliationTask = Task { @MainActor [weak self] in
             do {
                 try await Task.sleep(for: .seconds(10))
@@ -425,13 +429,9 @@ class LibraryManager: ObservableObject {
             guard let self,
                   self.isLibraryOpen,
                   let currentLibrary = self.currentLibrary,
-                  currentLibrary.objectID.uriRepresentation() == libraryIdentity,
-                  let context = self.viewContext else { return }
+                  currentLibrary.id == libraryID else { return }
 
-            let request = Video.fetchRequest()
-            request.predicate = NSPredicate(format: "library == %@", currentLibrary)
-            let videos = (try? context.fetch(request)) ?? []
-            ProcessingQueueManager.shared.enqueueThumbnails(for: videos)
+            ProcessingQueueManager.shared.requestThumbnailReconciliation(for: libraryID)
         }
     }
     

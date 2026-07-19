@@ -35,7 +35,101 @@ enum ThumbnailWorkPolicy {
         if force { return true }
         guard version == ThumbnailGenerator.currentVersion,
               let data else { return true }
-        return !ThumbnailGenerator.isValidJPEG(data)
+        return !ThumbnailValidityCache.shared.isValidJPEG(data)
+    }
+}
+
+enum ThumbnailTaskEnqueueAction: Equatable {
+    case enqueue
+    case coalesce
+    case replace
+}
+
+enum ThumbnailTaskEnqueuePolicy {
+    static func action(
+        existingStatus: ProcessingTaskStatus?,
+        force: Bool
+    ) -> ThumbnailTaskEnqueueAction {
+        guard let existingStatus else { return .enqueue }
+        if force { return .replace }
+        return existingStatus.isActive ? .coalesce : .replace
+    }
+}
+
+enum ThumbnailTaskScope {
+    static func canRun(taskLibraryID: UUID?, currentLibraryID: UUID?) -> Bool {
+        guard let taskLibraryID else { return true }
+        return taskLibraryID == currentLibraryID
+    }
+}
+
+struct ThumbnailReconciliationGate {
+    private var activeImportEventIDs: Set<UUID> = []
+    private var pendingLibraryID: UUID?
+
+    mutating func eventStarted(id: UUID, isImport: Bool) {
+        if isImport {
+            activeImportEventIDs.insert(id)
+        }
+    }
+
+    mutating func eventCompleted(
+        id: UUID,
+        isImport: Bool,
+        succeeded: Bool,
+        libraryID: UUID?
+    ) -> UUID? {
+        if isImport {
+            activeImportEventIDs.remove(id)
+            if succeeded, let libraryID {
+                pendingLibraryID = libraryID
+            }
+        }
+        return flushIfReady()
+    }
+
+    mutating func request(libraryID: UUID) -> UUID? {
+        pendingLibraryID = libraryID
+        return flushIfReady()
+    }
+
+    mutating func cancel(libraryID: UUID) {
+        if pendingLibraryID == libraryID {
+            pendingLibraryID = nil
+        }
+    }
+
+    private mutating func flushIfReady() -> UUID? {
+        guard activeImportEventIDs.isEmpty, let pendingLibraryID else { return nil }
+        self.pendingLibraryID = nil
+        return pendingLibraryID
+    }
+}
+
+struct ThumbnailReconciliationScanner {
+    func videoIDsNeedingGeneration(
+        libraryID: UUID,
+        persistentStoreCoordinator: NSPersistentStoreCoordinator
+    ) async throws -> [UUID] {
+        let context = NSManagedObjectContext(concurrencyType: .privateQueueConcurrencyType)
+        context.persistentStoreCoordinator = persistentStoreCoordinator
+        return try await context.perform {
+            try Task.checkCancellation()
+            let request = Video.fetchRequest()
+            request.predicate = NSPredicate(format: "library.id == %@", libraryID as CVarArg)
+            var videoIDs: [UUID] = []
+            for video in try context.fetch(request) {
+                try Task.checkCancellation()
+                if ThumbnailWorkPolicy.needsGeneration(
+                    data: video.thumbnailData,
+                    version: video.thumbnailGenerationVersion,
+                    force: false
+                ), let videoID = video.id {
+                    videoIDs.append(videoID)
+                }
+            }
+            return videoIDs
+        }
     }
 }
 
@@ -517,6 +611,12 @@ final class ThumbnailCoordinator {
 
     func cancel(videoID: UUID) {
         inFlight[videoID]?.cancel()
+    }
+
+    func cancelAndWait(videoID: UUID) async {
+        guard let task = inFlight[videoID] else { return }
+        task.cancel()
+        _ = await task.result
     }
 
     #if DEBUG

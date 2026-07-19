@@ -138,6 +138,7 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
     
     init(
         videoID: UUID,
+        libraryID: UUID? = nil,
         type: ProcessingTaskType,
         itemName: String? = nil,
         force: Bool = false,
@@ -158,7 +159,7 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         self.originalRemoteURLString = nil
         self.remoteVideoIdentifier = nil
         self.destinationFolderID = nil
-        self.libraryID = nil
+        self.libraryID = libraryID
         self.type = type
         self.itemName = itemName
         self.force = force
@@ -409,7 +410,8 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
 
     var uniqueKey: String {
         if let videoID {
-            return "video:\(videoID.uuidString):\(type.rawValue)"
+            let libraryKey = libraryID?.uuidString ?? "legacy"
+            return "library:\(libraryKey):video:\(videoID.uuidString):\(type.rawValue)"
         }
         if let sourceURLPath {
             return "source:\(sourceURLPath):\(type.rawValue)"

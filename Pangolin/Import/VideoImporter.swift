@@ -162,6 +162,7 @@ class VideoImporter: ObservableObject {
                 )
                 throw error
             }
+            ProcessingQueueManager.shared.enqueueThumbnails(for: [video])
         }
         
         return video
