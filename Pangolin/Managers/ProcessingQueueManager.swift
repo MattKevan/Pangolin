@@ -52,7 +52,7 @@ class ProcessingQueueManager: ObservableObject {
     private struct ActiveCloudSyncEvent {
         let id: UUID
         let type: NSPersistentCloudKitContainer.EventType
-        let libraryID: UUID?
+        var libraryID: UUID?
     }
 
     static let shared = ProcessingQueueManager()
@@ -314,12 +314,14 @@ class ProcessingQueueManager: ObservableObject {
     }
 
     func activateThumbnailWork(for libraryID: UUID) {
+        bindUnscopedCloudImports(to: libraryID)
         thumbnailLibraryLifecycle.activate(libraryID)
     }
 
     func cancelThumbnailWork(for libraryID: UUID?) async {
         if let libraryID {
             thumbnailLibraryLifecycle.beginClosing(libraryID)
+            bindUnscopedCloudImports(to: libraryID)
             if let readyLibraryID = thumbnailReconciliationGate.abandon(libraryID: libraryID),
                LibraryManager.shared.currentLibrary?.id == readyLibraryID {
                 startThumbnailReconciliationScan(for: readyLibraryID)
@@ -349,6 +351,9 @@ class ProcessingQueueManager: ObservableObject {
                     && (libraryID == nil ? $0.libraryID == nil : ($0.libraryID == libraryID || $0.libraryID == nil))
             }
             drainedVideoIDs.formUnion(thumbnailTasks.compactMap(\.videoID))
+            if let libraryID {
+                drainedVideoIDs.formUnion(ThumbnailCoordinator.shared.activeVideoIDs(for: libraryID))
+            }
             for task in thumbnailTasks {
                 if task.status.isActive, let videoID = task.videoID {
                     ThumbnailCoordinator.shared.cancel(videoID: videoID)
@@ -371,7 +376,9 @@ class ProcessingQueueManager: ObservableObject {
                 $0.type == .generateThumbnail
                     && (libraryID == nil ? $0.libraryID == nil : ($0.libraryID == libraryID || $0.libraryID == nil))
             }
-            let operationSurvives = drainedVideoIDs.contains {
+            let operationSurvives = libraryID.map {
+                !ThumbnailCoordinator.shared.activeVideoIDs(for: $0).isEmpty
+            } ?? drainedVideoIDs.contains {
                 ThumbnailCoordinator.shared.hasOperation(videoID: $0)
             }
             if !scanSurvives, !taskSurvives, !operationSurvives {
@@ -570,6 +577,11 @@ class ProcessingQueueManager: ObservableObject {
     }
 
     func removeTask(_ task: ProcessingTask) {
+        if task.type == .generateThumbnail,
+           task.status.isActive,
+           let videoID = task.videoID {
+            ThumbnailCoordinator.shared.cancel(videoID: videoID)
+        }
         processingQueue.removeTask(task)
         refreshStats()
     }
@@ -591,6 +603,11 @@ class ProcessingQueueManager: ObservableObject {
     }
 
     func clearAll() {
+        for task in processingQueue.tasks where task.type == .generateThumbnail && task.status.isActive {
+            if let videoID = task.videoID {
+                ThumbnailCoordinator.shared.cancel(videoID: videoID)
+            }
+        }
         processingQueue.clearAll()
         refreshStats()
     }
@@ -1122,6 +1139,16 @@ class ProcessingQueueManager: ObservableObject {
             return "\(labels[0]) in progress"
         }
         return "Syncing iCloud metadata (\(activeCloudSyncEvents.count) operations)"
+    }
+
+    private func bindUnscopedCloudImports(to libraryID: UUID) {
+        let unboundEventIDs = activeCloudSyncEvents.compactMap { eventID, event in
+            event.libraryID == nil ? eventID : nil
+        }
+        for eventID in unboundEventIDs {
+            activeCloudSyncEvents[eventID]?.libraryID = libraryID
+        }
+        thumbnailReconciliationGate.bindUnscopedImports(to: libraryID)
     }
 
     private func recomputeCloudSyncQueueStatus() {

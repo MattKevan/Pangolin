@@ -64,12 +64,23 @@ enum ThumbnailTaskScope {
 }
 
 struct ThumbnailReconciliationGate {
-    private var activeImportLibraryIDs: [UUID: UUID] = [:]
+    private enum ImportScope: Equatable {
+        case unbound
+        case library(UUID)
+    }
+
+    private var activeImportScopes: [UUID: ImportScope] = [:]
     private var pendingLibraryIDs: [UUID] = []
 
     mutating func eventStarted(id: UUID, isImport: Bool, libraryID: UUID?) {
-        if isImport, let libraryID {
-            activeImportLibraryIDs[id] = libraryID
+        if isImport {
+            activeImportScopes[id] = libraryID.map(ImportScope.library) ?? .unbound
+        }
+    }
+
+    mutating func bindUnscopedImports(to libraryID: UUID) {
+        for (eventID, scope) in activeImportScopes where scope == .unbound {
+            activeImportScopes[eventID] = .library(libraryID)
         }
     }
 
@@ -80,9 +91,9 @@ struct ThumbnailReconciliationGate {
         libraryID: UUID?
     ) -> UUID? {
         if isImport {
-            let capturedLibraryID = activeImportLibraryIDs.removeValue(forKey: id)
+            let scope = activeImportScopes.removeValue(forKey: id)
             if succeeded,
-               let capturedLibraryID,
+               case .library(let capturedLibraryID)? = scope,
                capturedLibraryID == libraryID {
                 appendPending(capturedLibraryID)
             }
@@ -96,7 +107,7 @@ struct ThumbnailReconciliationGate {
     }
 
     mutating func abandon(libraryID: UUID) -> UUID? {
-        activeImportLibraryIDs = activeImportLibraryIDs.filter { $0.value != libraryID }
+        activeImportScopes = activeImportScopes.filter { $0.value != .library(libraryID) }
         pendingLibraryIDs.removeAll { $0 == libraryID }
         return flushNextReady()
     }
@@ -109,7 +120,7 @@ struct ThumbnailReconciliationGate {
 
     private mutating func flushNextReady() -> UUID? {
         guard let index = pendingLibraryIDs.firstIndex(where: { libraryID in
-            !activeImportLibraryIDs.values.contains(libraryID)
+            !activeImportScopes.values.contains(.library(libraryID))
         }) else { return nil }
         return pendingLibraryIDs.remove(at: index)
     }
@@ -508,7 +519,12 @@ final class ThumbnailCoordinator {
     private let sleep: Sleep
     private let backgroundContextFactory: BackgroundContextFactory
     private var inFlight: [UUID: Task<Void, Error>] = [:]
-    private var generations: [UUID: UUID] = [:]
+    private struct OperationIdentity {
+        let generation: UUID
+        let libraryID: UUID?
+    }
+
+    private var operationIdentities: [UUID: OperationIdentity] = [:]
     private var waiterGroups: [UUID: ThumbnailWaiterGroup] = [:]
     private var serialTail: Task<Void, Never>?
 
@@ -596,7 +612,10 @@ final class ThumbnailCoordinator {
             task.cancel()
         }
         inFlight[videoID] = task
-        generations[videoID] = generation
+        operationIdentities[videoID] = OperationIdentity(
+            generation: generation,
+            libraryID: video.library?.id
+        )
         waiterGroups[videoID] = waiterGroup
         serialTail = Task { @MainActor in
             if let predecessor {
@@ -639,13 +658,28 @@ final class ThumbnailCoordinator {
     }
 
     func cancelAndWait(videoID: UUID) async {
-        guard let task = inFlight[videoID] else { return }
+        guard let task = inFlight[videoID],
+              let identity = operationIdentities[videoID] else { return }
         task.cancel()
         _ = await task.result
+        cleanInFlight(videoID: videoID, generation: identity.generation)
     }
 
     func hasOperation(videoID: UUID) -> Bool {
         inFlight[videoID] != nil
+    }
+
+    func activeVideoIDs(for libraryID: UUID) -> Set<UUID> {
+        Set(operationIdentities.compactMap { videoID, identity in
+            identity.libraryID == libraryID ? videoID : nil
+        })
+    }
+
+    func cancelAndWaitAll(for libraryID: UUID) async {
+        let videoIDs = activeVideoIDs(for: libraryID)
+        for videoID in videoIDs {
+            await cancelAndWait(videoID: videoID)
+        }
     }
 
     #if DEBUG
@@ -662,9 +696,9 @@ final class ThumbnailCoordinator {
     }
 
     private func cleanInFlight(videoID: UUID, generation: UUID?) {
-        guard generations[videoID] == generation else { return }
+        guard operationIdentities[videoID]?.generation == generation else { return }
         inFlight.removeValue(forKey: videoID)
-        generations.removeValue(forKey: videoID)
+        operationIdentities.removeValue(forKey: videoID)
         waiterGroups.removeValue(forKey: videoID)
     }
 

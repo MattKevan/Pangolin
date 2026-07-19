@@ -91,6 +91,54 @@ struct ThumbnailCoordinatorTests {
         #expect(gate.request(libraryID: libraryB) == libraryB)
     }
 
+    @Test("Unscoped imports bind to the activated library and block its startup scan")
+    func cloudImportGateBindsUnscopedImport() {
+        let libraryID = UUID()
+        let importID = UUID()
+        var gate = ThumbnailReconciliationGate()
+
+        gate.eventStarted(id: importID, isImport: true, libraryID: nil)
+        gate.bindUnscopedImports(to: libraryID)
+        #expect(gate.request(libraryID: libraryID) == nil)
+        #expect(gate.eventCompleted(
+            id: importID,
+            isImport: true,
+            succeeded: true,
+            libraryID: libraryID
+        ) == libraryID)
+    }
+
+    @Test("Unscoped completion before activation does not enqueue reconciliation")
+    func cloudImportGateCompletesBeforeBinding() {
+        let importID = UUID()
+        let libraryID = UUID()
+        var gate = ThumbnailReconciliationGate()
+
+        gate.eventStarted(id: importID, isImport: true, libraryID: nil)
+        #expect(gate.eventCompleted(
+            id: importID,
+            isImport: true,
+            succeeded: true,
+            libraryID: nil
+        ) == nil)
+        gate.bindUnscopedImports(to: libraryID)
+        #expect(gate.request(libraryID: libraryID) == libraryID)
+    }
+
+    @Test("Bound unscoped imports are abandoned when opening library closes")
+    func cloudImportGateAbandonsBoundUnscopedImport() {
+        let libraryA = UUID()
+        let libraryB = UUID()
+        let importID = UUID()
+        var gate = ThumbnailReconciliationGate()
+
+        gate.eventStarted(id: importID, isImport: true, libraryID: nil)
+        gate.bindUnscopedImports(to: libraryA)
+        #expect(gate.request(libraryID: libraryA) == nil)
+        #expect(gate.abandon(libraryID: libraryA) == nil)
+        #expect(gate.request(libraryID: libraryB) == libraryB)
+    }
+
     @Test("Thumbnail work remains rejected until explicit activation after close")
     func thumbnailCloseAdmissionRequiresActivation() {
         let libraryID = UUID()
@@ -167,6 +215,30 @@ struct ThumbnailCoordinatorTests {
             try await operation.value
         }
         #expect(fixture.video.thumbnailData == nil)
+    }
+
+    @Test("Coordinator discovers and drains operations by library without queue rows")
+    func coordinatorDrainsLibraryScopedOperation() async throws {
+        let fixture = try makeFixture()
+        let generator = FakeThumbnailGenerator(results: [.success(try makeValidJPEG())], suspendCalls: true)
+        let coordinator = ThumbnailCoordinator(
+            generator: generator,
+            videoAccess: FakeThumbnailVideoAccess(status: .local)
+        )
+        let videoID = try #require(fixture.video.id)
+        let libraryID = try #require(fixture.library.id)
+        let otherLibraryID = UUID()
+        let operation = Task { try await coordinator.generateThumbnail(for: fixture.video) }
+        await waitUntil { await generator.callCount == 1 }
+
+        #expect(coordinator.activeVideoIDs(for: libraryID) == [videoID])
+        #expect(coordinator.activeVideoIDs(for: otherLibraryID).isEmpty)
+        await coordinator.cancelAndWaitAll(for: libraryID)
+
+        await #expect(throws: CancellationError.self) {
+            try await operation.value
+        }
+        #expect(coordinator.activeVideoIDs(for: libraryID).isEmpty)
     }
 
     @Test("Cloud-only optimized video downloads, generates, saves, then restores storage")
