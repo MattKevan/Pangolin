@@ -6,7 +6,12 @@ enum ProjectThumbnailChangePolicy {
         "thumbnailData",
         "thumbnailGeneratedAt",
         "thumbnailGenerationVersion",
-        "folder",
+    ]
+    private static let videoStructuralKeys: Set<String> = ["folder"]
+    private static let folderStructuralKeys: Set<String> = [
+        "childFolders",
+        "parentFolder",
+        "videos",
     ]
 
     static func shouldRefresh(
@@ -30,8 +35,30 @@ enum ProjectThumbnailChangePolicy {
             return false
         }
 
-        let updatedVideos = managedObjects(for: NSUpdatedObjectsKey, in: notification)
-            .compactMap { $0 as? Video }
+        if notification.userInfo?[NSInvalidatedAllObjectsKey] != nil {
+            return true
+        }
+
+        for key in [NSInsertedObjectsKey, NSDeletedObjectsKey, NSInvalidatedObjectsKey] {
+            if managedObjects(for: key, in: notification).contains(where: isArtworkStructureObject) {
+                return true
+            }
+        }
+
+        let updatedObjects = managedObjects(for: NSUpdatedObjectsKey, in: notification)
+        let updatedFolders = updatedObjects.compactMap { $0 as? Folder }
+        if updatedFolders.contains(where: {
+            !folderStructuralKeys.isDisjoint(with: Set($0.changedValuesForCurrentEvent().keys))
+        }) {
+            return true
+        }
+
+        let updatedVideos = updatedObjects.compactMap { $0 as? Video }
+        if updatedVideos.contains(where: {
+            !videoStructuralKeys.isDisjoint(with: Set($0.changedValuesForCurrentEvent().keys))
+        }) {
+            return true
+        }
         if updatedVideos.contains(where: {
             shouldRefresh(
                 project: project,
@@ -42,11 +69,19 @@ enum ProjectThumbnailChangePolicy {
             return true
         }
 
-        let refreshedVideos = managedObjects(for: NSRefreshedObjectsKey, in: notification)
-            .compactMap { $0 as? Video }
+        let refreshedObjects = managedObjects(for: NSRefreshedObjectsKey, in: notification)
+        if refreshedObjects.contains(where: { $0 is Folder }) {
+            return true
+        }
+
+        let refreshedVideos = refreshedObjects.compactMap { $0 as? Video }
         return refreshedVideos.contains {
             shouldRefresh(project: project, video: $0, changedKeys: [])
         }
+    }
+
+    private static func isArtworkStructureObject(_ object: NSManagedObject) -> Bool {
+        object is Video || object is Folder
     }
 
     private static func managedObjects(

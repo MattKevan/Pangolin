@@ -192,6 +192,172 @@ struct ProjectsStoreTests {
         await manager.closeCurrentLibrary()
     }
 
+    @Test("Project artwork responds to video lifecycle context notifications")
+    @MainActor
+    func projectThumbnailChangePolicyHandlesVideoLifecycleNotifications() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Lifecycle", in: context, parent: nil, library: library)
+        let otherProject = try makeFolder(named: "Other", in: context, parent: nil, library: library)
+        let selectedVideo = try makeVideo(
+            title: "Selected",
+            thumbnailData: try makeValidJPEG(),
+            in: context,
+            folder: project,
+            library: library
+        )
+        let movingVideo = try makeVideo(
+            title: "Moving",
+            thumbnailData: try makeValidJPEG(),
+            in: context,
+            folder: project,
+            library: library
+        )
+        project.projectThumbnailVideoID = selectedVideo.id
+        try context.save()
+
+        selectedVideo.playbackPosition = 42
+        let playbackNotification = Notification(
+            name: .NSManagedObjectContextObjectsDidChange,
+            object: context,
+            userInfo: [NSUpdatedObjectsKey: Set<NSManagedObject>([selectedVideo])]
+        )
+        #expect(!ProjectThumbnailChangePolicy.shouldRefresh(
+            project: project,
+            for: playbackNotification
+        ))
+        context.rollback()
+
+        movingVideo.folder = otherProject
+        let moveNotification = Notification(
+            name: .NSManagedObjectContextObjectsDidChange,
+            object: context,
+            userInfo: [NSUpdatedObjectsKey: Set<NSManagedObject>([movingVideo])]
+        )
+        #expect(ProjectThumbnailChangePolicy.shouldRefresh(
+            project: project,
+            for: moveNotification
+        ))
+        context.rollback()
+
+        let insertedVideo = try makeVideo(
+            title: "Inserted",
+            thumbnailData: try makeValidJPEG(),
+            in: context,
+            folder: project,
+            library: library
+        )
+        let insertedNotification = Notification(
+            name: .NSManagedObjectContextObjectsDidChange,
+            object: context,
+            userInfo: [NSInsertedObjectsKey: Set<NSManagedObject>([insertedVideo])]
+        )
+        #expect(ProjectThumbnailChangePolicy.shouldRefresh(
+            project: project,
+            for: insertedNotification
+        ))
+
+        let deletedNotification = Notification(
+            name: .NSManagedObjectContextObjectsDidChange,
+            object: context,
+            userInfo: [NSDeletedObjectsKey: Set<NSManagedObject>([selectedVideo])]
+        )
+        #expect(ProjectThumbnailChangePolicy.shouldRefresh(
+            project: project,
+            for: deletedNotification
+        ))
+
+        let invalidatedNotification = Notification(
+            name: .NSManagedObjectContextObjectsDidChange,
+            object: context,
+            userInfo: [NSInvalidatedObjectsKey: Set<NSManagedObject>([selectedVideo])]
+        )
+        #expect(ProjectThumbnailChangePolicy.shouldRefresh(
+            project: project,
+            for: invalidatedNotification
+        ))
+
+        let invalidatedAllNotification = Notification(
+            name: .NSManagedObjectContextObjectsDidChange,
+            object: context,
+            userInfo: [NSInvalidatedAllObjectsKey: true]
+        )
+        #expect(ProjectThumbnailChangePolicy.shouldRefresh(
+            project: project,
+            for: invalidatedAllNotification
+        ))
+
+        await manager.closeCurrentLibrary()
+    }
+
+    @Test("Project artwork responds to structural folder context notifications")
+    @MainActor
+    func projectThumbnailChangePolicyHandlesFolderStructureNotifications() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Structure", in: context, parent: nil, library: library)
+        let otherProject = try makeFolder(named: "Other", in: context, parent: nil, library: library)
+        let section = try makeFolder(named: "Section", in: context, parent: project, library: library)
+        try context.save()
+
+        section.name = "Renamed"
+        let renameNotification = Notification(
+            name: .NSManagedObjectContextObjectsDidChange,
+            object: context,
+            userInfo: [NSUpdatedObjectsKey: Set<NSManagedObject>([section])]
+        )
+        #expect(!ProjectThumbnailChangePolicy.shouldRefresh(
+            project: project,
+            for: renameNotification
+        ))
+        context.rollback()
+
+        let insertedFolder = try makeFolder(
+            named: "Inserted",
+            in: context,
+            parent: project,
+            library: library
+        )
+        let insertedNotification = Notification(
+            name: .NSManagedObjectContextObjectsDidChange,
+            object: context,
+            userInfo: [NSInsertedObjectsKey: Set<NSManagedObject>([insertedFolder])]
+        )
+        #expect(ProjectThumbnailChangePolicy.shouldRefresh(
+            project: project,
+            for: insertedNotification
+        ))
+
+        section.parentFolder = otherProject
+        let moveNotification = Notification(
+            name: .NSManagedObjectContextObjectsDidChange,
+            object: context,
+            userInfo: [NSUpdatedObjectsKey: Set<NSManagedObject>([section])]
+        )
+        #expect(ProjectThumbnailChangePolicy.shouldRefresh(
+            project: project,
+            for: moveNotification
+        ))
+
+        for key in [NSDeletedObjectsKey, NSRefreshedObjectsKey, NSInvalidatedObjectsKey] {
+            let notification = Notification(
+                name: .NSManagedObjectContextObjectsDidChange,
+                object: context,
+                userInfo: [key: Set<NSManagedObject>([section])]
+            )
+            #expect(ProjectThumbnailChangePolicy.shouldRefresh(
+                project: project,
+                for: notification
+            ))
+        }
+
+        await manager.closeCurrentLibrary()
+    }
+
     @Test("Project metadata replaces invalid stored artwork with valid descendant data")
     @MainActor
     func projectMetadataFallsBackToExistingData() async throws {
