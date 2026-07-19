@@ -8,17 +8,11 @@
 import Foundation
 import CoreData
 import AVFoundation
-#if os(macOS)
-import AppKit
-#else
-import UIKit
-#endif
 
 class FileSystemManager {
     static let shared = FileSystemManager()
     
     private let fileManager = FileManager.default
-    private let cloudContainerIdentifier = "iCloud.com.newindustries.pangolin"
     private let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
@@ -27,24 +21,6 @@ class FileSystemManager {
     
     private init() {}
 
-    static func mediaRelativePath(for videoURL: URL, libraryURL: URL, cloudRootURL: URL?) -> String {
-        let localVideosRoot = libraryURL.appendingPathComponent("Videos", isDirectory: true)
-        let localPrefix = localVideosRoot.path + "/"
-        if videoURL.path.hasPrefix(localPrefix) {
-            return String(videoURL.path.dropFirst(localPrefix.count))
-        }
-
-        if let cloudRootURL {
-            let cloudVideosRoot = cloudRootURL.appendingPathComponent("Media/Videos", isDirectory: true)
-            let cloudPrefix = cloudVideosRoot.path + "/"
-            if videoURL.path.hasPrefix(cloudPrefix) {
-                return String(videoURL.path.dropFirst(cloudPrefix.count))
-            }
-        }
-
-        return videoURL.lastPathComponent
-    }
-    
     // MARK: - Video File Operations
     
     func importVideo(from sourceURL: URL, to library: Library, context: NSManagedObjectContext, copyFile: Bool = true) async throws -> Video {
@@ -262,146 +238,6 @@ class FileSystemManager {
         )
     }
     
-    // MARK: - Thumbnail Generation
-    
-    func generateThumbnail(for videoURL: URL, in library: Library) async throws -> String? {
-        guard let libraryURL = library.url else {
-            throw FileSystemError.invalidLibraryPath
-        }
-        
-        let asset = AVURLAsset(url: videoURL)
-        let imageGenerator = AVAssetImageGenerator(asset: asset)
-        imageGenerator.appliesPreferredTrackTransform = true
-        imageGenerator.maximumSize = CGSize(width: 1280, height: 720)
-        
-        let duration = try await asset.load(.duration)
-        let durationSeconds = CMTimeGetSeconds(duration)
-        let thumbnailTime = CMTime(seconds: min(durationSeconds * 0.1, 5.0), preferredTimescale: 600)
-        
-        do {
-            let cgImage = try await imageGenerator.image(at: thumbnailTime).image
-
-            let ubiquitousRoot = fileManager.url(forUbiquityContainerIdentifier: cloudContainerIdentifier)
-            let videoRelativePath = Self.mediaRelativePath(
-                for: videoURL,
-                libraryURL: libraryURL,
-                cloudRootURL: ubiquitousRoot
-            )
-            let thumbnailRelativePath = URL(fileURLWithPath: videoRelativePath).deletingPathExtension().lastPathComponent + ".jpg"
-            let thumbnailSubDir = URL(fileURLWithPath: videoRelativePath).deletingLastPathComponent().path
-
-            if let cloudRoot = ubiquitousRoot {
-                let cloudDir: URL
-                if thumbnailSubDir.isEmpty || thumbnailSubDir == "." {
-                    cloudDir = cloudRoot.appendingPathComponent("Thumbnails")
-                } else {
-                    cloudDir = cloudRoot.appendingPathComponent("Thumbnails").appendingPathComponent(thumbnailSubDir)
-                }
-                try fileManager.createDirectory(at: cloudDir, withIntermediateDirectories: true)
-                let cloudURL = cloudDir.appendingPathComponent(thumbnailRelativePath)
-                try writeJPEG(cgImage: cgImage, to: cloudURL)
-                return thumbnailSubDir.isEmpty || thumbnailSubDir == "." ? thumbnailRelativePath : "\(thumbnailSubDir)/\(thumbnailRelativePath)"
-            }
-            
-            let localDir = libraryURL.appendingPathComponent("Thumbnails").appendingPathComponent(thumbnailSubDir)
-            try fileManager.createDirectory(at: localDir, withIntermediateDirectories: true)
-            let localURL = localDir.appendingPathComponent(thumbnailRelativePath)
-            try writeJPEG(cgImage: cgImage, to: localURL)
-            return localURL.path.replacingOccurrences(of: libraryURL.path + "/Thumbnails/", with: "")
-            
-        } catch {
-            print("Failed to generate thumbnail for \(videoURL.lastPathComponent): \(error)")
-            return nil
-        }
-    }
-
-    private func writeJPEG(cgImage: CGImage, to url: URL) throws {
-        #if os(macOS)
-        let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-        guard let tiffData = nsImage.tiffRepresentation,
-              let bitmapRep = NSBitmapImageRep(data: tiffData),
-              let jpegData = bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) else {
-            throw FileSystemError.importFailed("Could not create JPEG data")
-        }
-        try jpegData.write(to: url)
-        #else
-        let uiImage = UIImage(cgImage: cgImage)
-        guard let jpegData = uiImage.jpegData(compressionQuality: 0.8) else {
-            throw FileSystemError.importFailed("Could not create JPEG data")
-        }
-        try jpegData.write(to: url)
-        #endif
-    }
-
-    func generateThumbnail(for video: Video, in library: Library) async throws -> String? {
-        let videoURL = try await video.getAccessibleFileURL(downloadIfNeeded: true)
-        return try await generateThumbnail(for: videoURL, in: library)
-    }
-    
-    // MARK: - Thumbnail Generation for Existing Videos
-    
-    func generateMissingThumbnails(for library: Library, context: NSManagedObjectContext) async {
-        guard library.url != nil else { return }
-        
-        let request = Video.fetchRequest()
-        request.predicate = NSPredicate(format: "library == %@ AND thumbnailPath == nil", library)
-        
-        do {
-            let videosWithoutThumbnails = try context.fetch(request)
-            let videoCount = videosWithoutThumbnails.count
-            print("Found \(videoCount) videos without thumbnails")
-            
-            for video in videosWithoutThumbnails {
-                do {
-                    let thumbnailPath = try await generateThumbnail(for: video, in: library)
-                    video.thumbnailPath = thumbnailPath
-                } catch {
-                    print("Failed to generate thumbnail for \(video.fileName ?? "Unknown Video"): \(error)")
-                }
-            }
-            
-            do {
-                try context.save()
-                print("Successfully saved thumbnails for \(videoCount) videos")
-            } catch {
-                print("Failed to save thumbnail paths: \(error)")
-            }
-            
-        } catch {
-            print("Failed to fetch videos without thumbnails: \(error)")
-        }
-    }
-    
-    func rebuildAllThumbnails(for library: Library, context: NSManagedObjectContext) async {
-        guard library.url != nil else { return }
-        
-        let request = Video.fetchRequest()
-        request.predicate = NSPredicate(format: "library == %@", library)
-        
-        do {
-            let allVideos = try context.fetch(request)
-            let videoCount = allVideos.count
-            print("Rebuilding thumbnails for \(videoCount) videos")
-            
-            for video in allVideos {
-                do {
-                    let thumbnailPath = try await generateThumbnail(for: video, in: library)
-                    video.thumbnailPath = thumbnailPath
-                } catch {
-                    print("Failed to rebuild thumbnail for \(video.fileName ?? "Unknown Video"): \(error)")
-                }
-            }
-            
-            do {
-                try context.save()
-                print("Successfully rebuilt thumbnails for \(videoCount) videos")
-            } catch {
-                print("Failed to save rebuilt thumbnail paths: \(error)")
-            }
-        } catch {
-            print("Failed to fetch videos for thumbnail rebuild: \(error)")
-        }
-    }
 }
 
 // MARK: - Supporting Types

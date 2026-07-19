@@ -442,7 +442,6 @@ class VideoImporter: ObservableObject {
         folder.name = node.name
         folder.projectTitle = parent == nil ? node.name : nil
         folder.projectProvider = nil
-        folder.projectThumbnailPath = nil
         folder.dateCreated = Date()
         folder.dateModified = Date()
         folder.library = library

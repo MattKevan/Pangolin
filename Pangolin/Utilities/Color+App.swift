@@ -50,14 +50,6 @@ typealias PlatformImage = NSImage
 typealias PlatformImage = UIImage
 #endif
 
-func platformImage(from url: URL) -> PlatformImage? {
-    #if os(macOS)
-    return NSImage(contentsOf: url)
-    #else
-    return UIImage(contentsOfFile: url.path)
-    #endif
-}
-
 extension Image {
     init(platformImage: PlatformImage) {
         #if os(macOS)

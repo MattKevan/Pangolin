@@ -529,12 +529,6 @@ class FolderNavigationStore: ObservableObject {
                 didChange = true
             }
 
-            let trimmedThumbnailPath = project.projectThumbnailPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if trimmedThumbnailPath.isEmpty, let thumbnailPath = project.resolvedProjectThumbnailPath {
-                project.projectThumbnailPath = thumbnailPath
-                didChange = true
-            }
-
             let resolvedThumbnailVideoID = project.resolvedProjectThumbnailVideo?.id
             if project.projectThumbnailVideoID != resolvedThumbnailVideoID {
                 project.projectThumbnailVideoID = resolvedThumbnailVideoID
@@ -1129,7 +1123,6 @@ class FolderNavigationStore: ObservableObject {
         folder.name = trimmedName
         folder.projectTitle = (parentFolderID == nil) ? trimmedName : nil
         folder.projectProvider = nil
-        folder.projectThumbnailPath = nil
         folder.isTopLevel = (parentFolderID == nil)
         folder.dateCreated = Date()
         folder.dateModified = Date()
@@ -1148,7 +1141,6 @@ class FolderNavigationStore: ObservableObject {
                         folder.isTopLevel = false
                         folder.projectTitle = nil
                         folder.projectProvider = nil
-                        folder.projectThumbnailPath = nil
                         print("📁 STORE: Set parent folder to: \(parentFolder.name ?? "nil")")
                     } else {
                         print("📁 STORE: Parent is a smart folder, creating as top-level instead")
@@ -1564,16 +1556,6 @@ class FolderNavigationStore: ObservableObject {
                 }
             }
             
-            // Delete thumbnail
-            if let thumbnailURL = video.thumbnailURL {
-                do {
-                    try FileManager.default.removeItem(at: thumbnailURL)
-                    print("🗑️ DELETION: Deleted thumbnail: \(thumbnailURL.lastPathComponent)")
-                } catch {
-                    print("⚠️ DELETION: Failed to delete thumbnail \(thumbnailURL.lastPathComponent): \(error)")
-                }
-            }
-            
             // Delete subtitles
             if let subtitles = video.subtitles as? Set<Subtitle> {
                 for subtitle in subtitles {
@@ -1652,7 +1634,6 @@ class FolderNavigationStore: ObservableObject {
     private func cleanupEmptyDirectories(in libraryURL: URL) async {
         let directories = [
             libraryURL.appendingPathComponent("Videos"),
-            libraryURL.appendingPathComponent("Thumbnails"),
             libraryURL.appendingPathComponent("Subtitles")
         ]
         

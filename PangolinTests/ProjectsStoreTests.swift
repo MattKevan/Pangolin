@@ -94,7 +94,7 @@ struct ProjectsStoreTests {
         defer { try? FileManager.default.removeItem(at: tempRoot) }
 
         let library = try requireLibrary(from: manager)
-        let project = try makeFolder(named: "Thumbnails", in: context, parent: nil, library: library)
+        let project = try makeFolder(named: "Artwork", in: context, parent: nil, library: library)
         let invalidVideo = try makeVideo(
             title: "Invalid",
             thumbnailData: Data("not a jpeg".utf8),
@@ -912,33 +912,6 @@ struct ProjectsStoreTests {
         await manager.closeCurrentLibrary()
     }
 
-    @Test("Legacy project thumbnail path still backfills temporarily")
-    @MainActor
-    func legacyProjectThumbnailPathStillBackfills() async throws {
-        let (manager, context, tempRoot) = try await makeLibraryContext()
-        defer { try? FileManager.default.removeItem(at: tempRoot) }
-
-        let library = try requireLibrary(from: manager)
-        let project = try makeFolder(named: "Legacy", in: context, parent: nil, library: library)
-        let video = try makeVideo(
-            title: "Legacy Artwork",
-            thumbnailData: nil,
-            in: context,
-            folder: project,
-            library: library
-        )
-        video.thumbnailPath = "legacy-thumbnail.jpg"
-        try context.save()
-
-        let store = FolderNavigationStore(libraryManager: manager)
-        let fetchedProject = try #require(store.projects().first)
-
-        #expect(fetchedProject.resolvedProjectThumbnailPath == "legacy-thumbnail.jpg")
-        #expect(fetchedProject.projectThumbnailPath == "legacy-thumbnail.jpg")
-
-        await manager.closeCurrentLibrary()
-    }
-
     @Test("Project selection routes between grid and placeholder detail")
     @MainActor
     func projectSelectionRoutesToPlaceholderDetail() async throws {
@@ -1118,7 +1091,6 @@ struct ProjectsStoreTests {
         folder.name = name
         folder.projectTitle = parent == nil ? name : nil
         folder.projectProvider = nil
-        folder.projectThumbnailPath = nil
         folder.isTopLevel = (parent == nil)
         folder.isSmartFolder = false
         folder.dateCreated = Date()

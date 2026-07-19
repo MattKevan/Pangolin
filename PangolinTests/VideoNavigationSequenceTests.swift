@@ -299,7 +299,6 @@ struct VideoNavigationSequenceTests {
         folder.name = name
         folder.projectTitle = parent == nil ? name : nil
         folder.projectProvider = nil
-        folder.projectThumbnailPath = nil
         folder.isTopLevel = (parent == nil)
         folder.isSmartFolder = false
         folder.dateCreated = Date()

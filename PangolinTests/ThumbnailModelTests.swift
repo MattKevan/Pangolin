@@ -19,5 +19,7 @@ struct ThumbnailModelTests {
         #expect(video.attributesByName["thumbnailGeneratedAt"]?.isOptional == true)
         #expect(folder.attributesByName["projectThumbnailVideoID"]?.attributeType == .UUIDAttributeType)
         #expect(folder.attributesByName["projectThumbnailVideoID"]?.isOptional == true)
+        #expect(video.attributesByName["thumbnailPath"] == nil)
+        #expect(folder.attributesByName["projectThumbnailPath"] == nil)
     }
 }

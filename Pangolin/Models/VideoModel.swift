@@ -171,17 +171,6 @@ extension Video {
         return ThumbnailValidityCache.shared.isValidJPEG(thumbnailData)
     }
     
-    var thumbnailURL: URL? {
-        guard let thumbnailPath = thumbnailPath else { return nil }
-        if let ubiquitousRoot = FileManager.default.url(forUbiquityContainerIdentifier: VideoFileManager.shared.cloudContainerIdentifier) {
-            let cloudURL = ubiquitousRoot.appendingPathComponent("Thumbnails").appendingPathComponent(thumbnailPath)
-            if FileManager.default.fileExists(atPath: cloudURL.path) {
-                return cloudURL
-            }
-        }
-        guard let libraryPath = library?.url else { return nil }
-        return libraryPath.appendingPathComponent("Thumbnails").appendingPathComponent(thumbnailPath)
-    }
 }
 
 // MARK: - Folder Extensions
@@ -249,27 +238,6 @@ extension Folder {
         return descendantVideos.first(where: \.hasCurrentThumbnail)
     }
 
-    var resolvedProjectThumbnailPath: String? {
-        let trimmedPath = projectThumbnailPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !trimmedPath.isEmpty {
-            return trimmedPath
-        }
-
-        return firstDescendantThumbnailPath
-    }
-
-    var projectThumbnailURL: URL? {
-        guard let thumbnailPath = resolvedProjectThumbnailPath else { return nil }
-        if let ubiquitousRoot = FileManager.default.url(forUbiquityContainerIdentifier: VideoFileManager.shared.cloudContainerIdentifier) {
-            let cloudURL = ubiquitousRoot.appendingPathComponent("Thumbnails").appendingPathComponent(thumbnailPath)
-            if FileManager.default.fileExists(atPath: cloudURL.path) {
-                return cloudURL
-            }
-        }
-        guard let libraryPath = library?.url else { return nil }
-        return libraryPath.appendingPathComponent("Thumbnails").appendingPathComponent(thumbnailPath)
-    }
-    
     var itemCount: Int {
         return (childFolders?.count ?? 0) + (videos?.count ?? 0)
     }
@@ -284,22 +252,6 @@ extension Folder {
         return directVideos + childVideos
     }
 
-    private var firstDescendantThumbnailPath: String? {
-        for video in videosArray {
-            let trimmedPath = video.thumbnailPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if !trimmedPath.isEmpty {
-                return trimmedPath
-            }
-        }
-
-        for childFolder in childFoldersArray {
-            if let childThumbnailPath = childFolder.firstDescendantThumbnailPath {
-                return childThumbnailPath
-            }
-        }
-
-        return nil
-    }
 }
 
 private func stableSortKey(id: UUID?, objectID: NSManagedObjectID) -> String {

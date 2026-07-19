@@ -214,7 +214,6 @@ class LibraryManager: ObservableObject {
         folder.name = trimmedName
         folder.projectTitle = trimmedName
         folder.projectProvider = nil
-        folder.projectThumbnailPath = nil
         folder.isTopLevel = true
         folder.dateCreated = Date()
         folder.dateModified = Date()
@@ -500,7 +499,6 @@ class LibraryManager: ObservableObject {
         let subdirectories = [
             "Videos",
             "Subtitles",
-            "Thumbnails",
             "Transcripts",
             "Translations",
             "Summaries",
