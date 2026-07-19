@@ -26,38 +26,20 @@ struct VideoThumbnailView: View {
     }
     
     var body: some View {
-        Group {
-            if let thumbnailURL = video.thumbnailURL,
-               FileManager.default.fileExists(atPath: thumbnailURL.path) {
-                AsyncImage(url: thumbnailURL) { image in
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    Rectangle()
-                        .fill(Color.gray.opacity(0.2))
-                        .overlay(
-                            Image(systemName: "play.rectangle.fill")
-                                .font(.title2)
-                                .foregroundColor(.gray.opacity(0.6))
-                        )
-                }
-            } else {
-                // Fallback placeholder
-                Rectangle()
-                    .fill(Color.gray.opacity(0.2))
-                    .overlay(
-                        VStack(spacing: 4) {
-                            Image(systemName: "play.rectangle.fill")
-                                .font(.title2)
-                                .foregroundColor(.gray.opacity(0.6))
-                            
-                            Text("No Preview")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-                    )
-            }
+        SyncedThumbnailImage(video: video, contentMode: .fill) {
+            Rectangle()
+                .fill(Color.gray.opacity(0.2))
+                .overlay(
+                    VStack(spacing: 4) {
+                        Image(systemName: "play.rectangle.fill")
+                            .font(.title2)
+                            .foregroundColor(.gray.opacity(0.6))
+
+                        Text("No Preview")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                )
         }
         .frame(width: size.width, height: size.height)
         .clipShape(RoundedRectangle(cornerRadius: 8))
