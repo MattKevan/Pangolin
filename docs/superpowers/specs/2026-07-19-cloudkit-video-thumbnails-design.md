@@ -134,6 +134,20 @@ For each video whose thumbnail data is missing, corrupt, or older than the curre
 
 Migration runs in small serial batches after library startup and after a successful CloudKit import event. A video with valid current-version data requires no work. Existing JPEG files and path fields remain untouched during the first migration release as a rollback mechanism.
 
+## Legacy-code cleanup boundary
+
+Once binary thumbnail generation, migration, and display are working, remove the old operational implementation rather than leaving two thumbnail systems active:
+
+- Remove path-based generation and JPEG writing from `FileSystemManager`.
+- Remove `Video.thumbnailURL`, `Folder.projectThumbnailURL`, and path-based descendant cover resolution from runtime display code.
+- Remove startup and queue completion checks based on `thumbnailPath`.
+- Remove the unconditional `generateThumbnail -> ensureLocalAvailability` task dependency; `ThumbnailCoordinator` decides whether video access is required after checking binary and legacy JPEG data.
+- Remove path-based thumbnail deletion and stop creating `Thumbnails` for new libraries.
+- Remove obsolete path helper functions and their tests.
+- Replace all `AsyncImage` thumbnail-file consumers with the shared binary-data provider.
+
+Retain only the legacy Core Data fields, existing JPEG files, and a narrowly scoped migration reader during this release. Legacy code must not write new thumbnail paths or serve thumbnails to normal runtime views. A repository-wide final audit must prove there are no remaining operational references outside migration code and migration tests.
+
 ## Project artwork
 
 Project artwork resolves in this order:
@@ -214,3 +228,4 @@ Views show a placeholder only while no valid local thumbnail data exists. They d
 - Repair tasks are serial, retryable, cancellable, and accurately reported.
 - Project artwork continues to resolve from descendant videos.
 - Legacy thumbnail fields and files remain available for rollback in the migration release.
+- Old path-based runtime generation, display, queue, deletion, and new-library directory code has been removed; only the migration reader and legacy schema fields remain.
