@@ -9,6 +9,7 @@
         <attribute name="name" optional="YES" attributeType="String"/>
         <attribute name="projectProvider" optional="YES" attributeType="String"/>
         <attribute name="projectThumbnailPath" optional="YES" attributeType="String"/>
+        <attribute name="projectThumbnailVideoID" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="projectTitle" optional="YES" attributeType="String"/>
         <relationship name="childFolders" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Folder" inverseName="parentFolder" inverseEntity="Folder"/>
         <relationship name="library" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Library" inverseName="folders" inverseEntity="Library"/>
@@ -63,6 +64,9 @@
         <attribute name="contentHash" optional="YES" attributeType="String"/>
         <attribute name="remoteVideoID" optional="YES" attributeType="String"/>
         <attribute name="resolution" optional="YES" attributeType="String"/>
+        <attribute name="thumbnailData" optional="YES" attributeType="Binary" allowsExternalBinaryDataStorage="YES"/>
+        <attribute name="thumbnailGeneratedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="thumbnailGenerationVersion" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="thumbnailPath" optional="YES" attributeType="String"/>
         <attribute name="title" optional="YES" attributeType="String"/>
         <attribute name="videoFormat" optional="YES" attributeType="String"/>
