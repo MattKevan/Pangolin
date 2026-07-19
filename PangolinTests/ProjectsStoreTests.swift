@@ -4,6 +4,36 @@ import Testing
 @testable import Pangolin
 
 struct ProjectsStoreTests {
+    @Test("Project selection drops IDs hidden by filtering")
+    func projectSelectionReconcilesVisibleIDs() {
+        let visible = UUID()
+        let hidden = UUID()
+
+        #expect(ProjectVideoSelectionPolicy.reconciledSelection(
+            [visible, hidden],
+            visibleIDs: [visible]
+        ) == [visible])
+    }
+
+    @Test("Project Return activation requires exactly one selected visible video")
+    func projectReturnActivationRequiresSingleVisibleSelection() {
+        let first = UUID()
+        let second = UUID()
+
+        #expect(ProjectVideoSelectionPolicy.activationID(
+            selection: [first],
+            visibleIDs: [first, second]
+        ) == first)
+        #expect(ProjectVideoSelectionPolicy.activationID(
+            selection: [first, second],
+            visibleIDs: [first, second]
+        ) == nil)
+        #expect(ProjectVideoSelectionPolicy.activationID(
+            selection: [first],
+            visibleIDs: [second]
+        ) == nil)
+    }
+
     @Test("Projects becomes the default destination on startup")
     @MainActor
     func projectsIsDefaultStartupDestination() async throws {

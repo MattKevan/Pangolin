@@ -3,6 +3,27 @@ import SwiftUI
 import AppKit
 #endif
 
+enum ProjectVideoSelectionPolicy {
+    static func reconciledSelection(
+        _ selection: Set<UUID>,
+        visibleIDs: Set<UUID>
+    ) -> Set<UUID> {
+        selection.intersection(visibleIDs)
+    }
+
+    static func activationID(
+        selection: Set<UUID>,
+        visibleIDs: Set<UUID>
+    ) -> UUID? {
+        guard selection.count == 1,
+              let selectedID = selection.first,
+              visibleIDs.contains(selectedID) else {
+            return nil
+        }
+        return selectedID
+    }
+}
+
 struct ProjectsGridView: View {
     @EnvironmentObject private var store: FolderNavigationStore
 
