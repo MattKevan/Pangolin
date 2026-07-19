@@ -685,12 +685,6 @@ private struct ProjectVideoRow: View {
         if let tapAction {
             rowContent
                 .onTapGesture(perform: tapAction)
-        } else if let doubleClickAction {
-            rowContent
-                .simultaneousGesture(
-                    TapGesture(count: 2)
-                        .onEnded { doubleClickAction() }
-                )
         } else {
             rowContent
         }
@@ -698,18 +692,7 @@ private struct ProjectVideoRow: View {
 
     private var rowContent: some View {
         HStack(spacing: 12) {
-            Text("\(ordinal)")
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(width: 24, alignment: .trailing)
-
-            statusIndicator
-
-            Text(resolvedTitle)
-                .font(.body)
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            activationContent
 
             if showsSelectionAccessory {
                 Button {
@@ -760,6 +743,35 @@ private struct ProjectVideoRow: View {
             }
         }
         .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private var activationContent: some View {
+        let content = HStack(spacing: 12) {
+            Text("\(ordinal)")
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 24, alignment: .trailing)
+
+            statusIndicator
+
+            Text(resolvedTitle)
+                .font(.body)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+
+        if let doubleClickAction {
+            content
+                .contentShape(Rectangle())
+                .simultaneousGesture(
+                    TapGesture(count: 2)
+                        .onEnded { doubleClickAction() }
+                )
+        } else {
+            content
+        }
     }
 
     private var resolvedTitle: String {
