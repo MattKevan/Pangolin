@@ -232,10 +232,19 @@ struct ThumbnailCoordinatorTests {
         let queued = Task { try await coordinator.generateThumbnail(for: queuedVideo) }
         for _ in 0..<20 { await Task.yield() }
         queued.cancel()
-        await generator.releaseSuspendedCalls()
 
+        let queuedResult = await promptResult(of: queued) {
+            await generator.releaseSuspendedCalls()
+        }
+        #expect(queuedResult == .canceled)
+        #expect(access.statusCount == 1)
+        #expect(access.localURLCount == 1)
+        #expect(await generator.callCount == 1)
+        #expect(queuedVideo.thumbnailData == nil)
+
+        await generator.releaseSuspendedCalls()
         try await first.value
-        await #expect(throws: CancellationError.self) { try await queued.value }
+        for _ in 0..<20 { await Task.yield() }
         #expect(access.statusCount == 1)
         #expect(access.localURLCount == 1)
         #expect(await generator.callCount == 1)
@@ -255,10 +264,21 @@ struct ThumbnailCoordinatorTests {
         let canceledJoiner = Task { try await coordinator.generateThumbnail(for: fixture.video) }
         for _ in 0..<20 { await Task.yield() }
         canceledJoiner.cancel()
-        await generator.releaseSuspendedCalls()
 
+        let canceledResult = await promptResult(of: canceledJoiner) {
+            await generator.releaseSuspendedCalls()
+        }
+        #expect(canceledResult == .canceled)
+
+        let lateJoiner = Task { try await coordinator.generateThumbnail(for: fixture.video) }
+        for _ in 0..<20 { await Task.yield() }
+        #expect(await generator.callCount == 1)
+        #expect(access.statusCount == 1)
+        #expect(access.localURLCount == 1)
+
+        await generator.releaseSuspendedCalls()
         try await survivor.value
-        await #expect(throws: CancellationError.self) { try await canceledJoiner.value }
+        try await lateJoiner.value
         #expect(await generator.callCount == 1)
         #expect(access.statusCount == 1)
         #expect(access.localURLCount == 1)
@@ -528,6 +548,38 @@ struct ThumbnailCoordinatorTests {
         Issue.record("Timed out waiting for asynchronous test condition")
     }
 
+    private func promptResult(
+        of task: Task<Void, Error>,
+        releaseOnTimeout: @escaping @MainActor () async -> Void
+    ) async -> PromptTaskResult {
+        let (events, continuation) = AsyncStream.makeStream(of: PromptTaskResult.self)
+        let observer = Task {
+            do {
+                try await task.value
+                continuation.yield(.succeeded)
+            } catch is CancellationError {
+                continuation.yield(.canceled)
+            } catch {
+                continuation.yield(.failed)
+            }
+        }
+        let timeout = Task {
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            continuation.yield(.timedOut)
+        }
+
+        var iterator = events.makeAsyncIterator()
+        let result = await iterator.next() ?? .failed
+        timeout.cancel()
+        if result == .timedOut {
+            Issue.record("Canceled thumbnail waiter did not resume promptly")
+            await releaseOnTimeout()
+            _ = await observer.result
+        }
+        return result
+    }
+
     private func freshThumbnailValues(for video: Video) throws -> (data: Data?, version: Int16, generatedAt: Date?) {
         let context = try freshContext(for: video.managedObjectContext)
         let fetched = try #require(context.existingObject(with: video.objectID) as? Video)
@@ -546,6 +598,13 @@ struct ThumbnailCoordinatorTests {
         context.persistentStoreCoordinator = coordinator
         return context
     }
+}
+
+private enum PromptTaskResult: Equatable, Sendable {
+    case succeeded
+    case canceled
+    case failed
+    case timedOut
 }
 
 @MainActor

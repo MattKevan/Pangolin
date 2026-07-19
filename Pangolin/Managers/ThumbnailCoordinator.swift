@@ -65,6 +65,8 @@ private final class ThumbnailWaiterGroup: @unchecked Sendable {
     private let cancelOperation: @Sendable () -> Void
     private var leases: [Lease: LeaseState] = [:]
     private var activeCount = 0
+    private var completionResult: Result<Void, Error>?
+    private var completionHandlers: [UUID: @Sendable (Result<Void, Error>) -> Void] = [:]
 
     init(cancelOperation: @escaping @Sendable () -> Void) {
         self.cancelOperation = cancelOperation
@@ -79,7 +81,8 @@ private final class ThumbnailWaiterGroup: @unchecked Sendable {
         return lease
     }
 
-    func cancel(_ lease: Lease) {
+    @discardableResult
+    func cancel(_ lease: Lease) -> Bool {
         var shouldCancelOperation = false
         lock.lock()
         if leases[lease] == .active {
@@ -91,6 +94,7 @@ private final class ThumbnailWaiterGroup: @unchecked Sendable {
         if shouldCancelOperation {
             cancelOperation()
         }
+        return shouldCancelOperation
     }
 
     func release(_ lease: Lease) {
@@ -98,6 +102,205 @@ private final class ThumbnailWaiterGroup: @unchecked Sendable {
         defer { lock.unlock() }
         if leases.removeValue(forKey: lease) == .active {
             activeCount -= 1
+        }
+    }
+
+    func observeCompletion(_ handler: @escaping @Sendable (Result<Void, Error>) -> Void) {
+        var completedResult: Result<Void, Error>?
+        lock.lock()
+        if let completionResult {
+            completedResult = completionResult
+        } else {
+            completionHandlers[UUID()] = handler
+        }
+        lock.unlock()
+        if let completedResult {
+            handler(completedResult)
+        }
+    }
+
+    func complete(with result: Result<Void, Error>) {
+        var handlers: [@Sendable (Result<Void, Error>) -> Void] = []
+        lock.lock()
+        if completionResult == nil {
+            completionResult = result
+            handlers = Array(completionHandlers.values)
+            completionHandlers.removeAll()
+        }
+        lock.unlock()
+        for handler in handlers {
+            handler(result)
+        }
+    }
+}
+
+private final class ThumbnailWaiter: @unchecked Sendable {
+    private enum State {
+        case pending
+        case canceled
+        case canceling
+        case completed(Result<Void, Error>)
+    }
+
+    private let lock = NSLock()
+    private let waiterGroup: ThumbnailWaiterGroup
+    private let lease: ThumbnailWaiterGroup.Lease
+    private var state: State = .pending
+    private var continuation: CheckedContinuation<Void, Error>?
+    private var hasReleasedLease = false
+
+    init(waiterGroup: ThumbnailWaiterGroup) {
+        self.waiterGroup = waiterGroup
+        lease = waiterGroup.acquire()
+    }
+
+    func wait() async throws {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                install(continuation)
+            }
+        } onCancel: {
+            cancel()
+        }
+    }
+
+    func cancel() {
+        var continuationToResume: CheckedContinuation<Void, Error>?
+        lock.lock()
+        if case .pending = state {
+            if waiterGroup.cancel(lease) {
+                state = .canceling
+            } else {
+                state = .canceled
+                continuationToResume = continuation
+                continuation = nil
+            }
+        }
+        lock.unlock()
+        continuationToResume?.resume(throwing: CancellationError())
+    }
+
+    func complete(with result: Result<Void, Error>) {
+        var continuationToResume: CheckedContinuation<Void, Error>?
+        var resumeWithCancellation = false
+        var shouldReleaseLease = false
+        lock.lock()
+        if !hasReleasedLease {
+            hasReleasedLease = true
+            shouldReleaseLease = true
+            switch state {
+            case .pending:
+                state = .completed(result)
+                continuationToResume = continuation
+                continuation = nil
+            case .canceling:
+                state = .canceled
+                continuationToResume = continuation
+                continuation = nil
+                resumeWithCancellation = true
+            case .canceled, .completed:
+                break
+            }
+        }
+        lock.unlock()
+
+        if shouldReleaseLease {
+            waiterGroup.release(lease)
+            if resumeWithCancellation {
+                continuationToResume?.resume(throwing: CancellationError())
+            } else {
+                continuationToResume?.resume(with: result)
+            }
+        }
+    }
+
+    private func install(_ newContinuation: CheckedContinuation<Void, Error>) {
+        var completedResult: Result<Void, Error>?
+        var wasCanceled = false
+        lock.lock()
+        switch state {
+        case .pending:
+            continuation = newContinuation
+        case .canceling:
+            continuation = newContinuation
+        case .canceled:
+            wasCanceled = true
+        case let .completed(result):
+            completedResult = result
+        }
+        lock.unlock()
+
+        if wasCanceled {
+            newContinuation.resume(throwing: CancellationError())
+        } else if let completedResult {
+            newContinuation.resume(with: completedResult)
+        }
+    }
+}
+
+private final class ThumbnailCancellationSignal: @unchecked Sendable {
+    private enum State {
+        case pending
+        case completed
+        case canceled
+    }
+
+    private let lock = NSLock()
+    private var state: State = .pending
+    private var continuation: CheckedContinuation<Void, Error>?
+
+    func wait() async throws {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                install(continuation)
+            }
+        } onCancel: {
+            cancel()
+        }
+    }
+
+    func complete() {
+        var continuationToResume: CheckedContinuation<Void, Error>?
+        lock.lock()
+        if case .pending = state {
+            state = .completed
+            continuationToResume = continuation
+            continuation = nil
+        }
+        lock.unlock()
+        continuationToResume?.resume()
+    }
+
+    private func cancel() {
+        var continuationToResume: CheckedContinuation<Void, Error>?
+        lock.lock()
+        if case .pending = state {
+            state = .canceled
+            continuationToResume = continuation
+            continuation = nil
+        }
+        lock.unlock()
+        continuationToResume?.resume(throwing: CancellationError())
+    }
+
+    private func install(_ newContinuation: CheckedContinuation<Void, Error>) {
+        var completed = false
+        var canceled = false
+        lock.lock()
+        switch state {
+        case .pending:
+            continuation = newContinuation
+        case .completed:
+            completed = true
+        case .canceled:
+            canceled = true
+        }
+        lock.unlock()
+
+        if completed {
+            newContinuation.resume()
+        } else if canceled {
+            newContinuation.resume(throwing: CancellationError())
         }
     }
 }
@@ -153,16 +356,11 @@ final class ThumbnailCoordinator {
             throw ThumbnailCoordinatorError.missingVideoID
         }
 
-        if let task = inFlight[videoID] {
+        if inFlight[videoID] != nil {
             guard let waiterGroup = waiterGroups[videoID] else {
                 throw ThumbnailCoordinatorError.existingVideoNotPersisted
             }
-            try await awaitTask(
-                task,
-                waiterGroup: waiterGroup,
-                videoID: videoID,
-                generation: generations[videoID]
-            )
+            try await awaitTask(waiterGroup: waiterGroup)
             return
         }
 
@@ -171,7 +369,7 @@ final class ThumbnailCoordinator {
         let backgroundContextFactory = self.backgroundContextFactory
         let task = Task { @MainActor [generator, videoAccess, sleep] in
             if let predecessor {
-                await predecessor.value
+                try await Self.waitForPredecessor(predecessor)
             }
             try Task.checkCancellation()
             onStage(.preparing)
@@ -211,14 +409,17 @@ final class ThumbnailCoordinator {
         generations[videoID] = generation
         waiterGroups[videoID] = waiterGroup
         serialTail = Task { @MainActor in
+            if let predecessor {
+                await predecessor.value
+            }
             _ = try? await task.value
         }
-        try await awaitTask(
-            task,
-            waiterGroup: waiterGroup,
-            videoID: videoID,
-            generation: generation
-        )
+        Task { @MainActor [weak self] in
+            let result = await task.result
+            self?.cleanInFlight(videoID: videoID, generation: generation)
+            waiterGroup.complete(with: result)
+        }
+        try await awaitTask(waiterGroup: waiterGroup)
     }
 
     func generateNewImportThumbnail(for video: Video, sourceURL: URL) async throws {
@@ -247,31 +448,13 @@ final class ThumbnailCoordinator {
         inFlight[videoID]?.cancel()
     }
 
-    private func awaitTask(
-        _ task: Task<Void, Error>,
-        waiterGroup: ThumbnailWaiterGroup,
-        videoID: UUID,
-        generation: UUID?
-    ) async throws {
-        let lease = waiterGroup.acquire()
-        defer { waiterGroup.release(lease) }
-        do {
-            try await withTaskCancellationHandler {
-                do {
-                    try await task.value
-                } catch {
-                    if Task.isCancelled { throw CancellationError() }
-                    throw error
-                }
-                try Task.checkCancellation()
-            } onCancel: {
-                waiterGroup.cancel(lease)
-            }
-            cleanInFlight(videoID: videoID, generation: generation)
-        } catch {
-            cleanInFlight(videoID: videoID, generation: generation)
-            throw error
+    private func awaitTask(waiterGroup: ThumbnailWaiterGroup) async throws {
+        let waiter = ThumbnailWaiter(waiterGroup: waiterGroup)
+        waiterGroup.observeCompletion { result in
+            waiter.complete(with: result)
         }
+        try await waiter.wait()
+        try Task.checkCancellation()
     }
 
     private func cleanInFlight(videoID: UUID, generation: UUID?) {
@@ -279,6 +462,16 @@ final class ThumbnailCoordinator {
         inFlight.removeValue(forKey: videoID)
         generations.removeValue(forKey: videoID)
         waiterGroups.removeValue(forKey: videoID)
+    }
+
+    private static func waitForPredecessor(_ predecessor: Task<Void, Never>) async throws {
+        let signal = ThumbnailCancellationSignal()
+        Task {
+            await predecessor.value
+            signal.complete()
+        }
+        try await signal.wait()
+        try Task.checkCancellation()
     }
 
     private static func acquireLocalURL(
