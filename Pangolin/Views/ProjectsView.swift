@@ -1,7 +1,4 @@
 import SwiftUI
-#if os(macOS)
-import AppKit
-#endif
 
 enum ProjectVideoSelectionPolicy {
     static func reconciledSelection(
@@ -119,6 +116,16 @@ struct ProjectDetailView: View {
         sections.flatMap(\.videos)
     }
 
+    private var displayedVideoIDs: Set<UUID> {
+        Set(orderedDisplayedVideos.compactMap(\.id))
+    }
+
+    private var hasProjectSearch: Bool {
+        !store.projectSearchQuery
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
+    }
+
     private var isEditingSelection: Bool {
         #if os(iOS)
         return editMode?.wrappedValue.isEditing == true
@@ -156,47 +163,98 @@ struct ProjectDetailView: View {
 
     #if os(macOS)
     private var macProjectDetail: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                heroContent(isCompact: false)
+        List(selection: $store.selectedProjectVideoIDs) {
+            macAlbumHero
+                .listRowInsets(EdgeInsets(top: 24, leading: 24, bottom: 28, trailing: 24))
+                .listRowSeparator(.hidden)
 
-                if sections.isEmpty {
-                    ContentUnavailableView(
-                        "No videos in this project",
-                        systemImage: "video.slash",
-                        description: Text("Import videos or add sections to populate the project.")
-                    )
+            if sections.isEmpty {
+                projectEmptyState
                     .frame(maxWidth: .infinity, minHeight: 220)
-                } else {
-                    LazyVStack(alignment: .leading, spacing: 28) {
-                        ForEach(sections) { section in
-                            VStack(alignment: .leading, spacing: 0) {
-                                ProjectSectionHeader(title: section.title)
-
-                                ForEach(Array(section.videos.enumerated()), id: \.element.objectID) { index, video in
-                                    ProjectVideoRow(
-                                        video: video,
-                                        ordinal: index + 1,
-                                        isSelected: isVideoSelected(video),
-                                        showsSelectionAccessory: false,
-                                        tapAction: {
-                                            handleMacSelection(for: video)
-                                        },
-                                        doubleClickAction: {
-                                            store.openProjectVideo(video, in: project)
-                                        }
-                                    )
-                                }
+                    .listRowInsets(EdgeInsets(top: 12, leading: 24, bottom: 24, trailing: 24))
+                    .listRowSeparator(.hidden)
+            } else {
+                ForEach(sections) { section in
+                    Section {
+                        ForEach(Array(section.videos.enumerated()), id: \.element.objectID) { index, video in
+                            if let videoID = video.id {
+                                ProjectVideoRow(
+                                    video: video,
+                                    ordinal: index + 1,
+                                    isSelected: false,
+                                    showsSelectionAccessory: false,
+                                    usesNativeListStyling: true,
+                                    tapAction: nil,
+                                    doubleClickAction: {
+                                        store.openProjectVideo(video, in: project)
+                                    }
+                                )
+                                .tag(videoID)
+                                .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12))
+                                .accessibilityIdentifier("project-video-row-\(videoID.uuidString)")
                             }
                         }
+                    } header: {
+                        ProjectAlbumSectionHeader(title: section.title)
+                            .accessibilityIdentifier("project-section-\(section.id)")
                     }
                 }
+
+                ProjectAlbumFooter(
+                    videoCount: totalVideoCount,
+                    duration: formattedProjectDuration(totalDuration)
+                )
+                .listRowInsets(EdgeInsets(top: 14, leading: 24, bottom: 28, trailing: 24))
+                .listRowSeparator(.hidden)
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 24)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .listStyle(.plain)
+        .accessibilityIdentifier("project-video-list")
+        .onChange(of: displayedVideoIDs) { _, visibleIDs in
+            store.selectedProjectVideoIDs = ProjectVideoSelectionPolicy.reconciledSelection(
+                store.selectedProjectVideoIDs,
+                visibleIDs: visibleIDs
+            )
+        }
+        .onKeyPress(.return) {
+            openSelectedProjectVideo() ? .handled : .ignored
         }
         .navigationTitle(project.resolvedProjectTitle)
+    }
+
+    private var macAlbumHero: some View {
+        ViewThatFits(in: .horizontal) {
+            heroContent(isCompact: false)
+                .frame(minWidth: 520, alignment: .leading)
+
+            heroContent(isCompact: true)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    @ViewBuilder
+    private var projectEmptyState: some View {
+        if hasProjectSearch {
+            ContentUnavailableView.search(text: store.projectSearchQuery)
+        } else {
+            ContentUnavailableView(
+                "No videos in this project",
+                systemImage: "video.slash",
+                description: Text("Import videos or add sections to populate the project.")
+            )
+        }
+    }
+
+    private func openSelectedProjectVideo() -> Bool {
+        guard let selectedID = ProjectVideoSelectionPolicy.activationID(
+            selection: store.selectedProjectVideoIDs,
+            visibleIDs: displayedVideoIDs
+        ), let video = orderedDisplayedVideos.first(where: { $0.id == selectedID }) else {
+            return false
+        }
+
+        store.openProjectVideo(video, in: project)
+        return true
     }
     #endif
 
@@ -462,20 +520,6 @@ struct ProjectDetailView: View {
         return store.selectedProjectVideoIDs.contains(videoID)
     }
 
-    #if os(macOS)
-    private func handleMacSelection(for video: Video) {
-        let modifierFlags = NSApp.currentEvent?.modifierFlags ?? []
-        let extendingSelection = modifierFlags.contains(.command)
-        let rangeSelecting = modifierFlags.contains(.shift)
-        store.selectProjectVideo(
-            video,
-            in: orderedDisplayedVideos,
-            extendingSelection: extendingSelection,
-            rangeSelecting: rangeSelecting
-        )
-    }
-    #endif
-
     private func formattedProjectDuration(_ duration: TimeInterval) -> String {
         guard duration > 0 else { return "0 min" }
 
@@ -573,81 +617,149 @@ private struct ProjectSectionHeader: View {
     }
 }
 
+private struct ProjectAlbumSectionHeader: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.headline.weight(.semibold))
+            .foregroundStyle(.primary)
+            .textCase(nil)
+            .padding(.top, 12)
+            .accessibilityAddTraits(.isHeader)
+    }
+}
+
+private struct ProjectAlbumFooter: View {
+    let videoCount: Int
+    let duration: String
+
+    var body: some View {
+        Text("\(videoCount) \(videoCount == 1 ? "video" : "videos"), \(duration)")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 private struct ProjectVideoRow: View {
     let video: Video
     let ordinal: Int
     let isSelected: Bool
     let showsSelectionAccessory: Bool
-    let tapAction: () -> Void
+    let usesNativeListStyling: Bool
+    let tapAction: (() -> Void)?
     let doubleClickAction: (() -> Void)?
+
+    init(
+        video: Video,
+        ordinal: Int,
+        isSelected: Bool,
+        showsSelectionAccessory: Bool,
+        usesNativeListStyling: Bool = false,
+        tapAction: (() -> Void)?,
+        doubleClickAction: (() -> Void)?
+    ) {
+        self.video = video
+        self.ordinal = ordinal
+        self.isSelected = isSelected
+        self.showsSelectionAccessory = showsSelectionAccessory
+        self.usesNativeListStyling = usesNativeListStyling
+        self.tapAction = tapAction
+        self.doubleClickAction = doubleClickAction
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Text("\(ordinal)")
-                    .font(.subheadline.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .frame(width: 24, alignment: .trailing)
+            interactiveRow
 
-                statusIndicator
+            if !usesNativeListStyling {
+                Divider()
+                    .padding(.leading, 44)
+            }
+        }
+    }
 
-                Text(resolvedTitle)
-                    .font(.body)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+    @ViewBuilder
+    private var interactiveRow: some View {
+        if let tapAction {
+            rowContent
+                .onTapGesture(perform: tapAction)
+        } else if let doubleClickAction {
+            rowContent
+                .simultaneousGesture(
+                    TapGesture(count: 2)
+                        .onEnded { doubleClickAction() }
+                )
+        } else {
+            rowContent
+        }
+    }
 
-                if showsSelectionAccessory {
-                    Button(action: tapAction) {
-                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(isSelected ? Color.accentColor : .secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
+    private var rowContent: some View {
+        HStack(spacing: 12) {
+            Text("\(ordinal)")
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 24, alignment: .trailing)
 
-                Button(action: toggleFavorite) {
-                    Image(systemName: video.isFavorite ? "heart.fill" : "heart")
-                        .foregroundStyle(video.isFavorite ? .red : .secondary)
+            statusIndicator
+
+            Text(resolvedTitle)
+                .font(.body)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if showsSelectionAccessory {
+                Button {
+                    tapAction?()
+                } label: {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(isSelected ? Color.accentColor : .secondary)
                 }
                 .buttonStyle(.plain)
-                .frame(width: 24)
+                .accessibilityLabel(isSelected ? "Deselect video" : "Select video")
+            }
 
-                Text(video.formattedDuration)
-                    .font(.subheadline.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .frame(width: 52, alignment: .trailing)
+            Button(action: toggleFavorite) {
+                Image(systemName: video.isFavorite ? "heart.fill" : "heart")
+                    .foregroundStyle(video.isFavorite ? .red : .secondary)
+            }
+            .buttonStyle(.plain)
+            .frame(width: 24)
+            .help(favoriteActionLabel)
+            .accessibilityLabel(favoriteActionLabel)
 
-                Menu {
-                    Button(video.isFavorite ? "Remove favourite" : "Add favourite", systemImage: video.isFavorite ? "heart.slash" : "heart") {
-                        toggleFavorite()
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .foregroundStyle(.secondary)
-                        .frame(width: 24)
+            Text(video.formattedDuration)
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 52, alignment: .trailing)
+
+            Menu {
+                Button(favoriteActionLabel, systemImage: video.isFavorite ? "heart.slash" : "heart") {
+                    toggleFavorite()
                 }
-                #if os(macOS)
-                .menuStyle(.borderlessButton)
-                #endif
-                .fixedSize()
+            } label: {
+                Image(systemName: "ellipsis")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.12) : .clear)
-            )
-            .contentShape(Rectangle())
-            .onTapGesture {
-                tapAction()
-            }
-            .onTapGesture(count: 2) {
-                doubleClickAction?()
-            }
-
-            Divider()
-                .padding(.leading, 44)
+            #if os(macOS)
+            .menuStyle(.borderlessButton)
+            #endif
+            .fixedSize()
+            .accessibilityLabel("More actions for \(resolvedTitle)")
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background {
+            if !usesNativeListStyling && isSelected {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.12))
+            }
+        }
+        .contentShape(Rectangle())
     }
 
     private var resolvedTitle: String {
@@ -660,20 +772,27 @@ private struct ProjectVideoRow: View {
 
     @ViewBuilder
     private var statusIndicator: some View {
-        switch video.watchStatus {
-        case .unwatched:
-            Circle()
-                .strokeBorder(Color.secondary.opacity(0.5), lineWidth: 1)
-                .frame(width: 14, height: 14)
-        case .inProgress:
-            Circle()
-                .fill(Color.secondary.opacity(0.35))
-                .frame(width: 14, height: 14)
-        case .watched:
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(.secondary)
-                .frame(width: 14, height: 14)
+        Group {
+            switch video.watchStatus {
+            case .unwatched:
+                Circle()
+                    .strokeBorder(Color.secondary.opacity(0.5), lineWidth: 1)
+                    .frame(width: 14, height: 14)
+            case .inProgress:
+                Circle()
+                    .fill(Color.secondary.opacity(0.35))
+                    .frame(width: 14, height: 14)
+            case .watched:
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 14, height: 14)
+            }
         }
+        .accessibilityLabel(video.watchStatus.displayName)
+    }
+
+    private var favoriteActionLabel: String {
+        video.isFavorite ? "Remove from favourites" : "Add to favourites"
     }
 
     private func toggleFavorite() {
