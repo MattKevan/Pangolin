@@ -67,6 +67,44 @@ enum LibraryStoragePreference: String, CaseIterable, Identifiable {
     }
 }
 
+final class ThumbnailValidityCache: @unchecked Sendable {
+    static let shared = ThumbnailValidityCache()
+
+    private let cache = NSCache<NSData, NSNumber>()
+    private let lock = NSLock()
+    private var validationCountStorage = 0
+
+    private init() {
+        cache.countLimit = 256
+        cache.totalCostLimit = 64 * 1_024 * 1_024
+    }
+
+    var validationCount: Int {
+        lock.withLock { validationCountStorage }
+    }
+
+    func isValidJPEG(_ data: Data) -> Bool {
+        let key = NSData(data: data)
+        return lock.withLock {
+            if let cachedValue = cache.object(forKey: key) {
+                return cachedValue.boolValue
+            }
+
+            let isValid = ThumbnailGenerator.isValidJPEG(data)
+            cache.setObject(NSNumber(value: isValid), forKey: key, cost: data.count)
+            validationCountStorage += 1
+            return isValid
+        }
+    }
+
+    func removeAllObjects() {
+        lock.withLock {
+            cache.removeAllObjects()
+            validationCountStorage = 0
+        }
+    }
+}
+
 // MARK: - Video Extensions
 extension Video {
     // Computed properties
@@ -130,7 +168,7 @@ extension Video {
     var hasCurrentThumbnail: Bool {
         guard thumbnailGenerationVersion == ThumbnailGenerator.currentVersion,
               let thumbnailData else { return false }
-        return ThumbnailGenerator.isValidJPEG(thumbnailData)
+        return ThumbnailValidityCache.shared.isValidJPEG(thumbnailData)
     }
     
     var thumbnailURL: URL? {
@@ -155,15 +193,25 @@ extension Folder {
 
     var childFoldersArray: [Folder] {
         guard let children = childFolders else { return [] }
-        return children.compactMap { $0 as? Folder }.sorted { 
-            ($0.name ?? "").localizedCompare($1.name ?? "") == .orderedAscending 
+        return children.compactMap { $0 as? Folder }.sorted {
+            let nameOrder = ($0.name ?? "").localizedCompare($1.name ?? "")
+            if nameOrder != .orderedSame {
+                return nameOrder == .orderedAscending
+            }
+            return stableSortKey(id: $0.id, objectID: $0.objectID)
+                < stableSortKey(id: $1.id, objectID: $1.objectID)
         }
     }
     
     var videosArray: [Video] {
         guard let videos = videos else { return [] }
-        return videos.compactMap { $0 as? Video }.sorted { 
-            ($0.title ?? "").localizedCompare($1.title ?? "") == .orderedAscending 
+        return videos.compactMap { $0 as? Video }.sorted {
+            let titleOrder = ($0.title ?? "").localizedCompare($1.title ?? "")
+            if titleOrder != .orderedSame {
+                return titleOrder == .orderedAscending
+            }
+            return stableSortKey(id: $0.id, objectID: $0.objectID)
+                < stableSortKey(id: $1.id, objectID: $1.objectID)
         }
     }
 
@@ -252,6 +300,10 @@ extension Folder {
 
         return nil
     }
+}
+
+private func stableSortKey(id: UUID?, objectID: NSManagedObjectID) -> String {
+    id?.uuidString ?? objectID.uriRepresentation().absoluteString
 }
 
 // MARK: - Subtitle Extensions

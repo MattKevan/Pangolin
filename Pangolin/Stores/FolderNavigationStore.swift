@@ -518,6 +518,8 @@ class FolderNavigationStore: ObservableObject {
     }
 
     private func backfillProjectMetadataIfNeeded(for projects: [Folder], in context: NSManagedObjectContext) {
+        guard !context.hasChanges else { return }
+
         var didChange = false
 
         for project in projects where project.isProject {

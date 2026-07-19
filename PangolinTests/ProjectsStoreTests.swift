@@ -110,8 +110,16 @@ struct ProjectsStoreTests {
             library: library
         )
 
+        ThumbnailValidityCache.shared.removeAllObjects()
+        #expect(!invalidVideo.hasCurrentThumbnail)
         #expect(!invalidVideo.hasCurrentThumbnail)
         #expect(validVideo.hasCurrentThumbnail)
+        #expect(validVideo.hasCurrentThumbnail)
+        #expect(ThumbnailValidityCache.shared.validationCount == 2)
+
+        invalidVideo.thumbnailData = Data("different invalid bytes".utf8)
+        #expect(!invalidVideo.hasCurrentThumbnail)
+        #expect(ThumbnailValidityCache.shared.validationCount == 3)
 
         await manager.closeCurrentLibrary()
     }
@@ -149,6 +157,129 @@ struct ProjectsStoreTests {
         #expect(fetchedProject.resolvedProjectProvider.isEmpty)
         #expect(fetchedProject.resolvedProjectThumbnailVideo?.id == validVideo.id)
         #expect(fetchedProject.projectThumbnailVideoID == validVideo.id)
+
+        await manager.closeCurrentLibrary()
+    }
+
+    @Test("Duplicate descendant names resolve artwork in stable UUID order")
+    @MainActor
+    func duplicateDescendantNamesResolveInStableUUIDOrder() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Duplicates", in: context, parent: nil, library: library)
+        let higherFolder = try makeFolder(named: "Section", in: context, parent: project, library: library)
+        higherFolder.id = try makeUUID("00000000-0000-0000-0000-000000000020")
+        let lowerFolder = try makeFolder(named: "Section", in: context, parent: project, library: library)
+        lowerFolder.id = try makeUUID("00000000-0000-0000-0000-000000000010")
+
+        let jpeg = try makeValidJPEG()
+        let higherVideoInLowerFolder = try makeVideo(
+            title: "Lesson",
+            thumbnailData: jpeg,
+            in: context,
+            folder: lowerFolder,
+            library: library
+        )
+        higherVideoInLowerFolder.id = try makeUUID("00000000-0000-0000-0000-000000000012")
+        let lowerVideoInLowerFolder = try makeVideo(
+            title: "Lesson",
+            thumbnailData: jpeg,
+            in: context,
+            folder: lowerFolder,
+            library: library
+        )
+        lowerVideoInLowerFolder.id = try makeUUID("00000000-0000-0000-0000-000000000011")
+        let higherVideoInHigherFolder = try makeVideo(
+            title: "Lesson",
+            thumbnailData: jpeg,
+            in: context,
+            folder: higherFolder,
+            library: library
+        )
+        higherVideoInHigherFolder.id = try makeUUID("00000000-0000-0000-0000-000000000022")
+        let lowerVideoInHigherFolder = try makeVideo(
+            title: "Lesson",
+            thumbnailData: jpeg,
+            in: context,
+            folder: higherFolder,
+            library: library
+        )
+        lowerVideoInHigherFolder.id = try makeUUID("00000000-0000-0000-0000-000000000021")
+        try context.save()
+
+        let store = FolderNavigationStore(libraryManager: manager)
+        let fetchedProject = try #require(store.projects().first)
+
+        #expect(fetchedProject.childFoldersArray.map(\.id) == [lowerFolder.id, higherFolder.id])
+        #expect(fetchedProject.descendantVideos.map(\.id) == [
+            lowerVideoInLowerFolder.id,
+            higherVideoInLowerFolder.id,
+            lowerVideoInHigherFolder.id,
+            higherVideoInHigherFolder.id,
+        ])
+        #expect(fetchedProject.resolvedProjectThumbnailVideo?.id == lowerVideoInLowerFolder.id)
+        #expect(fetchedProject.projectThumbnailVideoID == lowerVideoInLowerFolder.id)
+
+        await manager.closeCurrentLibrary()
+    }
+
+    @Test("Project metadata backfill defers while unrelated edits are pending")
+    @MainActor
+    func projectMetadataBackfillDefersForPendingEdits() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Deferred", in: context, parent: nil, library: library)
+        project.projectTitle = nil
+        let video = try makeVideo(
+            title: "Artwork",
+            thumbnailData: try makeValidJPEG(),
+            in: context,
+            folder: project,
+            library: library
+        )
+        try context.save()
+
+        library.name = "Pending Unsaved Name"
+        let store = FolderNavigationStore(libraryManager: manager)
+        _ = store.projects()
+
+        #expect(context.hasChanges)
+        #expect(library.name == "Pending Unsaved Name")
+        #expect(project.projectTitle == nil)
+        #expect(project.projectThumbnailVideoID == nil)
+        #expect(project.resolvedProjectThumbnailVideo?.id == video.id)
+
+        context.rollback()
+        await manager.closeCurrentLibrary()
+    }
+
+    @Test("Legacy project thumbnail path still backfills temporarily")
+    @MainActor
+    func legacyProjectThumbnailPathStillBackfills() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Legacy", in: context, parent: nil, library: library)
+        let video = try makeVideo(
+            title: "Legacy Artwork",
+            thumbnailData: nil,
+            in: context,
+            folder: project,
+            library: library
+        )
+        video.thumbnailPath = "legacy-thumbnail.jpg"
+        try context.save()
+
+        let store = FolderNavigationStore(libraryManager: manager)
+        let fetchedProject = try #require(store.projects().first)
+
+        #expect(fetchedProject.resolvedProjectThumbnailPath == "legacy-thumbnail.jpg")
+        #expect(fetchedProject.projectThumbnailPath == "legacy-thumbnail.jpg")
 
         await manager.closeCurrentLibrary()
     }
@@ -412,6 +543,13 @@ private func makeValidJPEG() throws -> Data {
         throw TestFailure("Could not encode test JPEG")
     }
     return data as Data
+}
+
+private func makeUUID(_ string: String) throws -> UUID {
+    guard let uuid = UUID(uuidString: string) else {
+        throw TestFailure("Invalid test UUID: \(string)")
+    }
+    return uuid
 }
 
 private struct TestFailure: Error {
