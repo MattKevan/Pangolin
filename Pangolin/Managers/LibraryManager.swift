@@ -318,6 +318,9 @@ class LibraryManager: ObservableObject {
         
         loadingProgress = 1.0
 
+        if let libraryID = library.id {
+            ProcessingQueueManager.shared.activateThumbnailWork(for: libraryID)
+        }
         scheduleThumbnailReconciliation(for: library)
         
         return library
@@ -389,7 +392,10 @@ class LibraryManager: ObservableObject {
         saveLastOpenedLibrary(url)
         
         loadingProgress = 1.0
-        
+
+        if let libraryID = library.id {
+            ProcessingQueueManager.shared.activateThumbnailWork(for: libraryID)
+        }
         scheduleThumbnailReconciliation(for: library)
         
         return library
@@ -400,12 +406,9 @@ class LibraryManager: ObservableObject {
         thumbnailReconciliationTask?.cancel()
         thumbnailReconciliationTask = nil
         guard let library = currentLibrary else { return }
-        
-        await save()
 
-        if let libraryID = library.id {
-            await ProcessingQueueManager.shared.cancelThumbnailWork(for: libraryID)
-        }
+        await ProcessingQueueManager.shared.cancelThumbnailWork(for: library.id)
+        await save()
         
         if let libraryURL = library.url {
             CoreDataStack.releaseInstance(for: libraryURL)

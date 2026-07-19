@@ -64,12 +64,12 @@ enum ThumbnailTaskScope {
 }
 
 struct ThumbnailReconciliationGate {
-    private var activeImportEventIDs: Set<UUID> = []
-    private var pendingLibraryID: UUID?
+    private var activeImportLibraryIDs: [UUID: UUID] = [:]
+    private var pendingLibraryIDs: [UUID] = []
 
-    mutating func eventStarted(id: UUID, isImport: Bool) {
-        if isImport {
-            activeImportEventIDs.insert(id)
+    mutating func eventStarted(id: UUID, isImport: Bool, libraryID: UUID?) {
+        if isImport, let libraryID {
+            activeImportLibraryIDs[id] = libraryID
         }
     }
 
@@ -80,29 +80,54 @@ struct ThumbnailReconciliationGate {
         libraryID: UUID?
     ) -> UUID? {
         if isImport {
-            activeImportEventIDs.remove(id)
-            if succeeded, let libraryID {
-                pendingLibraryID = libraryID
+            let capturedLibraryID = activeImportLibraryIDs.removeValue(forKey: id)
+            if succeeded,
+               let capturedLibraryID,
+               capturedLibraryID == libraryID {
+                appendPending(capturedLibraryID)
             }
         }
-        return flushIfReady()
+        return flushNextReady()
     }
 
     mutating func request(libraryID: UUID) -> UUID? {
-        pendingLibraryID = libraryID
-        return flushIfReady()
+        appendPending(libraryID)
+        return flushNextReady()
     }
 
-    mutating func cancel(libraryID: UUID) {
-        if pendingLibraryID == libraryID {
-            pendingLibraryID = nil
+    mutating func abandon(libraryID: UUID) -> UUID? {
+        activeImportLibraryIDs = activeImportLibraryIDs.filter { $0.value != libraryID }
+        pendingLibraryIDs.removeAll { $0 == libraryID }
+        return flushNextReady()
+    }
+
+    private mutating func appendPending(_ libraryID: UUID) {
+        if !pendingLibraryIDs.contains(libraryID) {
+            pendingLibraryIDs.append(libraryID)
         }
     }
 
-    private mutating func flushIfReady() -> UUID? {
-        guard activeImportEventIDs.isEmpty, let pendingLibraryID else { return nil }
-        self.pendingLibraryID = nil
-        return pendingLibraryID
+    private mutating func flushNextReady() -> UUID? {
+        guard let index = pendingLibraryIDs.firstIndex(where: { libraryID in
+            !activeImportLibraryIDs.values.contains(libraryID)
+        }) else { return nil }
+        return pendingLibraryIDs.remove(at: index)
+    }
+}
+
+struct ThumbnailLibraryLifecycle {
+    private(set) var closingLibraryIDs: Set<UUID> = []
+
+    mutating func beginClosing(_ libraryID: UUID) {
+        closingLibraryIDs.insert(libraryID)
+    }
+
+    mutating func activate(_ libraryID: UUID) {
+        closingLibraryIDs.remove(libraryID)
+    }
+
+    func allowsWork(for libraryID: UUID) -> Bool {
+        !closingLibraryIDs.contains(libraryID)
     }
 }
 
@@ -617,6 +642,10 @@ final class ThumbnailCoordinator {
         guard let task = inFlight[videoID] else { return }
         task.cancel()
         _ = await task.result
+    }
+
+    func hasOperation(videoID: UUID) -> Bool {
+        inFlight[videoID] != nil
     }
 
     #if DEBUG

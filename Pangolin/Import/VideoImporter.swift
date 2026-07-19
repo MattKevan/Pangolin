@@ -162,6 +162,9 @@ class VideoImporter: ObservableObject {
                 )
                 throw error
             }
+            if context.hasChanges {
+                try context.save()
+            }
             ProcessingQueueManager.shared.enqueueThumbnails(for: [video])
         }
         

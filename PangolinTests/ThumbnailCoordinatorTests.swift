@@ -67,15 +67,40 @@ struct ThumbnailCoordinatorTests {
         let libraryID = UUID()
         var gate = ThumbnailReconciliationGate()
 
-        gate.eventStarted(id: firstImport, isImport: true)
-        gate.eventStarted(id: secondImport, isImport: true)
-        gate.eventStarted(id: export, isImport: false)
+        gate.eventStarted(id: firstImport, isImport: true, libraryID: libraryID)
+        gate.eventStarted(id: secondImport, isImport: true, libraryID: libraryID)
+        gate.eventStarted(id: export, isImport: false, libraryID: libraryID)
         #expect(gate.request(libraryID: libraryID) == nil)
         #expect(gate.eventCompleted(id: firstImport, isImport: true, succeeded: true, libraryID: libraryID) == nil)
         #expect(gate.eventCompleted(id: secondImport, isImport: true, succeeded: false, libraryID: libraryID) == libraryID)
 
         #expect(gate.eventCompleted(id: export, isImport: false, succeeded: true, libraryID: libraryID) == nil)
         #expect(gate.request(libraryID: libraryID) == libraryID)
+    }
+
+    @Test("Abandoning one library's imports cannot block another library")
+    func cloudImportGateAbandonsClosedLibrary() {
+        let libraryA = UUID()
+        let libraryB = UUID()
+        let importA = UUID()
+        var gate = ThumbnailReconciliationGate()
+
+        gate.eventStarted(id: importA, isImport: true, libraryID: libraryA)
+        #expect(gate.request(libraryID: libraryA) == nil)
+        #expect(gate.abandon(libraryID: libraryA) == nil)
+        #expect(gate.request(libraryID: libraryB) == libraryB)
+    }
+
+    @Test("Thumbnail work remains rejected until explicit activation after close")
+    func thumbnailCloseAdmissionRequiresActivation() {
+        let libraryID = UUID()
+        var lifecycle = ThumbnailLibraryLifecycle()
+
+        #expect(lifecycle.allowsWork(for: libraryID))
+        lifecycle.beginClosing(libraryID)
+        #expect(!lifecycle.allowsWork(for: libraryID))
+        lifecycle.activate(libraryID)
+        #expect(lifecycle.allowsWork(for: libraryID))
     }
 
     @Test("Thumbnail task library identity survives Codable and rejects another library")
