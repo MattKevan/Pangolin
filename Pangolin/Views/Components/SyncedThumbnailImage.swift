@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import SwiftUI
 
 #if os(iOS)
@@ -13,14 +14,47 @@ struct ThumbnailCacheKey: Hashable, Sendable {
     let generatedAt: Date?
 }
 
+struct ThumbnailDataRevision: Hashable, Sendable {
+    let byteCount: Int
+    let fingerprint: UInt64
+
+    init(_ data: Data) {
+        byteCount = data.count
+        fingerprint = data.withUnsafeBytes { bytes in
+            var hash: UInt64 = 14_695_981_039_346_656_037
+            for byte in bytes {
+                hash ^= UInt64(byte)
+                hash &*= 1_099_511_628_211
+            }
+            return hash
+        }
+    }
+}
+
+struct ThumbnailImageRequestKey: Hashable, Sendable {
+    let key: ThumbnailCacheKey
+    let dataRevision: ThumbnailDataRevision?
+
+    init(key: ThumbnailCacheKey, data: Data?) {
+        self.key = key
+        dataRevision = data.map(ThumbnailDataRevision.init)
+    }
+}
+
+struct DecodedThumbnail: @unchecked Sendable {
+    let image: PlatformImage
+    let pixelCost: Int
+}
+
 actor ThumbnailImageCache {
-    typealias Decoder = @Sendable (Data) -> PlatformImage?
+    typealias Decoder = @Sendable (Data) -> DecodedThumbnail?
 
     static let shared = ThumbnailImageCache()
 
-    private let cache = NSCache<ThumbnailCacheKeyBox, PlatformImage>()
+    private let cache = NSCache<ThumbnailImageRequestKeyBox, PlatformImage>()
     private let decoder: Decoder
-    private var inFlight: [ThumbnailCacheKey: Task<PlatformImage?, Never>] = [:]
+    private var inFlight: [ThumbnailImageRequestKey: InFlightDecode] = [:]
+    private var epoch: UInt64 = 0
 
     init(
         countLimit: Int = 256,
@@ -35,49 +69,84 @@ actor ThumbnailImageCache {
     }
 
     func image(for key: ThumbnailCacheKey, data: Data) async -> PlatformImage? {
-        let cacheKey = ThumbnailCacheKeyBox(key)
+        let requestKey = ThumbnailImageRequestKey(key: key, data: data)
+        let cacheKey = ThumbnailImageRequestKeyBox(requestKey)
         if let cachedImage = cache.object(forKey: cacheKey) {
             return cachedImage
         }
-        if let existingTask = inFlight[key] {
-            return await existingTask.value
+        if let existingDecode = inFlight[requestKey] {
+            return await existingDecode.task.value?.image
         }
 
         let decoder = decoder
-        let decodeTask = Task.detached(priority: .utility) {
-            decoder(data)
+        let decodeID = UUID()
+        let decodeEpoch = epoch
+        let decodeTask: Task<DecodedThumbnail?, Never> = Task.detached(priority: .utility) {
+            guard !Task.isCancelled else { return nil }
+            return decoder(data)
         }
-        inFlight[key] = decodeTask
+        inFlight[requestKey] = InFlightDecode(id: decodeID, task: decodeTask)
 
-        let image = await decodeTask.value
-        inFlight[key] = nil
-        if let image {
-            cache.setObject(image, forKey: cacheKey, cost: data.count)
+        let decoded = await decodeTask.value
+        if inFlight[requestKey]?.id == decodeID {
+            inFlight[requestKey] = nil
         }
-        return image
+        guard epoch == decodeEpoch else { return decoded?.image }
+        if let decoded {
+            cache.setObject(decoded.image, forKey: cacheKey, cost: decoded.pixelCost)
+        }
+        return decoded?.image
     }
 
     func removeAll() {
+        epoch &+= 1
         cache.removeAllObjects()
+        for decode in inFlight.values {
+            decode.task.cancel()
+        }
+        inFlight.removeAll()
     }
 
-    nonisolated private static func decodeImage(_ data: Data) -> PlatformImage? {
-        guard ThumbnailGenerator.isValidJPEG(data) else { return nil }
-        return PlatformImage(data: data)
+    nonisolated static func decodeImage(_ data: Data) -> DecodedThumbnail? {
+        guard ThumbnailGenerator.isValidJPEG(data),
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, [
+                  kCGImageSourceShouldCache: true,
+                  kCGImageSourceShouldCacheImmediately: true,
+              ] as CFDictionary) else { return nil }
+
+        let image: PlatformImage
+        #if os(macOS)
+        image = NSImage(
+            cgImage: cgImage,
+            size: NSSize(width: cgImage.width, height: cgImage.height)
+        )
+        #else
+        image = UIImage(cgImage: cgImage, scale: 1, orientation: .up)
+        #endif
+        return DecodedThumbnail(
+            image: image,
+            pixelCost: cgImage.bytesPerRow * cgImage.height
+        )
     }
 }
 
-private final class ThumbnailCacheKeyBox: NSObject {
-    let key: ThumbnailCacheKey
+private struct InFlightDecode {
+    let id: UUID
+    let task: Task<DecodedThumbnail?, Never>
+}
 
-    init(_ key: ThumbnailCacheKey) {
+private final class ThumbnailImageRequestKeyBox: NSObject {
+    let key: ThumbnailImageRequestKey
+
+    init(_ key: ThumbnailImageRequestKey) {
         self.key = key
     }
 
     override var hash: Int { key.hashValue }
 
     override func isEqual(_ object: Any?) -> Bool {
-        guard let other = object as? ThumbnailCacheKeyBox else { return false }
+        guard let other = object as? ThumbnailImageRequestKeyBox else { return false }
         return key == other.key
     }
 }
@@ -122,6 +191,11 @@ private struct ObservedSyncedThumbnailImage<Placeholder: View>: View {
         )
     }
 
+    private var requestKey: ThumbnailImageRequestKey? {
+        guard let cacheKey else { return nil }
+        return ThumbnailImageRequestKey(key: cacheKey, data: video.thumbnailData)
+    }
+
     var body: some View {
         Group {
             if let platformImage {
@@ -132,7 +206,7 @@ private struct ObservedSyncedThumbnailImage<Placeholder: View>: View {
                 placeholder
             }
         }
-        .task(id: cacheKey) {
+        .task(id: requestKey) {
             platformImage = nil
             guard let cacheKey, let data = video.thumbnailData else { return }
             let loadedImage = await ThumbnailImageCache.shared.image(for: cacheKey, data: data)

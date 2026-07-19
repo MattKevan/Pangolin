@@ -31,6 +31,51 @@ struct ThumbnailImageCacheTests {
         #expect(image == nil)
     }
 
+    @Test("Data revision changes request identity without retaining bytes")
+    func dataRevisionInvalidatesRequestIdentity() {
+        let key = ThumbnailCacheKey(videoID: UUID(), version: 1, generatedAt: Date())
+        let missing = ThumbnailImageRequestKey(key: key, data: nil)
+        let first = ThumbnailImageRequestKey(key: key, data: Data([1, 2, 3]))
+        let replacement = ThumbnailImageRequestKey(key: key, data: Data([1, 2, 4]))
+
+        #expect(missing != first)
+        #expect(first != replacement)
+        #expect(first.dataRevision?.byteCount == 3)
+    }
+
+    @Test("Replacing data with unchanged metadata decodes the replacement")
+    func replacingDataInvalidatesCachedImage() async {
+        let probe = DecoderProbe()
+        let cache = ThumbnailImageCache(
+            countLimit: 2,
+            totalCostLimit: 1_024,
+            decoder: { data in probe.decode(data) }
+        )
+        let key = ThumbnailCacheKey(videoID: UUID(), version: 1, generatedAt: Date())
+
+        _ = await cache.image(for: key, data: Data([1]))
+        _ = await cache.image(for: key, data: Data([2]))
+
+        #expect(probe.callCount == 2)
+    }
+
+    @Test("Production decoder retains decoded pixels and reports their cost")
+    func productionDecodeHasPixelBackingAndCost() throws {
+        let jpeg = try makeJPEG(width: 64, height: 64)
+
+        let decoded = try #require(ThumbnailImageCache.decodeImage(jpeg))
+        let cgImage = try #require(decoded.image.cgImage(
+            forProposedRect: nil,
+            context: nil,
+            hints: nil
+        ))
+
+        #expect(cgImage.width == 64)
+        #expect(cgImage.height == 64)
+        #expect(decoded.pixelCost == cgImage.bytesPerRow * cgImage.height)
+        #expect(decoded.pixelCost > jpeg.count)
+    }
+
     @Test("Concurrent requests for one key share a decode")
     func concurrentRequestsCoalesce() async {
         let probe = DecoderProbe(delay: 0.1)
@@ -93,6 +138,30 @@ struct ThumbnailImageCacheTests {
 
         #expect(probe.callCount == 2)
     }
+
+    @Test("Purge prevents an older in-flight decode from repopulating the cache")
+    func purgeDuringDecodeDoesNotRepopulateCache() async {
+        let probe = DecoderProbe(delay: 0.2)
+        let cache = ThumbnailImageCache(
+            countLimit: 2,
+            totalCostLimit: 1_024,
+            decoder: { data in probe.decode(data) }
+        )
+        let key = ThumbnailCacheKey(videoID: UUID(), version: 1, generatedAt: nil)
+        let data = Data([1])
+
+        let firstRequest = Task {
+            await cache.image(for: key, data: data)
+        }
+        while probe.callCount == 0 {
+            await Task.yield()
+        }
+        await cache.removeAll()
+        _ = await firstRequest.value
+        _ = await cache.image(for: key, data: data)
+
+        #expect(probe.callCount == 2)
+    }
 }
 
 private final class DecoderProbe: @unchecked Sendable {
@@ -113,7 +182,7 @@ private final class DecoderProbe: @unchecked Sendable {
         lock.withLock { calledOnMainThread }
     }
 
-    func decode(_ data: Data) -> PlatformImage? {
+    func decode(_ data: Data) -> DecodedThumbnail? {
         lock.withLock {
             calls += 1
             calledOnMainThread = Thread.isMainThread
@@ -121,6 +190,32 @@ private final class DecoderProbe: @unchecked Sendable {
         if delay > 0 {
             Thread.sleep(forTimeInterval: delay)
         }
-        return NSImage(size: NSSize(width: 1, height: 1))
+        return DecodedThumbnail(
+            image: NSImage(size: NSSize(width: 1, height: 1)),
+            pixelCost: 4
+        )
     }
+}
+
+private func makeJPEG(width: Int, height: Int) throws -> Data {
+    let bitmap = try #require(NSBitmapImageRep(
+        bitmapDataPlanes: nil,
+        pixelsWide: width,
+        pixelsHigh: height,
+        bitsPerSample: 8,
+        samplesPerPixel: 4,
+        hasAlpha: true,
+        isPlanar: false,
+        colorSpaceName: .deviceRGB,
+        bytesPerRow: 0,
+        bitsPerPixel: 0
+    ))
+    guard let data = bitmap.representation(using: .jpeg, properties: [:]) else {
+        throw JPEGFixtureError.encodingFailed
+    }
+    return data
+}
+
+private enum JPEGFixtureError: Error {
+    case encodingFailed
 }
