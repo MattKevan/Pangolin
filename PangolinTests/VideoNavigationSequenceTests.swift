@@ -16,9 +16,9 @@ struct VideoNavigationSequenceTests {
         let sectionA = try makeFolder(named: "A", in: context, parent: project, library: library)
         let sectionB = try makeFolder(named: "B", in: context, parent: project, library: library)
 
-        let first = try makeVideo(title: "Lesson 1", thumbnailPath: nil, in: context, folder: sectionA, library: library, fileName: "1.mp4")
-        let second = try makeVideo(title: "Lesson 2", thumbnailPath: nil, in: context, folder: sectionA, library: library, fileName: "2.mp4")
-        let third = try makeVideo(title: "Lesson 3", thumbnailPath: nil, in: context, folder: sectionB, library: library, fileName: "3.mp4")
+        let first = try makeVideo(title: "Lesson 1", thumbnailData: nil, in: context, folder: sectionA, library: library, fileName: "1.mp4")
+        let second = try makeVideo(title: "Lesson 2", thumbnailData: nil, in: context, folder: sectionA, library: library, fileName: "2.mp4")
+        let third = try makeVideo(title: "Lesson 3", thumbnailData: nil, in: context, folder: sectionB, library: library, fileName: "3.mp4")
         try context.save()
 
         let store = FolderNavigationStore(libraryManager: manager)
@@ -39,9 +39,9 @@ struct VideoNavigationSequenceTests {
 
         let library = try requireLibrary(from: manager)
         let folder = try makeFolder(named: "Folder", in: context, parent: nil, library: library)
-        let first = try makeVideo(title: "Alpha", thumbnailPath: nil, in: context, folder: folder, library: library, fileName: "1.mp4")
-        let second = try makeVideo(title: "Bravo", thumbnailPath: nil, in: context, folder: folder, library: library, fileName: "2.mp4")
-        let third = try makeVideo(title: "Charlie", thumbnailPath: nil, in: context, folder: folder, library: library, fileName: "3.mp4")
+        let first = try makeVideo(title: "Alpha", thumbnailData: nil, in: context, folder: folder, library: library, fileName: "1.mp4")
+        let second = try makeVideo(title: "Bravo", thumbnailData: nil, in: context, folder: folder, library: library, fileName: "2.mp4")
+        let third = try makeVideo(title: "Charlie", thumbnailData: nil, in: context, folder: folder, library: library, fileName: "3.mp4")
         try context.save()
 
         let store = FolderNavigationStore(libraryManager: manager)
@@ -65,7 +65,7 @@ struct VideoNavigationSequenceTests {
         defer { try? FileManager.default.removeItem(at: tempRoot) }
 
         let library = try requireLibrary(from: manager)
-        let orphan = try makeVideo(title: "Orphan", thumbnailPath: nil, in: context, folder: nil, library: library)
+        let orphan = try makeVideo(title: "Orphan", thumbnailData: nil, in: context, folder: nil, library: library)
         try context.save()
 
         let store = FolderNavigationStore(libraryManager: manager)
@@ -86,8 +86,8 @@ struct VideoNavigationSequenceTests {
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
-        let first = try makeVideo(title: "First", thumbnailPath: nil, in: context, folder: project, library: library)
-        let second = try makeVideo(title: "Second", thumbnailPath: nil, in: context, folder: project, library: library)
+        let first = try makeVideo(title: "First", thumbnailData: nil, in: context, folder: project, library: library)
+        let second = try makeVideo(title: "Second", thumbnailData: nil, in: context, folder: project, library: library)
         try context.save()
 
         let store = FolderNavigationStore(libraryManager: manager)
@@ -111,7 +111,7 @@ struct VideoNavigationSequenceTests {
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
-        let video = try makeVideo(title: "Favorite", thumbnailPath: nil, in: context, folder: project, library: library)
+        let video = try makeVideo(title: "Favorite", thumbnailData: nil, in: context, folder: project, library: library)
         try context.save()
 
         let store = FolderNavigationStore(libraryManager: manager)
@@ -134,7 +134,7 @@ struct VideoNavigationSequenceTests {
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
-        let video = try makeVideo(title: "Result", thumbnailPath: nil, in: context, folder: project, library: library)
+        let video = try makeVideo(title: "Result", thumbnailData: nil, in: context, folder: project, library: library)
         try context.save()
 
         let store = FolderNavigationStore(libraryManager: manager)
@@ -156,7 +156,7 @@ struct VideoNavigationSequenceTests {
         defer { try? FileManager.default.removeItem(at: tempRoot) }
 
         let library = try requireLibrary(from: manager)
-        let video = try makeVideo(title: "Orphan", thumbnailPath: nil, in: context, folder: nil, library: library)
+        let video = try makeVideo(title: "Orphan", thumbnailData: nil, in: context, folder: nil, library: library)
         try context.save()
 
         let store = FolderNavigationStore(libraryManager: manager)
@@ -179,8 +179,8 @@ struct VideoNavigationSequenceTests {
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
-        let first = try makeVideo(title: "First", thumbnailPath: nil, in: context, folder: project, library: library)
-        let second = try makeVideo(title: "Second", thumbnailPath: nil, in: context, folder: project, library: library)
+        let first = try makeVideo(title: "First", thumbnailData: nil, in: context, folder: project, library: library)
+        let second = try makeVideo(title: "Second", thumbnailData: nil, in: context, folder: project, library: library)
         try context.save()
 
         let store = FolderNavigationStore(libraryManager: manager)
@@ -214,7 +214,7 @@ struct VideoNavigationSequenceTests {
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
-        let video = try makeVideo(title: "Result", thumbnailPath: nil, in: context, folder: project, library: library)
+        let video = try makeVideo(title: "Result", thumbnailData: nil, in: context, folder: project, library: library)
         try context.save()
 
         let store = FolderNavigationStore(libraryManager: manager)
@@ -312,7 +312,7 @@ struct VideoNavigationSequenceTests {
     @MainActor
     private func makeVideo(
         title: String,
-        thumbnailPath: String?,
+        thumbnailData: Data?,
         in context: NSManagedObjectContext,
         folder: Folder?,
         library: Library,
@@ -326,7 +326,11 @@ struct VideoNavigationSequenceTests {
         video.id = UUID()
         video.title = title
         video.fileName = fileName ?? "\(title).mp4"
-        video.thumbnailPath = thumbnailPath
+        if let thumbnailData {
+            video.thumbnailData = thumbnailData
+            video.thumbnailGenerationVersion = ThumbnailGenerator.currentVersion
+            video.thumbnailGeneratedAt = Date()
+        }
         video.duration = 60
         video.fileSize = 1_024
         video.dateAdded = Date()

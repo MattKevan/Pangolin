@@ -532,6 +532,12 @@ class FolderNavigationStore: ObservableObject {
                 project.projectThumbnailPath = thumbnailPath
                 didChange = true
             }
+
+            let resolvedThumbnailVideoID = project.resolvedProjectThumbnailVideo?.id
+            if project.projectThumbnailVideoID != resolvedThumbnailVideoID {
+                project.projectThumbnailVideoID = resolvedThumbnailVideoID
+                didChange = true
+            }
         }
 
         guard didChange else { return }

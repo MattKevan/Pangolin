@@ -126,6 +126,12 @@ extension Video {
         }
         return .watched
     }
+
+    var hasCurrentThumbnail: Bool {
+        guard thumbnailGenerationVersion == ThumbnailGenerator.currentVersion,
+              let thumbnailData else { return false }
+        return ThumbnailGenerator.isValidJPEG(thumbnailData)
+    }
     
     var thumbnailURL: URL? {
         guard let thumbnailPath = thumbnailPath else { return nil }
@@ -161,6 +167,10 @@ extension Folder {
         }
     }
 
+    var descendantVideos: [Video] {
+        videosArray + childFoldersArray.flatMap(\.descendantVideos)
+    }
+
     var sectionsArray: [Folder] {
         childFoldersArray
     }
@@ -178,6 +188,17 @@ extension Folder {
     var resolvedProjectProvider: String {
         let trimmedProvider = projectProvider?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmedProvider
+    }
+
+    var resolvedProjectThumbnailVideo: Video? {
+        if let projectThumbnailVideoID,
+           let storedVideo = descendantVideos.first(where: {
+               $0.id == projectThumbnailVideoID && $0.hasCurrentThumbnail
+           }) {
+            return storedVideo
+        }
+
+        return descendantVideos.first(where: \.hasCurrentThumbnail)
     }
 
     var resolvedProjectThumbnailPath: String? {

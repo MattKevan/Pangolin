@@ -1,6 +1,9 @@
 import Foundation
 import CoreData
+import CoreGraphics
+import ImageIO
 import Testing
+import UniformTypeIdentifiers
 @testable import Pangolin
 
 struct ProjectsStoreTests {
@@ -84,7 +87,36 @@ struct ProjectsStoreTests {
         await manager.closeCurrentLibrary()
     }
 
-    @Test("Project metadata falls back to folder name and descendant thumbnail")
+    @Test("Only complete current-version JPEG data is a current thumbnail")
+    @MainActor
+    func currentThumbnailRequiresValidJPEGData() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Thumbnails", in: context, parent: nil, library: library)
+        let invalidVideo = try makeVideo(
+            title: "Invalid",
+            thumbnailData: Data("not a jpeg".utf8),
+            in: context,
+            folder: project,
+            library: library
+        )
+        let validVideo = try makeVideo(
+            title: "Valid",
+            thumbnailData: try makeValidJPEG(),
+            in: context,
+            folder: project,
+            library: library
+        )
+
+        #expect(!invalidVideo.hasCurrentThumbnail)
+        #expect(validVideo.hasCurrentThumbnail)
+
+        await manager.closeCurrentLibrary()
+    }
+
+    @Test("Project metadata replaces invalid stored artwork with valid descendant data")
     @MainActor
     func projectMetadataFallsBackToExistingData() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
@@ -93,13 +125,21 @@ struct ProjectsStoreTests {
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Watercolour", in: context, parent: nil, library: library)
         let section = try makeFolder(named: "Basics", in: context, parent: project, library: library)
-        _ = try makeVideo(
-            title: "Lesson 1",
-            thumbnailPath: "watercolour-thumb.jpg",
+        let invalidVideo = try makeVideo(
+            title: "Invalid Root Artwork",
+            thumbnailData: Data("not a jpeg".utf8),
+            in: context,
+            folder: project,
+            library: library
+        )
+        let validVideo = try makeVideo(
+            title: "Valid Descendant Artwork",
+            thumbnailData: try makeValidJPEG(),
             in: context,
             folder: section,
             library: library
         )
+        project.projectThumbnailVideoID = invalidVideo.id
         try context.save()
 
         let store = FolderNavigationStore(libraryManager: manager)
@@ -107,8 +147,8 @@ struct ProjectsStoreTests {
 
         #expect(fetchedProject.resolvedProjectTitle == "Watercolour")
         #expect(fetchedProject.resolvedProjectProvider.isEmpty)
-        #expect(fetchedProject.resolvedProjectThumbnailPath == "watercolour-thumb.jpg")
-        #expect(fetchedProject.projectThumbnailPath == "watercolour-thumb.jpg")
+        #expect(fetchedProject.resolvedProjectThumbnailVideo?.id == validVideo.id)
+        #expect(fetchedProject.projectThumbnailVideoID == validVideo.id)
 
         await manager.closeCurrentLibrary()
     }
@@ -146,7 +186,7 @@ struct ProjectsStoreTests {
         let section = try makeFolder(named: "Module 1", in: context, parent: project, library: library)
         _ = try makeVideo(
             title: "Intro",
-            thumbnailPath: nil,
+            thumbnailData: nil,
             in: context,
             folder: section,
             library: library,
@@ -156,7 +196,7 @@ struct ProjectsStoreTests {
         )
         _ = try makeVideo(
             title: "Setup",
-            thumbnailPath: nil,
+            thumbnailData: nil,
             in: context,
             folder: section,
             library: library,
@@ -185,8 +225,8 @@ struct ProjectsStoreTests {
         let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
         let module = try makeFolder(named: "Module 1", in: context, parent: project, library: library)
         let nested = try makeFolder(named: "Deep Folder", in: context, parent: module, library: library)
-        _ = try makeVideo(title: "Nested Lesson", thumbnailPath: nil, in: context, folder: nested, library: library)
-        _ = try makeVideo(title: "Loose Video", thumbnailPath: nil, in: context, folder: project, library: library)
+        _ = try makeVideo(title: "Nested Lesson", thumbnailData: nil, in: context, folder: nested, library: library)
+        _ = try makeVideo(title: "Loose Video", thumbnailData: nil, in: context, folder: project, library: library)
         try context.save()
 
         let store = FolderNavigationStore(libraryManager: manager)
@@ -210,11 +250,11 @@ struct ProjectsStoreTests {
         let library = try requireLibrary(from: manager)
         let activeProject = try makeFolder(named: "Active", in: context, parent: nil, library: library)
         let activeSection = try makeFolder(named: "Section", in: context, parent: activeProject, library: library)
-        _ = try makeVideo(title: "Alpha Lesson", thumbnailPath: nil, in: context, folder: activeSection, library: library)
+        _ = try makeVideo(title: "Alpha Lesson", thumbnailData: nil, in: context, folder: activeSection, library: library)
 
         let otherProject = try makeFolder(named: "Other", in: context, parent: nil, library: library)
         let otherSection = try makeFolder(named: "Section", in: context, parent: otherProject, library: library)
-        _ = try makeVideo(title: "Alpha Elsewhere", thumbnailPath: nil, in: context, folder: otherSection, library: library)
+        _ = try makeVideo(title: "Alpha Elsewhere", thumbnailData: nil, in: context, folder: otherSection, library: library)
         try context.save()
 
         let store = FolderNavigationStore(libraryManager: manager)
@@ -236,9 +276,9 @@ struct ProjectsStoreTests {
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Numbered", in: context, parent: nil, library: library)
         let section = try makeFolder(named: "Module", in: context, parent: project, library: library)
-        _ = try makeVideo(title: "Ten", thumbnailPath: nil, in: context, folder: section, library: library, fileName: "10 - Lesson.mp4")
-        _ = try makeVideo(title: "Two", thumbnailPath: nil, in: context, folder: section, library: library, fileName: "2 - Lesson.mp4")
-        _ = try makeVideo(title: "Nine", thumbnailPath: nil, in: context, folder: section, library: library, fileName: "9 - Lesson.mp4")
+        _ = try makeVideo(title: "Ten", thumbnailData: nil, in: context, folder: section, library: library, fileName: "10 - Lesson.mp4")
+        _ = try makeVideo(title: "Two", thumbnailData: nil, in: context, folder: section, library: library, fileName: "2 - Lesson.mp4")
+        _ = try makeVideo(title: "Nine", thumbnailData: nil, in: context, folder: section, library: library, fileName: "9 - Lesson.mp4")
         try context.save()
 
         let store = FolderNavigationStore(libraryManager: manager)
@@ -305,7 +345,7 @@ struct ProjectsStoreTests {
     @MainActor
     private func makeVideo(
         title: String,
-        thumbnailPath: String?,
+        thumbnailData: Data?,
         in context: NSManagedObjectContext,
         folder: Folder,
         library: Library,
@@ -322,7 +362,11 @@ struct ProjectsStoreTests {
         video.id = UUID()
         video.title = title
         video.fileName = fileName ?? "\(title).mp4"
-        video.thumbnailPath = thumbnailPath
+        if let thumbnailData {
+            video.thumbnailData = thumbnailData
+            video.thumbnailGenerationVersion = ThumbnailGenerator.currentVersion
+            video.thumbnailGeneratedAt = Date()
+        }
         video.dateAdded = Date()
         video.duration = duration
         video.playbackPosition = playbackPosition
@@ -332,6 +376,42 @@ struct ProjectsStoreTests {
         video.library = library
         return video
     }
+}
+
+private func makeValidJPEG() throws -> Data {
+    let pixelData = Data([0x33, 0x66, 0x99, 0xFF])
+    guard let provider = CGDataProvider(data: pixelData as CFData),
+          let image = CGImage(
+            width: 1,
+            height: 1,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+          ) else {
+        throw TestFailure("Could not create test image")
+    }
+
+    let data = NSMutableData()
+    guard let destination = CGImageDestinationCreateWithData(
+        data,
+        UTType.jpeg.identifier as CFString,
+        1,
+        nil
+    ) else {
+        throw TestFailure("Could not create JPEG destination")
+    }
+
+    CGImageDestinationAddImage(destination, image, nil)
+    guard CGImageDestinationFinalize(destination) else {
+        throw TestFailure("Could not encode test JPEG")
+    }
+    return data as Data
 }
 
 private struct TestFailure: Error {
