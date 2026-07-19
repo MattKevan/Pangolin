@@ -31,16 +31,25 @@ struct ThumbnailImageCacheTests {
         #expect(image == nil)
     }
 
-    @Test("Data revision changes request identity without retaining bytes")
-    func dataRevisionInvalidatesRequestIdentity() {
+    @Test("Exact data changes request identity without probabilistic fingerprints")
+    func exactDataInvalidatesRequestIdentity() {
         let key = ThumbnailCacheKey(videoID: UUID(), version: 1, generatedAt: Date())
-        let missing = ThumbnailImageRequestKey(key: key, data: nil)
         let first = ThumbnailImageRequestKey(key: key, data: Data([1, 2, 3]))
         let replacement = ThumbnailImageRequestKey(key: key, data: Data([1, 2, 4]))
 
-        #expect(missing != first)
         #expect(first != replacement)
-        #expect(first.dataRevision?.byteCount == 3)
+        #expect(first.data == Data([1, 2, 3]))
+    }
+
+    @Test("Event revisions rerun tasks for nil-to-data and replacement changes")
+    func dataEventsInvalidateViewTaskIdentity() {
+        let key = ThumbnailCacheKey(videoID: UUID(), version: 1, generatedAt: Date())
+        let initial = ThumbnailImageTaskKey(cacheKey: key, dataChangeRevision: 0)
+        let receivedBytes = ThumbnailImageTaskKey(cacheKey: key, dataChangeRevision: 1)
+        let replacement = ThumbnailImageTaskKey(cacheKey: key, dataChangeRevision: 2)
+
+        #expect(initial != receivedBytes)
+        #expect(receivedBytes != replacement)
     }
 
     @Test("Replacing data with unchanged metadata decodes the replacement")
@@ -74,6 +83,7 @@ struct ThumbnailImageCacheTests {
         #expect(cgImage.height == 64)
         #expect(decoded.pixelCost == cgImage.bytesPerRow * cgImage.height)
         #expect(decoded.pixelCost > jpeg.count)
+        #expect(ThumbnailImageCache.decodeImage(Data(jpeg.dropLast(2))) == nil)
     }
 
     @Test("Concurrent requests for one key share a decode")
@@ -139,8 +149,8 @@ struct ThumbnailImageCacheTests {
         #expect(probe.callCount == 2)
     }
 
-    @Test("Purge prevents an older in-flight decode from repopulating the cache")
-    func purgeDuringDecodeDoesNotRepopulateCache() async {
+    @Test("Purge returns nil to original and coalesced in-flight waiters")
+    func purgeDuringDecodeReturnsNilToEveryWaiter() async {
         let probe = DecoderProbe(delay: 0.2)
         let cache = ThumbnailImageCache(
             countLimit: 2,
@@ -156,8 +166,20 @@ struct ThumbnailImageCacheTests {
         while probe.callCount == 0 {
             await Task.yield()
         }
+        let coalescedRequest = Task {
+            await cache.image(for: key, data: data)
+        }
+        while await cache.inFlightWaiterCount(for: key, data: data) < 2 {
+            await Task.yield()
+        }
         await cache.removeAll()
-        _ = await firstRequest.value
+        let firstImage = await firstRequest.value
+        let coalescedImage = await coalescedRequest.value
+
+        #expect(firstImage == nil)
+        #expect(coalescedImage == nil)
+        #expect(probe.callCount == 1)
+
         _ = await cache.image(for: key, data: data)
 
         #expect(probe.callCount == 2)
