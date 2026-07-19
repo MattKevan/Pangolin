@@ -62,14 +62,14 @@ private final class ThumbnailWaiterGroup: @unchecked Sendable {
     }
 
     private let lock = NSLock()
-    private let cancelOperation: @Sendable () -> Void
+    private let operationCancellation: @Sendable () -> Void
     private var leases: [Lease: LeaseState] = [:]
     private var activeCount = 0
     private var completionResult: Result<Void, Error>?
     private var completionHandlers: [UUID: @Sendable (Result<Void, Error>) -> Void] = [:]
 
     init(cancelOperation: @escaping @Sendable () -> Void) {
-        self.cancelOperation = cancelOperation
+        operationCancellation = cancelOperation
     }
 
     func acquire() -> Lease {
@@ -82,19 +82,29 @@ private final class ThumbnailWaiterGroup: @unchecked Sendable {
     }
 
     @discardableResult
-    func cancel(_ lease: Lease) -> Bool {
+    func cancel(
+        _ lease: Lease,
+        removingCompletionHandler completionToken: UUID
+    ) -> Bool {
         var shouldCancelOperation = false
         lock.lock()
         if leases[lease] == .active {
-            leases[lease] = .canceled
-            activeCount -= 1
-            shouldCancelOperation = activeCount == 0
+            if activeCount == 1 {
+                leases[lease] = .canceled
+                activeCount = 0
+                shouldCancelOperation = true
+            } else {
+                leases.removeValue(forKey: lease)
+                activeCount -= 1
+                completionHandlers.removeValue(forKey: completionToken)
+            }
         }
         lock.unlock()
-        if shouldCancelOperation {
-            cancelOperation()
-        }
         return shouldCancelOperation
+    }
+
+    func cancelOperation() {
+        operationCancellation()
     }
 
     func release(_ lease: Lease) {
@@ -105,13 +115,16 @@ private final class ThumbnailWaiterGroup: @unchecked Sendable {
         }
     }
 
-    func observeCompletion(_ handler: @escaping @Sendable (Result<Void, Error>) -> Void) {
+    func observeCompletion(
+        token: UUID,
+        _ handler: @escaping @Sendable (Result<Void, Error>) -> Void
+    ) {
         var completedResult: Result<Void, Error>?
         lock.lock()
         if let completionResult {
             completedResult = completionResult
         } else {
-            completionHandlers[UUID()] = handler
+            completionHandlers[token] = handler
         }
         lock.unlock()
         if let completedResult {
@@ -132,6 +145,14 @@ private final class ThumbnailWaiterGroup: @unchecked Sendable {
             handler(result)
         }
     }
+
+    #if DEBUG
+    var debugCounts: (leases: Int, observers: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (leases.count, completionHandlers.count)
+    }
+    #endif
 }
 
 private final class ThumbnailWaiter: @unchecked Sendable {
@@ -145,6 +166,7 @@ private final class ThumbnailWaiter: @unchecked Sendable {
     private let lock = NSLock()
     private let waiterGroup: ThumbnailWaiterGroup
     private let lease: ThumbnailWaiterGroup.Lease
+    private let completionToken = UUID()
     private var state: State = .pending
     private var continuation: CheckedContinuation<Void, Error>?
     private var hasReleasedLease = false
@@ -164,19 +186,31 @@ private final class ThumbnailWaiter: @unchecked Sendable {
         }
     }
 
+    func observeCompletion() {
+        waiterGroup.observeCompletion(token: completionToken) { [self] result in
+            complete(with: result)
+        }
+    }
+
     func cancel() {
         var continuationToResume: CheckedContinuation<Void, Error>?
+        var shouldCancelOperation = false
         lock.lock()
         if case .pending = state {
-            if waiterGroup.cancel(lease) {
+            if waiterGroup.cancel(lease, removingCompletionHandler: completionToken) {
                 state = .canceling
+                shouldCancelOperation = true
             } else {
                 state = .canceled
+                hasReleasedLease = true
                 continuationToResume = continuation
                 continuation = nil
             }
         }
         lock.unlock()
+        if shouldCancelOperation {
+            waiterGroup.cancelOperation()
+        }
         continuationToResume?.resume(throwing: CancellationError())
     }
 
@@ -448,11 +482,15 @@ final class ThumbnailCoordinator {
         inFlight[videoID]?.cancel()
     }
 
+    #if DEBUG
+    func debugWaiterCounts(for videoID: UUID) -> (leases: Int, observers: Int) {
+        waiterGroups[videoID]?.debugCounts ?? (0, 0)
+    }
+    #endif
+
     private func awaitTask(waiterGroup: ThumbnailWaiterGroup) async throws {
         let waiter = ThumbnailWaiter(waiterGroup: waiterGroup)
-        waiterGroup.observeCompletion { result in
-            waiter.complete(with: result)
-        }
+        waiter.observeCompletion()
         try await waiter.wait()
         try Task.checkCancellation()
     }

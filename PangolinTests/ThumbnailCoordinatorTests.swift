@@ -263,18 +263,28 @@ struct ThumbnailCoordinatorTests {
         await waitUntil { await generator.callCount == 1 }
         let canceledJoiner = Task { try await coordinator.generateThumbnail(for: fixture.video) }
         for _ in 0..<20 { await Task.yield() }
+        let videoID = try #require(fixture.video.id)
+        var waiterCounts = coordinator.debugWaiterCounts(for: videoID)
+        #expect(waiterCounts.leases == 2)
+        #expect(waiterCounts.observers == 2)
         canceledJoiner.cancel()
 
         let canceledResult = await promptResult(of: canceledJoiner) {
             await generator.releaseSuspendedCalls()
         }
         #expect(canceledResult == .canceled)
+        waiterCounts = coordinator.debugWaiterCounts(for: videoID)
+        #expect(waiterCounts.leases == 1)
+        #expect(waiterCounts.observers == 1)
 
         let lateJoiner = Task { try await coordinator.generateThumbnail(for: fixture.video) }
         for _ in 0..<20 { await Task.yield() }
         #expect(await generator.callCount == 1)
         #expect(access.statusCount == 1)
         #expect(access.localURLCount == 1)
+        waiterCounts = coordinator.debugWaiterCounts(for: videoID)
+        #expect(waiterCounts.leases == 2)
+        #expect(waiterCounts.observers == 2)
 
         await generator.releaseSuspendedCalls()
         try await survivor.value
@@ -284,6 +294,9 @@ struct ThumbnailCoordinatorTests {
         #expect(access.localURLCount == 1)
         #expect(saves.count == 1)
         #expect(fixture.video.hasCurrentThumbnail)
+        waiterCounts = coordinator.debugWaiterCounts(for: videoID)
+        #expect(waiterCounts.leases == 0)
+        #expect(waiterCounts.observers == 0)
     }
 
     @Test("Cancellation at storage restoration keeps saved thumbnail and skips eviction")
