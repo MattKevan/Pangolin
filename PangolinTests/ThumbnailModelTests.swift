@@ -10,9 +10,14 @@ struct ThumbnailModelTests {
         let folder = try #require(model.entitiesByName["Folder"])
         let data = try #require(video.attributesByName["thumbnailData"])
         #expect(data.attributeType == .binaryDataAttributeType)
+        #expect(data.isOptional == true)
         #expect(data.allowsExternalBinaryDataStorage)
         #expect((video.attributesByName["thumbnailGenerationVersion"]?.defaultValue as? NSNumber)?.int16Value == 0)
+        #expect(video.attributesByName["thumbnailGenerationVersion"]?.isOptional == false)
+        #expect(video.attributesByName["thumbnailGenerationVersion"]?.attributeType == .integer16AttributeType)
         #expect(video.attributesByName["thumbnailGeneratedAt"]?.attributeType == .dateAttributeType)
+        #expect(video.attributesByName["thumbnailGeneratedAt"]?.isOptional == true)
         #expect(folder.attributesByName["projectThumbnailVideoID"]?.attributeType == .UUIDAttributeType)
+        #expect(folder.attributesByName["projectThumbnailVideoID"]?.isOptional == true)
     }
 }
