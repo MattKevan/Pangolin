@@ -98,7 +98,7 @@ struct ProjectThumbnailObservationState {
     }
 
     var canQueueLifecycleRetry: Bool {
-        !reconciliationInFlight && !isContextInvalidated
+        reconciliationPending && !reconciliationInFlight && !isContextInvalidated
     }
 
     mutating func beginReconciliation() -> Bool {

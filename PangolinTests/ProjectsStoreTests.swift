@@ -709,6 +709,34 @@ struct ProjectsStoreTests {
         await manager.closeCurrentLibrary()
     }
 
+    @Test("Project thumbnail lifecycle retries only while reconciliation is pending")
+    @MainActor
+    func projectThumbnailLifecycleRetryRequiresPendingReconciliation() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let project = try makeFolder(
+            named: "Lifecycle Gate",
+            in: context,
+            parent: nil,
+            library: try requireLibrary(from: manager)
+        )
+
+        var state = ProjectThumbnailObservationState(project: project)
+        state.recordReconciliation(.alreadyCurrent)
+        #expect(!state.canQueueLifecycleRetry)
+
+        state.markReconciliationPending()
+        state.recordReconciliation(.saved)
+        #expect(!state.canQueueLifecycleRetry)
+
+        state.markReconciliationPending()
+        state.recordReconciliation(.deferredDirty)
+        #expect(state.canQueueLifecycleRetry)
+
+        await manager.closeCurrentLibrary()
+    }
+
     @Test("Project metadata replaces invalid stored artwork with valid descendant data")
     @MainActor
     func projectMetadataFallsBackToExistingData() async throws {
