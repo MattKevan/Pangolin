@@ -435,6 +435,8 @@ struct ProjectDetailView: View {
     #endif
 
     @State private var showingHighlightsPlaceholder = false
+    @State private var editingVideo: Video?
+    @State private var videoPendingDeletion: Video?
 
     let project: Folder
     let showsPhoneToolbar: Bool
@@ -513,6 +515,15 @@ struct ProjectDetailView: View {
             } message: {
                 Text("Highlights is a temporary placeholder in this pass.")
             }
+            .sheet(item: $editingVideo) { video in
+                VideoMetadataEditor(video: video)
+            }
+            .alert("Delete Video?", isPresented: videoDeletionConfirmationBinding) {
+                Button("Cancel", role: .cancel) { videoPendingDeletion = nil }
+                Button("Delete", role: .destructive) { Task { await deletePendingVideo() } }
+            } message: {
+                Text("This video will be permanently deleted from your library and removed from disk. This action cannot be undone.")
+            }
     }
 
     #if os(macOS)
@@ -561,13 +572,12 @@ struct ProjectDetailView: View {
         }
         .listStyle(.plain)
         .contextMenu(forSelectionType: UUID.self) { selection in
-            if ProjectVideoSelectionPolicy.primaryActionID(
-                selection: selection,
-                visibleIDs: displayedVideoIDs
-            ) != nil {
+            if let video = selectedVideo(from: selection) {
                 Button("Open Video") {
                     _ = openProjectVideo(from: selection)
                 }
+                Button("Edit Video") { editingVideo = video }
+                Button("Delete Video", role: .destructive) { videoPendingDeletion = video }
             }
         } primaryAction: { selection in
             _ = openProjectVideo(from: selection)
@@ -621,15 +631,20 @@ struct ProjectDetailView: View {
     }
 
     private func openProjectVideo(from selection: Set<UUID>) -> Bool {
-        guard let selectedID = ProjectVideoSelectionPolicy.primaryActionID(
-            selection: selection,
-            visibleIDs: displayedVideoIDs
-        ), let video = orderedDisplayedVideos.first(where: { $0.id == selectedID }) else {
+        guard let video = selectedVideo(from: selection) else {
             return false
         }
 
         store.openProjectVideo(video, in: project)
         return true
+    }
+
+    private func selectedVideo(from selection: Set<UUID>) -> Video? {
+        guard let selectedID = ProjectVideoSelectionPolicy.primaryActionID(
+            selection: selection,
+            visibleIDs: displayedVideoIDs
+        ) else { return nil }
+        return orderedDisplayedVideos.first(where: { $0.id == selectedID })
     }
     #endif
 
@@ -691,6 +706,10 @@ struct ProjectDetailView: View {
                                     }
                                 }
                             )
+                            .contextMenu {
+                                Button("Edit Video") { editingVideo = video }
+                                Button("Delete Video", role: .destructive) { videoPendingDeletion = video }
+                            }
                         }
                     }
                 }
@@ -882,6 +901,23 @@ struct ProjectDetailView: View {
     private func isVideoSelected(_ video: Video) -> Bool {
         guard let videoID = video.id else { return false }
         return store.selectedProjectVideoIDs.contains(videoID)
+    }
+
+    private var videoDeletionConfirmationBinding: Binding<Bool> {
+        Binding(
+            get: { videoPendingDeletion != nil },
+            set: { if !$0 { videoPendingDeletion = nil } }
+        )
+    }
+
+    private func deletePendingVideo() async {
+        guard let videoID = videoPendingDeletion?.id else {
+            videoPendingDeletion = nil
+            return
+        }
+        if await store.deleteItems([videoID]) {
+            videoPendingDeletion = nil
+        }
     }
 
     private func formattedProjectDuration(_ duration: TimeInterval) -> String {

@@ -7,6 +7,12 @@ import UniformTypeIdentifiers
 @testable import Pangolin
 
 struct ProjectsStoreTests {
+    @Test("Video metadata save policy trims titles and rejects blank input")
+    func videoMetadataEditPolicyReturnsValidTitle() {
+        #expect(VideoMetadataEditPolicy.savedTitle(from: "  Lecture  ") == "Lecture")
+        #expect(VideoMetadataEditPolicy.savedTitle(from: "   ") == nil)
+    }
+
     @Test("Project title save policy trims changed titles and rejects empty or unchanged input")
     func projectRenamePolicyReturnsOnlyMeaningfulTitles() {
         #expect(ProjectRenamePolicy.savedTitle(
