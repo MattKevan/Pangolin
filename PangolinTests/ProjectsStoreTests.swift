@@ -7,6 +7,22 @@ import UniformTypeIdentifiers
 @testable import Pangolin
 
 struct ProjectsStoreTests {
+    @Test("Project title save policy trims changed titles and rejects empty or unchanged input")
+    func projectRenamePolicyReturnsOnlyMeaningfulTitles() {
+        #expect(ProjectRenamePolicy.savedTitle(
+            draft: "  New Name  ",
+            current: "Old Name"
+        ) == "New Name")
+        #expect(ProjectRenamePolicy.savedTitle(
+            draft: "   ",
+            current: "Old Name"
+        ) == nil)
+        #expect(ProjectRenamePolicy.savedTitle(
+            draft: "Old Name",
+            current: "Old Name"
+        ) == nil)
+    }
+
     @Test("Project selection drops IDs hidden by filtering")
     func projectSelectionReconcilesVisibleIDs() {
         let visible = UUID()

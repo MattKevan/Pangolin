@@ -281,8 +281,22 @@ enum ProjectVideoSelectionPolicy {
     }
 }
 
+enum ProjectRenamePolicy {
+    static func savedTitle(draft: String, current: String) -> String? {
+        let trimmedTitle = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty, trimmedTitle != current else { return nil }
+        return trimmedTitle
+    }
+}
+
 struct ProjectsGridView: View {
     @EnvironmentObject private var store: FolderNavigationStore
+
+    @State private var renamingProjectID: UUID?
+    @State private var editedProjectTitle = ""
+    @FocusState private var focusedProjectID: UUID?
+    @State private var projectPendingDeletion: Folder?
+    @State private var showingDeletionConfirmation = false
 
     private let projectSelectionAction: ((Folder) -> Void)?
 
@@ -314,13 +328,23 @@ struct ProjectsGridView: View {
                 } else {
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 24) {
                         ForEach(projects, id: \.objectID) { project in
-                            ProjectCard(project: project) {
-                                if let projectSelectionAction {
-                                    projectSelectionAction(project)
-                                } else {
-                                    store.openProject(project)
-                                }
-                            }
+                            ProjectCard(
+                                project: project,
+                                action: {
+                                    if let projectSelectionAction {
+                                        projectSelectionAction(project)
+                                    } else {
+                                        store.openProject(project)
+                                    }
+                                },
+                                isRenaming: renamingProjectID == project.id,
+                                editedTitle: $editedProjectTitle,
+                                focusedProjectID: $focusedProjectID,
+                                onRename: { beginRenaming(project) },
+                                onCommitRename: { Task { await commitRename(for: project) } },
+                                onCancelRename: cancelRenaming,
+                                onDelete: { promptDeletion(of: project) }
+                            )
                             .accessibilityIdentifier("project-card-\(project.id?.uuidString ?? project.objectID.uriRepresentation().absoluteString)")
                         }
                     }
@@ -330,6 +354,76 @@ struct ProjectsGridView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .navigationTitle("Projects")
+        .alert("Delete Project?", isPresented: $showingDeletionConfirmation) {
+            Button("Cancel", role: .cancel) {
+                cancelDeletion()
+            }
+            Button("Delete", role: .destructive) {
+                Task { await confirmDeletion() }
+            }
+        } message: {
+            Text("This project and all its contents will be permanently deleted from your library and removed from disk. This action cannot be undone.")
+        }
+    }
+
+    private func beginRenaming(_ project: Folder) {
+        guard let projectID = project.id else { return }
+
+        renamingProjectID = projectID
+        editedProjectTitle = project.resolvedProjectTitle
+        Task { @MainActor in
+            await Task.yield()
+            guard renamingProjectID == projectID else { return }
+            focusedProjectID = projectID
+        }
+    }
+
+    private func commitRename(for project: Folder) async {
+        guard let projectID = project.id,
+              renamingProjectID == projectID else {
+            return
+        }
+
+        let title = ProjectRenamePolicy.savedTitle(
+            draft: editedProjectTitle,
+            current: project.resolvedProjectTitle
+        )
+        cancelRenaming()
+
+        if let title {
+            await store.renameItem(id: projectID, to: title)
+        }
+    }
+
+    private func cancelRenaming() {
+        renamingProjectID = nil
+        focusedProjectID = nil
+        editedProjectTitle = ""
+    }
+
+    private func promptDeletion(of project: Folder) {
+        projectPendingDeletion = project
+        showingDeletionConfirmation = true
+    }
+
+    private func cancelDeletion() {
+        projectPendingDeletion = nil
+        showingDeletionConfirmation = false
+    }
+
+    private func confirmDeletion() async {
+        guard let projectID = projectPendingDeletion?.id else {
+            cancelDeletion()
+            return
+        }
+
+        let deleted = await store.deleteItems([projectID])
+        if deleted {
+            if renamingProjectID == projectID {
+                cancelRenaming()
+            }
+            cancelDeletion()
+        }
     }
 }
 
@@ -810,6 +904,13 @@ struct ProjectDetailView: View {
 private struct ProjectCard: View {
     let project: Folder
     let action: () -> Void
+    let isRenaming: Bool
+    @Binding var editedTitle: String
+    @FocusState.Binding var focusedProjectID: UUID?
+    let onRename: () -> Void
+    let onCommitRename: () -> Void
+    let onCancelRename: () -> Void
+    let onDelete: () -> Void
 
     var body: some View {
         Button(action: action) {
@@ -827,10 +928,7 @@ private struct ProjectCard: View {
                     )
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(project.resolvedProjectTitle)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                        .lineLimit(2)
+                    projectTitle
 
                     if !project.resolvedProjectProvider.isEmpty {
                         Text(project.resolvedProjectProvider)
@@ -844,6 +942,42 @@ private struct ProjectCard: View {
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            Button("Rename") {
+                onRename()
+            }
+            Button("Delete", role: .destructive) {
+                onDelete()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var projectTitle: some View {
+        if isRenaming, let projectID = project.id {
+            TextField("Project title", text: $editedTitle)
+                .font(.headline)
+                .textFieldStyle(.plain)
+                .focused($focusedProjectID, equals: projectID)
+                .onSubmit(onCommitRename)
+                .onKeyPress { keyPress in
+                    if keyPress.key == .escape {
+                        onCancelRename()
+                        return .handled
+                    }
+                    return .ignored
+                }
+                .onChange(of: focusedProjectID) { oldValue, newValue in
+                    if oldValue == projectID && newValue != projectID {
+                        onCommitRename()
+                    }
+                }
+        } else {
+            Text(project.resolvedProjectTitle)
+                .font(.headline)
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+        }
     }
 
     @ViewBuilder
