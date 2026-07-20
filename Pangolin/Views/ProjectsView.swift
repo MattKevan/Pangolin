@@ -814,9 +814,12 @@ private struct ProjectCard: View {
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 10) {
-                thumbnail
-                    .frame(maxWidth: .infinity)
+                Color.clear
                     .aspectRatio(1, contentMode: .fit)
+                    .frame(maxWidth: .infinity)
+                    .overlay {
+                        thumbnail
+                    }
                     .clipShape(.rect(cornerRadius: 14))
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
