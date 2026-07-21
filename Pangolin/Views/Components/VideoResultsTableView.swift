@@ -10,6 +10,7 @@ struct VideoResultsTableView: View {
     @State private var sortOrder: [KeyPathComparator<Row>] = []
     @State private var editingVideo: Video?
     @State private var videoPendingDeletion: Video?
+    @State private var showingVideoDeletionConfirmation = false
 
     private struct Row: Identifiable {
         let id: UUID
@@ -62,7 +63,7 @@ struct VideoResultsTableView: View {
         .contextMenu(forSelectionType: UUID.self) { selection in
             if let video = selectedVideo(from: selection) {
                 Button("Edit Video") { editingVideo = video }
-                Button("Delete Video", role: .destructive) { videoPendingDeletion = video }
+                Button("Delete Video", role: .destructive) { promptVideoDeletion(video) }
             }
         }
         #endif
@@ -72,8 +73,8 @@ struct VideoResultsTableView: View {
         .sheet(item: $editingVideo) { video in
             VideoMetadataEditor(video: video)
         }
-        .alert("Delete Video?", isPresented: deletionConfirmationBinding) {
-            Button("Cancel", role: .cancel) { videoPendingDeletion = nil }
+        .alert("Delete Video?", isPresented: $showingVideoDeletionConfirmation) {
+            Button("Cancel", role: .cancel) { cancelVideoDeletion() }
             Button("Delete", role: .destructive) { Task { await deletePendingVideo() } }
         } message: {
             Text("This video will be permanently deleted from your library and removed from disk. This action cannot be undone.")
@@ -108,21 +109,24 @@ struct VideoResultsTableView: View {
         return videos.first(where: { $0.id == videoID })
     }
 
-    private var deletionConfirmationBinding: Binding<Bool> {
-        Binding(
-            get: { videoPendingDeletion != nil },
-            set: { if !$0 { videoPendingDeletion = nil } }
-        )
+    private func promptVideoDeletion(_ video: Video) {
+        videoPendingDeletion = video
+        showingVideoDeletionConfirmation = true
+    }
+
+    private func cancelVideoDeletion() {
+        videoPendingDeletion = nil
+        showingVideoDeletionConfirmation = false
     }
 
     private func deletePendingVideo() async {
         guard let videoID = videoPendingDeletion?.id else {
-            videoPendingDeletion = nil
+            cancelVideoDeletion()
             return
         }
         if await store.deleteItems([videoID]) {
             selectedVideoIDs.remove(videoID)
-            videoPendingDeletion = nil
+            cancelVideoDeletion()
         }
     }
 

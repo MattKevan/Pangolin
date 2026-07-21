@@ -437,6 +437,7 @@ struct ProjectDetailView: View {
     @State private var showingHighlightsPlaceholder = false
     @State private var editingVideo: Video?
     @State private var videoPendingDeletion: Video?
+    @State private var showingVideoDeletionConfirmation = false
 
     let project: Folder
     let showsPhoneToolbar: Bool
@@ -518,8 +519,8 @@ struct ProjectDetailView: View {
             .sheet(item: $editingVideo) { video in
                 VideoMetadataEditor(video: video)
             }
-            .alert("Delete Video?", isPresented: videoDeletionConfirmationBinding) {
-                Button("Cancel", role: .cancel) { videoPendingDeletion = nil }
+            .alert("Delete Video?", isPresented: $showingVideoDeletionConfirmation) {
+                Button("Cancel", role: .cancel) { cancelVideoDeletion() }
                 Button("Delete", role: .destructive) { Task { await deletePendingVideo() } }
             } message: {
                 Text("This video will be permanently deleted from your library and removed from disk. This action cannot be undone.")
@@ -577,7 +578,7 @@ struct ProjectDetailView: View {
                     _ = openProjectVideo(from: selection)
                 }
                 Button("Edit Video") { editingVideo = video }
-                Button("Delete Video", role: .destructive) { videoPendingDeletion = video }
+                Button("Delete Video", role: .destructive) { promptVideoDeletion(video) }
             }
         } primaryAction: { selection in
             _ = openProjectVideo(from: selection)
@@ -708,7 +709,7 @@ struct ProjectDetailView: View {
                             )
                             .contextMenu {
                                 Button("Edit Video") { editingVideo = video }
-                                Button("Delete Video", role: .destructive) { videoPendingDeletion = video }
+                                Button("Delete Video", role: .destructive) { promptVideoDeletion(video) }
                             }
                         }
                     }
@@ -903,20 +904,23 @@ struct ProjectDetailView: View {
         return store.selectedProjectVideoIDs.contains(videoID)
     }
 
-    private var videoDeletionConfirmationBinding: Binding<Bool> {
-        Binding(
-            get: { videoPendingDeletion != nil },
-            set: { if !$0 { videoPendingDeletion = nil } }
-        )
+    private func promptVideoDeletion(_ video: Video) {
+        videoPendingDeletion = video
+        showingVideoDeletionConfirmation = true
+    }
+
+    private func cancelVideoDeletion() {
+        videoPendingDeletion = nil
+        showingVideoDeletionConfirmation = false
     }
 
     private func deletePendingVideo() async {
         guard let videoID = videoPendingDeletion?.id else {
-            videoPendingDeletion = nil
+            cancelVideoDeletion()
             return
         }
         if await store.deleteItems([videoID]) {
-            videoPendingDeletion = nil
+            cancelVideoDeletion()
         }
     }
 
