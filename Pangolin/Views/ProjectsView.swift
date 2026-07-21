@@ -291,6 +291,7 @@ enum ProjectRenamePolicy {
 
 struct ProjectsGridView: View {
     @EnvironmentObject private var store: FolderNavigationStore
+    @EnvironmentObject private var libraryManager: LibraryManager
 
     @State private var renamingProjectID: UUID?
     @State private var editedProjectTitle = ""
@@ -354,6 +355,10 @@ struct ProjectsGridView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .navigationTitle("Projects")
+        .projectFolderDrop(
+            isEnabled: libraryManager.currentLibrary != nil,
+            libraryManager: libraryManager
+        )
         .alert("Delete Project?", isPresented: $showingDeletionConfirmation) {
             Button("Cancel", role: .cancel) {
                 cancelDeletion()

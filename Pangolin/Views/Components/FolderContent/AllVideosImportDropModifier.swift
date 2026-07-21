@@ -4,6 +4,8 @@ import UniformTypeIdentifiers
 struct AllVideosImportDropModifier: ViewModifier {
     let isEnabled: Bool
     let libraryManager: LibraryManager
+    let dropMessage: String
+    let foldersOnly: Bool
 
     @State private var isExternalDropTargeted = false
     private let processingQueueManager = ProcessingQueueManager.shared
@@ -15,7 +17,7 @@ struct AllVideosImportDropModifier: ViewModifier {
             }
             .overlay(alignment: .top) {
                 if isEnabled && isExternalDropTargeted {
-                    Text("Drop videos or folders to import")
+                    Text(dropMessage)
                         .font(.caption.weight(.semibold))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
@@ -61,9 +63,10 @@ struct AllVideosImportDropModifier: ViewModifier {
         }
 
         group.notify(queue: .main) {
-            guard !droppedURLs.isEmpty else { return }
+            let importURLs = foldersOnly ? droppedURLs.filter(\.hasDirectoryPath) : droppedURLs
+            guard !importURLs.isEmpty else { return }
             Task {
-                await processingQueueManager.enqueueImport(urls: droppedURLs, library: library, context: context)
+                await processingQueueManager.enqueueImport(urls: importURLs, library: library, context: context)
             }
         }
 
@@ -110,7 +113,20 @@ extension View {
         modifier(
             AllVideosImportDropModifier(
                 isEnabled: isEnabled,
-                libraryManager: libraryManager
+                libraryManager: libraryManager,
+                dropMessage: "Drop videos or folders to import",
+                foldersOnly: false
+            )
+        )
+    }
+
+    func projectFolderDrop(isEnabled: Bool, libraryManager: LibraryManager) -> some View {
+        modifier(
+            AllVideosImportDropModifier(
+                isEnabled: isEnabled,
+                libraryManager: libraryManager,
+                dropMessage: "Drop a folder to create a project",
+                foldersOnly: true
             )
         )
     }
