@@ -20,6 +20,10 @@ enum SidebarProjectSelectionPolicy {
     }
 }
 
+enum SidebarProjectRowPresentation {
+    static let systemImage = "folder"
+}
+
 struct SidebarView: View {
     @EnvironmentObject private var store: FolderNavigationStore
     @EnvironmentObject private var libraryManager: LibraryManager
@@ -81,19 +85,7 @@ struct SidebarView: View {
             }
             .disabled(libraryManager.currentLibrary == nil)
         }
-        .toolbar {
-            if !store.showsVideoBackButton {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        createTopLevelProject()
-                    } label: {
-                        Image(systemName: "folder.badge.plus")
-                    }
-                    .help("Add Project")
-                    .disabled(libraryManager.currentLibrary == nil)
-                }
-            }
-        }
+        
         .onAppear {
             syncSidebarSelections(with: store.selectedSidebarItem)
         }
@@ -134,7 +126,9 @@ struct SidebarView: View {
 
     @ViewBuilder
     private func projectSidebarRow(_ project: Folder) -> some View {
-        Group {
+        HStack(spacing: 6) {
+            Image(systemName: SidebarProjectRowPresentation.systemImage)
+
             if let projectID = project.id, renamingProjectID == projectID {
                 TextField("Project name", text: $editedProjectTitle)
                     .focused($focusedProjectID, equals: projectID)
@@ -142,7 +136,7 @@ struct SidebarView: View {
                         Task { await commitProjectRename(for: project) }
                     }
             } else {
-                Label(project.resolvedProjectTitle, systemImage: "folder.fill")
+                Text(project.resolvedProjectTitle)
             }
         }
         .contextMenu {

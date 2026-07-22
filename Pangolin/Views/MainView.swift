@@ -282,18 +282,24 @@ struct MainView: View {
         }
 
         ToolbarItemGroup(placement: .primaryAction) {
-            if !isStartingUp && (processingQueueManager.visibleActiveTaskCount > 0 || processingQueueManager.failedTasks > 0 || videoFileManager.failedTransferCount > 0) {
+            if !isStartingUp && (backgroundActivityCount > 0 || processingQueueManager.failedTasks > 0 || videoFileManager.failedTransferCount > 0) {
                 Button {
                     showTaskPopover.toggle()
                 } label: {
-                    let hasActiveTasks = processingQueueManager.visibleActiveTaskCount > 0
+                    let hasActiveTasks = backgroundActivityCount > 0
                     let failedProcessingCount = processingQueueManager.failedTasks
                     let transferIssueCount = videoFileManager.failedTransferCount
                     let nonActiveIssueCount = transferIssueCount + failedProcessingCount
-                    let badgeCount = nonActiveIssueCount > 0 ? nonActiveIssueCount : max(0, processingQueueManager.visibleActiveTaskCount - 1)
+                    let badgeCount = nonActiveIssueCount > 0 ? nonActiveIssueCount : max(0, backgroundActivityCount - 1)
 
                     ZStack(alignment: .topTrailing) {
-                        if hasActiveTasks {
+                        if let activityProgress {
+                            ProgressView(value: activityProgress)
+                                .progressViewStyle(.circular)
+                                .frame(width: 16, height: 16)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 3)
+                        } else if hasActiveTasks {
                             ProgressView()
                                 .controlSize(.small)
                                 .frame(width: 16, height: 16)
@@ -319,13 +325,37 @@ struct MainView: View {
                     .frame(minWidth: 24, minHeight: 22, alignment: .center)
                     .contentShape(Rectangle())
                     .accessibilityLabel("Background tasks")
-                    .accessibilityValue("\(processingQueueManager.visibleActiveTaskCount) active tasks, \(processingQueueManager.failedTasks) failed tasks, \(videoFileManager.failedTransferCount) transfer issues")
+                    .accessibilityValue("\(backgroundActivityCount) active tasks or transfers, \(processingQueueManager.failedTasks) failed tasks, \(videoFileManager.failedTransferCount) transfer issues")
                 }
                 .buttonStyle(.plain)
                 .popover(isPresented: $showTaskPopover, arrowEdge: .top) {
                     ProcessingPopoverView(processingManager: processingQueueManager)
                 }
             }
+        }
+    }
+
+    private var backgroundActivityCount: Int {
+        processingQueueManager.visibleActiveTaskCount + videoFileManager.activeTransferCount
+    }
+
+    private var activityProgress: Double? {
+        let taskCount = processingQueueManager.activeTaskCount
+        let transferCount = videoFileManager.activeTransferCount
+        let transferProgress = videoFileManager.activeTransferProgress
+
+        switch (taskCount, transferCount, transferProgress) {
+        case (let tasks, let transfers, let transferProgress?) where tasks > 0 && transfers > 0:
+            return (
+                processingQueueManager.overallProgress * Double(tasks)
+                + transferProgress * Double(transfers)
+            ) / Double(tasks + transfers)
+        case (let tasks, _, _) where tasks > 0:
+            return processingQueueManager.overallProgress
+        case (_, let transfers, let transferProgress?) where transfers > 0:
+            return transferProgress
+        default:
+            return nil
         }
     }
 

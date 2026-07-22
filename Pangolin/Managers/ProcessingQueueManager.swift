@@ -62,6 +62,9 @@ class ProcessingQueueManager: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var workerTask: Task<Void, Never>?
     private var importFolderMaps: [UUID: [String: Folder]] = [:]
+    private var pendingImportSaveCounts: [UUID: Int] = [:]
+    private let importSaveBatchSize = 8
+    private var importStoragePolicyTask: Task<Void, Never>?
     private var activeCloudSyncEvents: [UUID: ActiveCloudSyncEvent] = [:]
     private var cloudEventSourceLifecycle = CloudEventSourceLifecycle()
     private var cloudSyncHideTask: Task<Void, Never>?
@@ -232,7 +235,12 @@ class ProcessingQueueManager: ObservableObject {
         if library.id == nil {
             library.id = UUID()
         }
-        let plan = await importer.prepareImportPlan(from: urls, library: library, context: context)
+        let plan = await importer.prepareImportPlan(
+            from: urls,
+            library: library,
+            context: context,
+            existingRecords: existingImportRecords(in: library, context: context)
+        )
         let libraryID = library.id
         if let libraryID {
             var mergedFolderMap = importFolderMaps[libraryID] ?? [:]
@@ -821,11 +829,11 @@ class ProcessingQueueManager: ObservableObject {
             assignImportedVideo(video, toFolderID: destinationFolderID, in: context, library: library)
         }
 
-        try context.save()
+        if shouldSaveImportedVideos(for: task, libraryID: library.id) {
+            try context.save()
+        }
 
         remoteDownloadService.cleanupStagingArtifacts(for: fileURL)
-
-        await StoragePolicyManager.shared.applyPolicy(for: library)
 
         // Enqueue follow-ups if requested
         if !task.followUpTypes.isEmpty, let id = video.id {
@@ -1103,6 +1111,52 @@ class ProcessingQueueManager: ObservableObject {
                 processingQueue.addTask(depTask)
             }
         }
+    }
+
+    private func existingImportRecords(
+        in library: Library,
+        context: NSManagedObjectContext
+    ) -> [ImportedVideoRecord] {
+        let request = Video.fetchRequest()
+        request.predicate = NSPredicate(format: "library == %@", library)
+
+        return ((try? context.fetch(request)) ?? []).map { video in
+            ImportedVideoRecord(
+                sourcePath: video.sourcePath,
+                fileName: video.fileName,
+                fileSize: video.fileSize
+            )
+        }
+    }
+
+    private func shouldSaveImportedVideos(for task: ProcessingTask, libraryID: UUID?) -> Bool {
+        guard let libraryID else { return true }
+
+        let completedImports = (pendingImportSaveCounts[libraryID] ?? 0) + 1
+        pendingImportSaveCounts[libraryID] = completedImports
+
+        let hasMoreImports = hasPendingImportTasks(for: libraryID, excluding: task.id)
+        guard completedImports >= importSaveBatchSize || !hasMoreImports else { return false }
+
+        pendingImportSaveCounts[libraryID] = 0
+        return true
+    }
+
+    private func hasPendingImportTasks(for libraryID: UUID, excluding taskID: UUID? = nil) -> Bool {
+        processingQueue.tasks.contains { task in
+            task.id != taskID
+                && task.libraryID == libraryID
+                && task.type == .importVideo
+                && (task.status == .pending || task.status == .processing)
+        }
+    }
+
+    private func library(withID libraryID: UUID) -> Library? {
+        guard let context = LibraryManager.shared.viewContext else { return nil }
+        let request = Library.fetchRequest()
+        request.predicate = NSPredicate(format: "id == %@", libraryID as CVarArg)
+        request.fetchLimit = 1
+        return try? context.fetch(request).first
     }
 
     private func refreshStats() {

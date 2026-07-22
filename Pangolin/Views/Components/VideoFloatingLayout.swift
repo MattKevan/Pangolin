@@ -177,7 +177,7 @@ enum VideoToolbarPolicy {
         supportsAppOwnedSidebarButton: Bool
     ) -> WorkspaceToolbarOwnership {
         guard shell == .workspace else { return .none }
-        return isVideoDetail || supportsAppOwnedSidebarButton ? .appOwned : .systemOwned
+        return isVideoDetail ? .appOwned : .systemOwned
     }
 
     static func removesSystemSidebarButton(

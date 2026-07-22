@@ -9,6 +9,10 @@ import Foundation
 import Combine
 import CoreData
 
+enum PangolinCloudContainer {
+    static let identifier = "iCloud.com.newindustries.pangolin"
+}
+
 @MainActor
 class VideoFileManager: ObservableObject {
     static let shared = VideoFileManager()
@@ -18,7 +22,7 @@ class VideoFileManager: ObservableObject {
     @Published private(set) var transferSnapshots: [UUID: VideoCloudTransferSnapshot] = [:]
 
     private let fileManager = FileManager.default
-    let cloudContainerIdentifier = "iCloud.com.newindustries.pangolin"
+    let cloudContainerIdentifier = PangolinCloudContainer.identifier
     private let retryDelays: [TimeInterval] = [5, 15, 45]
 
     private struct TransferFailureRecord {
@@ -60,6 +64,40 @@ class VideoFileManager: ObservableObject {
         failedTransferSnapshots.count
     }
 
+    var activeTransferSnapshots: [VideoCloudTransferSnapshot] {
+        transferSnapshots.values
+            .filter { $0.state.isTransient }
+            .sorted { lhs, rhs in
+                if lhs.updatedAt != rhs.updatedAt {
+                    return lhs.updatedAt > rhs.updatedAt
+                }
+                return lhs.videoTitle.localizedCaseInsensitiveCompare(rhs.videoTitle) == .orderedAscending
+            }
+    }
+
+    var activeTransferCount: Int {
+        activeTransferSnapshots.count
+    }
+
+    /// A best-effort progress value for the toolbar. iCloud doesn't always expose
+    /// a byte fraction, so queued transfers use a small visible starting value.
+    var activeTransferProgress: Double? {
+        let snapshots = activeTransferSnapshots
+        guard !snapshots.isEmpty else { return nil }
+
+        let progress = snapshots.map { snapshot -> Double in
+            switch snapshot.state {
+            case .queuedForUploading:
+                return 0.02
+            case .uploading(let progress), .downloading(let progress):
+                return max(0.02, progress ?? 0.05)
+            case .inCloudOnly, .downloaded, .error:
+                return 0
+            }
+        }
+        return progress.reduce(0, +) / Double(progress.count)
+    }
+
     var hasTransferIssues: Bool {
         failedTransferCount > 0
     }
@@ -97,28 +135,10 @@ class VideoFileManager: ObservableObject {
             let ext = localURL.pathExtension.isEmpty ? "mp4" : localURL.pathExtension
             let relative = "Media/Videos/\(videoID.uuidString).\(ext)"
             let destinationURL = root.appendingPathComponent(relative)
-            let cloudDir = destinationURL.deletingLastPathComponent()
-
-            try fileManager.createDirectory(at: cloudDir, withIntermediateDirectories: true)
-
-            if fileManager.fileExists(atPath: destinationURL.path) {
-                try fileManager.removeItem(at: destinationURL)
-            }
-
-            if localURL.standardizedFileURL != destinationURL.standardizedFileURL {
-                let sourceValues = try? localURL.resourceValues(forKeys: [.isUbiquitousItemKey])
-                let sourceIsUbiquitous = sourceValues?.isUbiquitousItem == true
-
-                if sourceIsUbiquitous {
-                    try fileManager.moveItem(at: localURL, to: destinationURL)
-                } else {
-                    do {
-                        _ = try fileManager.setUbiquitous(true, itemAt: localURL, destinationURL: destinationURL)
-                    } catch {
-                        try fileManager.moveItem(at: localURL, to: destinationURL)
-                    }
-                }
-            }
+            try await Self.moveImportedFileToCloud(
+                localURL: localURL,
+                destinationURL: destinationURL
+            )
 
             video.cloudRelativePath = relative
             video.fileAvailabilityState = VideoFileStatus.local.rawValue
@@ -130,6 +150,40 @@ class VideoFileManager: ObservableObject {
             markTransferFailure(for: video, operation: .upload, message: error.localizedDescription)
             throw VideoFileError.uploadFailed(error.localizedDescription)
         }
+    }
+
+    /// Performs potentially blocking iCloud filesystem work away from the UI actor.
+    private nonisolated static func moveImportedFileToCloud(
+        localURL: URL,
+        destinationURL: URL
+    ) async throws {
+        try await Task.detached(priority: .utility) {
+            let fileManager = FileManager.default
+            try fileManager.createDirectory(
+                at: destinationURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+
+            if fileManager.fileExists(atPath: destinationURL.path) {
+                try fileManager.removeItem(at: destinationURL)
+            }
+
+            guard localURL.standardizedFileURL != destinationURL.standardizedFileURL else {
+                return
+            }
+
+            let sourceValues = try? localURL.resourceValues(forKeys: [.isUbiquitousItemKey])
+            if sourceValues?.isUbiquitousItem == true {
+                try fileManager.moveItem(at: localURL, to: destinationURL)
+                return
+            }
+
+            do {
+                _ = try fileManager.setUbiquitous(true, itemAt: localURL, destinationURL: destinationURL)
+            } catch {
+                try fileManager.moveItem(at: localURL, to: destinationURL)
+            }
+        }.value
     }
 
     func evictLocalCopy(for video: Video) async throws {
@@ -163,9 +217,7 @@ class VideoFileManager: ObservableObject {
 
     func isVideoFileAccessible(_ video: Video) async -> VideoFileStatus {
         let snapshot = await refreshTransferState(for: video)
-        let resolvedStatus = status(from: snapshot.state)
-        video.fileAvailabilityState = resolvedStatus.rawValue
-        return resolvedStatus
+        return status(from: snapshot.state)
     }
 
     func refreshTransferState(for video: Video) async -> VideoCloudTransferSnapshot {
@@ -183,7 +235,10 @@ class VideoFileManager: ObservableObject {
         }
 
         let snapshot = setTransferState(state, for: video)
-        video.fileAvailabilityState = status(from: state).rawValue
+        let resolvedStatus = status(from: state).rawValue
+        if video.fileAvailabilityState != resolvedStatus {
+            video.fileAvailabilityState = resolvedStatus
+        }
         return snapshot
     }
 

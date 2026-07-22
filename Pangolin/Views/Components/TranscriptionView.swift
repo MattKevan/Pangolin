@@ -81,7 +81,7 @@ struct TranscriptionView: View {
 
     @ViewBuilder
     private var content: some View {
-        if let chunkIndex {
+        if chunkIndex != nil {
             ScrollViewReader { proxy in
                 ScrollView {
                     if useChunkListLayout {

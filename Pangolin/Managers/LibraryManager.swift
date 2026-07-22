@@ -151,19 +151,12 @@ class LibraryManager: ObservableObject {
             return
         }
         
-        print("📊 LIBRARY: Context hasChanges: \(context.hasChanges)")
-        print("📊 LIBRARY: Context insertedObjects count: \(context.insertedObjects.count)")
-        print("📊 LIBRARY: Context updatedObjects count: \(context.updatedObjects.count)")
-        print("📊 LIBRARY: Context deletedObjects count: \(context.deletedObjects.count)")
-        
-        for obj in context.updatedObjects {
-            print("📝 LIBRARY: Updated object: \(obj)")
-            if let folder = obj as? Folder {
-                print("📁 LIBRARY: Updated folder: '\(folder.name ?? "nil")' (ID: \(folder.id?.uuidString ?? "nil"))")
-            } else if let video = obj as? Video {
-                print("🎥 LIBRARY: Updated video: '\(video.title ?? "nil")' (ID: \(video.id?.uuidString ?? "nil"))")
-            }
-        }
+        print(
+            "📊 LIBRARY: Context changes — " +
+            "inserted: \(context.insertedObjects.count), " +
+            "updated: \(context.updatedObjects.count), " +
+            "deleted: \(context.deletedObjects.count)"
+        )
         
         guard context.hasChanges else {
             print("ℹ️ LIBRARY: No changes to save")
@@ -452,8 +445,7 @@ class LibraryManager: ObservableObject {
     
     /// Switch to a different library
     func switchToLibrary(_ descriptor: LibraryDescriptor) async throws {
-        let library = try await openLibrary(at: descriptor.path)
-        await StoragePolicyManager.shared.applyPolicy(for: library)
+        _ = try await openLibrary(at: descriptor.path)
     }
     
     /// Open the last used library
@@ -463,8 +455,7 @@ class LibraryManager: ObservableObject {
             throw LibraryError.noLastLibrary
         }
 
-        let library = try await openLibrary(at: lastLibraryPath)
-        await StoragePolicyManager.shared.applyPolicy(for: library)
+        _ = try await openLibrary(at: lastLibraryPath)
     }
     
     /// Smart startup — opens existing library or creates a fresh one

@@ -103,12 +103,19 @@ struct PangolinApp: App {
     }
 
     private func startLibraryStartup() {
+        // Unit tests load the application bundle as their test host. Starting the
+        // production library here would also start Core Data's CloudKit mirroring
+        // before XCTest has finished bootstrapping.
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else {
+            hasAttemptedStartup = true
+            return
+        }
+
         hasAttemptedStartup = true
 
         Task {
             do {
-                let library = try await libraryManager.smartStartup()
-                await storagePolicyManager.applyPolicy(for: library)
+                _ = try await libraryManager.smartStartup()
             } catch {
                 print("❌ APP: Startup failed: \(error)")
                 libraryManager.error = error as? LibraryError
@@ -127,8 +134,7 @@ struct PangolinApp: App {
             do {
                 libraryManager.error = nil
                 print("🔧 APP: Starting database reset...")
-                let library = try await libraryManager.resetCorruptedDatabase()
-                await storagePolicyManager.applyPolicy(for: library)
+                _ = try await libraryManager.resetCorruptedDatabase()
                 print("✅ APP: Database reset successful")
             } catch {
                 print("❌ APP: Database reset failed: \(error)")

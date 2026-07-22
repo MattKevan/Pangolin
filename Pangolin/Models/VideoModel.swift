@@ -263,7 +263,7 @@ extension Subtitle {
     // Computed properties
     var fileURL: URL? {
         guard let relativePath = relativePath else { return nil }
-        if let ubiquitousRoot = FileManager.default.url(forUbiquityContainerIdentifier: VideoFileManager.shared.cloudContainerIdentifier) {
+        if let ubiquitousRoot = FileManager.default.url(forUbiquityContainerIdentifier: PangolinCloudContainer.identifier) {
             let cloudURL = ubiquitousRoot.appendingPathComponent("Subtitles").appendingPathComponent(relativePath)
             if FileManager.default.fileExists(atPath: cloudURL.path) {
                 return cloudURL

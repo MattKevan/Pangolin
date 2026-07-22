@@ -55,13 +55,14 @@ targets:
           - Pangolin.entitlements
           - Pangolin-iOS.entitlements
           - Pangolin-macOS.entitlements
+      - path: Pangolin.icon
+        buildPhase: resources
     dependencies:
       - package: MarkdownUI
       - sdk: CloudKit.framework
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: Pangolin
-        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         "ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS[sdk=iphoneos*]": NO
         "ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS[sdk=iphonesimulator*]": NO
         "ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS[sdk=macosx*]": YES

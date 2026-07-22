@@ -245,8 +245,9 @@ struct StorageSettingsPane: View {
         isRefreshingStats = true
         defer { isRefreshingStats = false }
 
-        localUsageBytes = await storagePolicyManager.currentLocalVideoUsageBytes(for: library)
-        cloudOnlyCount = await storagePolicyManager.currentCloudOnlyVideoCount(for: library)
+        let statistics = await storagePolicyManager.currentStorageStatistics(for: library)
+        localUsageBytes = statistics.localUsageBytes
+        cloudOnlyCount = statistics.cloudOnlyCount
         transferIssueCounts = await videoFileManager.failedTransferCounts(in: library)
 
         if let latestSummary = storagePolicyManager.lastPolicySummary,

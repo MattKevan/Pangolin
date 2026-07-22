@@ -202,50 +202,17 @@ class CoreDataStack {
         context.automaticallyMergesChangesFromParent = true
         context.mergePolicy = NSMergeByPropertyStoreTrumpMergePolicy
 
-        // Try to pin to query generation, but handle gracefully if it fails
-        do {
-            try context.setQueryGenerationFrom(.current)
-            print("✅ STACK: View context pinned to current query generation")
-        } catch let error as NSError {
-            print("⚠️ STACK: Query generation not supported, using automatic merging: \(error)")
-
-            // For SQLite error 769 (SQLITE_SNAPSHOT_STALE), we need different handling
-            if error.domain == NSSQLiteErrorDomain && error.code == 769 {
-                print("📝 STACK: Snapshot stale error detected - using context refresh strategy")
-                // Don't pin to query generation, rely on automatic merging instead
-            } else {
-                print("📝 STACK: Other query generation error - fallback to automatic merging")
-            }
-        }
-
-        print("✅ STACK: View context configured with fallback handling")
+        // Do not pin the view context to a query generation. A long-lived pinned
+        // reader prevents SQLite from truncating its WAL while CloudKit writes.
+        print("✅ STACK: View context configured for automatic merging")
     }
 
     // MARK: - Query Generation Management
 
-    /// Refreshes the view context when query generation fails
+    /// Makes any queued context changes observable without retaining a WAL snapshot.
     func refreshViewContextIfNeeded() {
         guard let context = viewContext else { return }
-
-        // Try to advance to the latest query generation
-        do {
-            try context.setQueryGenerationFrom(.current)
-            print("✅ STACK: Successfully advanced to current query generation")
-        } catch let error as NSError {
-            print("🔄 STACK: Query generation failed, refreshing context objects: \(error)")
-
-            // Fallback: refresh all objects to get latest data
-            context.refreshAllObjects()
-
-            // Also try to reset and re-pin if possible
-            do {
-                context.reset()
-                try context.setQueryGenerationFrom(.current)
-                print("✅ STACK: Successfully reset and re-pinned context")
-            } catch {
-                print("⚠️ STACK: Could not re-pin after reset, continuing with automatic merging")
-            }
-        }
+        context.processPendingChanges()
     }
 
     

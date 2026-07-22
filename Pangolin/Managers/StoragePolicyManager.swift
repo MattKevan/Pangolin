@@ -10,6 +10,17 @@ import CoreData
 
 @MainActor
 final class StoragePolicyManager: ObservableObject {
+    struct StorageStatistics: Sendable {
+        let localUsageBytes: Int64
+        let cloudOnlyCount: Int
+    }
+
+    private struct StorageStatisticsInput: Sendable {
+        let fileURL: URL?
+        let fileSize: Int64
+        let availabilityState: String?
+    }
+
     static let shared = StoragePolicyManager()
 
     @Published private(set) var isApplyingPolicy = false
@@ -187,6 +198,67 @@ final class StoragePolicyManager: ObservableObject {
         }
 
         return count
+    }
+
+    /// Reads iCloud file attributes on a utility executor so opening settings does
+    /// not block the window while a large import is also touching the same files.
+    func currentStorageStatistics(for library: Library) async -> StorageStatistics {
+        let cloudRoot = fileManager.url(forUbiquityContainerIdentifier: videoFileManager.cloudContainerIdentifier)
+        let libraryURL = library.url
+        let inputs = fetchVideos(in: library).map { video in
+            let fileURL: URL?
+            if let cloudRelativePath = video.cloudRelativePath, !cloudRelativePath.isEmpty {
+                fileURL = cloudRoot?.appendingPathComponent(cloudRelativePath)
+            } else if let relativePath = video.relativePath {
+                fileURL = libraryURL?
+                    .appendingPathComponent("Videos")
+                    .appendingPathComponent(relativePath)
+            } else {
+                fileURL = nil
+            }
+
+            return StorageStatisticsInput(
+                fileURL: fileURL,
+                fileSize: video.fileSize,
+                availabilityState: video.fileAvailabilityState
+            )
+        }
+
+        return await Task.detached(priority: .utility) {
+            let fileManager = FileManager.default
+            var localUsageBytes: Int64 = 0
+            var cloudOnlyCount = 0
+
+            for input in inputs {
+                guard let url = input.fileURL,
+                      fileManager.fileExists(atPath: url.path) else {
+                    if input.availabilityState == VideoFileStatus.cloudOnly.rawValue {
+                        cloudOnlyCount += 1
+                    }
+                    continue
+                }
+
+                let values = try? url.resourceValues(forKeys: [
+                    .fileSizeKey,
+                    .isUbiquitousItemKey,
+                    .ubiquitousItemDownloadingStatusKey
+                ])
+                let isCloudOnly = values?.isUbiquitousItem == true
+                    && values?.ubiquitousItemDownloadingStatus != .current
+                    && values?.ubiquitousItemDownloadingStatus != .downloaded
+
+                if isCloudOnly {
+                    cloudOnlyCount += 1
+                } else {
+                    localUsageBytes += Int64(values?.fileSize ?? Int(input.fileSize))
+                }
+            }
+
+            return StorageStatistics(
+                localUsageBytes: localUsageBytes,
+                cloudOnlyCount: cloudOnlyCount
+            )
+        }.value
     }
 
     private func fetchVideos(in library: Library) -> [Video] {

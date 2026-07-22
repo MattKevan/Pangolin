@@ -9,7 +9,7 @@ import Foundation
 import CoreData
 import AVFoundation
 
-class FileSystemManager {
+final class FileSystemManager: @unchecked Sendable {
     static let shared = FileSystemManager()
     
     private let fileManager = FileManager.default
@@ -24,10 +24,20 @@ class FileSystemManager {
     // MARK: - Video File Operations
     
     func importVideo(from sourceURL: URL, to library: Library, context: NSManagedObjectContext, copyFile: Bool = true) async throws -> Video {
-        guard let libraryURL = library.url else {
-            throw FileSystemError.invalidLibraryPath
-        }
-        
+        guard let libraryURL = library.url else { throw FileSystemError.invalidLibraryPath }
+        let preparedImport = try await prepareVideoImport(
+            from: sourceURL,
+            libraryURL: libraryURL,
+            copyFile: copyFile
+        )
+        return try makeVideo(from: preparedImport, library: library, context: context)
+    }
+
+    func prepareVideoImport(
+        from sourceURL: URL,
+        libraryURL: URL,
+        copyFile: Bool
+    ) async throws -> PreparedVideoImport {
         // Validate video file
         guard isVideoFile(sourceURL) else {
             throw FileSystemError.unsupportedFileType(sourceURL.pathExtension)
@@ -46,9 +56,6 @@ class FileSystemManager {
         }
         
         // Use Videos directory inside the library package
-        guard let libraryURL = library.url else {
-            throw FileSystemError.invalidLibraryPath
-        }
         let videoStorageURL = libraryURL.appendingPathComponent("Videos")
         
         // Create date-based subdirectory
@@ -95,6 +102,22 @@ class FileSystemManager {
         
         // Get video metadata
         let metadata = try await getVideoMetadata(from: destinationURL)
+
+        return PreparedVideoImport(
+            sourcePath: ImportDuplicatePolicy.canonicalSourcePath(sourceURL),
+            fileName: fileName,
+            relativePath: relativePath,
+            importDate: importDate,
+            destinationURL: destinationURL,
+            metadata: metadata
+        )
+    }
+
+    func makeVideo(
+        from preparedImport: PreparedVideoImport,
+        library: Library,
+        context: NSManagedObjectContext
+    ) throws -> Video {
         
         // Create video entity in Core Data context using entity description
         guard let videoEntityDescription = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Video"] else {
@@ -103,15 +126,16 @@ class FileSystemManager {
         
         let video = Video(entity: videoEntityDescription, insertInto: context)
         video.id = UUID()
-        video.title = sourceURL.deletingPathExtension().lastPathComponent
-        video.fileName = fileName
-        video.relativePath = relativePath
-        video.duration = metadata.duration
-        video.fileSize = metadata.fileSize
-        video.dateAdded = importDate
-        video.videoFormat = sourceURL.pathExtension
-        video.resolution = metadata.resolution
-        video.frameRate = metadata.frameRate
+        video.title = (preparedImport.fileName as NSString).deletingPathExtension
+        video.fileName = preparedImport.fileName
+        video.relativePath = preparedImport.relativePath
+        video.sourcePath = preparedImport.sourcePath
+        video.duration = preparedImport.metadata.duration
+        video.fileSize = preparedImport.metadata.fileSize
+        video.dateAdded = preparedImport.importDate
+        video.videoFormat = preparedImport.destinationURL.pathExtension
+        video.resolution = preparedImport.metadata.resolution
+        video.frameRate = preparedImport.metadata.frameRate
         video.playbackPosition = 0
         video.playCount = 0
         video.library = library
@@ -242,11 +266,20 @@ class FileSystemManager {
 
 // MARK: - Supporting Types
 
-struct VideoMetadata {
+struct VideoMetadata: Sendable {
     let duration: TimeInterval
     let fileSize: Int64
     let resolution: String
     let frameRate: Double
+}
+
+struct PreparedVideoImport: Sendable {
+    let sourcePath: String
+    let fileName: String
+    let relativePath: String
+    let importDate: Date
+    let destinationURL: URL
+    let metadata: VideoMetadata
 }
 
 enum FileSystemError: LocalizedError {

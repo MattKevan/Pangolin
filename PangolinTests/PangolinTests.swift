@@ -83,6 +83,11 @@ struct PangolinTests {
         ))
     }
 
+    @Test("Sidebar project rows keep the folder outline icon while renaming")
+    func sidebarProjectRowUsesFolderOutlineIcon() {
+        #expect(SidebarProjectRowPresentation.systemImage == "folder")
+    }
+
     @Test("Core Data store file protection uses a valid protection class string")
     func persistentStoreFileProtectionUsesValidString() {
         #expect(
@@ -1636,19 +1641,19 @@ struct SearchVideoSelectionResetPolicyTests {
 
 @Suite("Video toolbar policy")
 struct VideoToolbarPolicyTests {
-    @Test("Regular workspace owns ordinary sidebar navigation")
-    func regularWorkspaceOwnsSidebarNavigation() {
+    @Test("Regular workspace uses the native sidebar navigation")
+    func regularWorkspaceUsesNativeSidebarNavigation() {
         #expect(VideoToolbarPolicy.ownership(
             shell: .workspace,
             isVideoDetail: false,
             supportsAppOwnedSidebarButton: true
-        ) == .appOwned)
-        #expect(VideoToolbarPolicy.removesSystemSidebarButton(
+        ) == .systemOwned)
+        #expect(!VideoToolbarPolicy.removesSystemSidebarButton(
             shell: .workspace,
             isVideoDetail: false,
             supportsAppOwnedSidebarButton: true
         ))
-        #expect(VideoToolbarPolicy.showsSidebarButton(
+        #expect(!VideoToolbarPolicy.showsSidebarButton(
             shell: .workspace,
             isVideoDetail: false,
             supportsAppOwnedSidebarButton: true
@@ -1729,6 +1734,42 @@ struct VideoToolbarPolicyTests {
         #expect(WorkspaceSidebarVisibilityPolicy.toggled(from: .detailOnly) == .all)
         #expect(WorkspaceSidebarVisibilityPolicy.toggled(from: .all) == .detailOnly)
         #expect(WorkspaceSidebarVisibilityPolicy.toggled(from: .automatic) == .detailOnly)
+    }
+}
+
+@Suite("Import duplicate policy")
+struct ImportDuplicatePolicyTests {
+    @Test("Skips matching source paths and matching filename-size pairs")
+    func skipsKnownDuplicates() {
+        let sourceMatch = URL(fileURLWithPath: "/Volumes/Archive/lesson.mp4")
+        let sizeMatch = URL(fileURLWithPath: "/Volumes/Backup/lesson.mp4")
+        let distinctFile = URL(fileURLWithPath: "/Volumes/Backup/lesson-copy.mp4")
+
+        let candidates = [
+            ImportCandidate(url: sourceMatch, fileName: "lesson.mp4", fileSize: 100),
+            ImportCandidate(url: sizeMatch, fileName: "lesson.mp4", fileSize: 100),
+            ImportCandidate(url: distinctFile, fileName: "lesson-copy.mp4", fileSize: 100),
+        ]
+        let existing = [
+            ImportedVideoRecord(sourcePath: sourceMatch.path, fileName: "different-name.mp4", fileSize: 1),
+            ImportedVideoRecord(sourcePath: nil, fileName: "lesson.mp4", fileSize: 100),
+        ]
+
+        #expect(ImportDuplicatePolicy.uniqueCandidates(candidates, existingRecords: existing) == [candidates[2]])
+    }
+
+    @Test("Keeps same-name files when their sizes differ")
+    func retainsDifferentSizedFiles() {
+        let candidate = ImportCandidate(
+            url: URL(fileURLWithPath: "/Volumes/Backup/lesson.mp4"),
+            fileName: "lesson.mp4",
+            fileSize: 101
+        )
+        let existing = [
+            ImportedVideoRecord(sourcePath: nil, fileName: "lesson.mp4", fileSize: 100),
+        ]
+
+        #expect(ImportDuplicatePolicy.uniqueCandidates([candidate], existingRecords: existing) == [candidate])
     }
 }
 

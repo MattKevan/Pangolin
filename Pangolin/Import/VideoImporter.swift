@@ -100,20 +100,40 @@ class VideoImporter: ObservableObject {
         }
     }
 
-    func prepareImportPlan(from urls: [URL], library: Library, context: NSManagedObjectContext) async -> ImportPlan {
+    func prepareImportPlan(
+        from urls: [URL],
+        library: Library,
+        context: NSManagedObjectContext,
+        existingRecords: [ImportedVideoRecord] = []
+    ) async -> ImportPlan {
         let folderStructure = analyzeFolderStructure(from: urls)
-        let createdFolders = await createFoldersFromStructure(folderStructure, library: library, context: context)
-        let videoFiles = videoFilesFromAnalyzedStructure(urls: urls, folderNodes: folderStructure)
+        let allVideoFiles = videoFilesFromAnalyzedStructure(urls: urls, folderNodes: folderStructure)
+        let candidates = allVideoFiles.map { url in
+            ImportCandidate(url: url, fileSize: fileSize(of: url))
+        }
+        let videoFiles = ImportDuplicatePolicy
+            .uniqueCandidates(candidates, existingRecords: existingRecords)
+            .map(\.url)
+        let importingPaths = Set(videoFiles.map(ImportDuplicatePolicy.canonicalSourcePath))
+        let foldersForImport = folderStructure.compactMap { node in
+            prunedFolderNode(node, importingPaths: importingPaths)
+        }
+        let createdFolders = await createFoldersFromStructure(foldersForImport, library: library, context: context)
         return ImportPlan(videoFiles: videoFiles, createdFolders: createdFolders)
     }
 
     func importSingleFile(_ fileURL: URL, library: Library, context: NSManagedObjectContext, createdFolders: [String: Folder]) async throws -> Video {
-        let video = try await fileSystemManager.importVideo(
-            from: fileURL,
-            to: library,
-            context: context,
-            copyFile: library.copyFilesOnImport
-        )
+        guard let libraryURL = library.url else { throw FileSystemError.invalidLibraryPath }
+        let manager = fileSystemManager
+        let copyFile = library.copyFilesOnImport
+        let preparedImport = try await Task.detached(priority: .utility) {
+            try await manager.prepareVideoImport(
+                from: fileURL,
+                libraryURL: libraryURL,
+                copyFile: copyFile
+            )
+        }.value
+        let video = try manager.makeVideo(from: preparedImport, library: library, context: context)
         print("✅ IMPORT: Successfully imported video: \(video.title ?? "Unknown")")
         
         assignVideoToFolder(video: video, originalPath: fileURL, createdFolders: createdFolders)
@@ -161,9 +181,6 @@ class VideoImporter: ObservableObject {
                     message: error.localizedDescription
                 )
                 throw error
-            }
-            if context.hasChanges {
-                try context.save()
             }
             ProcessingQueueManager.shared.enqueueThumbnails(for: [video])
         }
@@ -418,7 +435,6 @@ class VideoImporter: ObservableObject {
         for folderNode in folderNodes {
             if let folder = await createFolderFromNode(folderNode, parent: nil, library: library, context: context) {
                 createdFolders[folderNode.url.path] = folder
-                saveContextIfNeeded(context)
                 await addChildFolders(for: folderNode, parentFolder: folder, library: library, context: context, createdFolders: &createdFolders)
             }
         }
@@ -430,6 +446,10 @@ class VideoImporter: ObservableObject {
         // Only create folder if there are videos in this folder or subfolders
         guard !node.videoFiles.isEmpty || !node.children.isEmpty else { 
             return nil 
+        }
+
+        if let existingFolder = existingFolder(named: node.name, parent: parent, library: library, context: context) {
+            return existingFolder
         }
         
         guard let folderEntityDescription = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Folder"] else {
@@ -455,19 +475,40 @@ class VideoImporter: ObservableObject {
         for childNode in node.children {
             if let childFolder = await createFolderFromNode(childNode, parent: parentFolder, library: library, context: context) {
                 createdFolders[childNode.url.path] = childFolder
-                saveContextIfNeeded(context)
             }
         }
     }
 
-    private func saveContextIfNeeded(_ context: NSManagedObjectContext) {
-        guard context.hasChanges else { return }
-
-        do {
-            try context.save()
-        } catch {
-            print("⚠️ IMPORT: Failed to save folder structure incrementally: \(error)")
+    private func existingFolder(
+        named name: String,
+        parent: Folder?,
+        library: Library,
+        context: NSManagedObjectContext
+    ) -> Folder? {
+        let request = Folder.fetchRequest()
+        request.fetchLimit = 1
+        if let parent {
+            request.predicate = NSPredicate(format: "library == %@ AND parentFolder == %@ AND name == %@", library, parent, name)
+        } else {
+            request.predicate = NSPredicate(format: "library == %@ AND parentFolder == nil AND name == %@", library, name)
         }
+        return try? context.fetch(request).first
+    }
+
+    private func fileSize(of url: URL) -> Int64 {
+        (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
+    }
+
+    private func prunedFolderNode(
+        _ node: FolderNode,
+        importingPaths: Set<String>
+    ) -> FolderNode? {
+        var pruned = node
+        pruned.videoFiles = node.videoFiles.filter { importingPaths.contains(ImportDuplicatePolicy.canonicalSourcePath($0)) }
+        pruned.children = node.children.compactMap { child in
+            prunedFolderNode(child, importingPaths: importingPaths)
+        }
+        return pruned.videoFiles.isEmpty && pruned.children.isEmpty ? nil : pruned
     }
 
     private func videoFilesFromAnalyzedStructure(urls: [URL], folderNodes: [FolderNode]) -> [URL] {
