@@ -363,6 +363,11 @@ class FolderNavigationStore: ObservableObject {
     }
 
     func selectProjects() {
+        if selectionKey(selectedSidebarItem) == selectionKey(.projects) {
+            applyProjectsSelection()
+            return
+        }
+
         selectedSidebarItem = .projects
     }
 

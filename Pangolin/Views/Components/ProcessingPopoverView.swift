@@ -1,5 +1,13 @@
 import SwiftUI
 
+enum ActivityPopoverPolicy {
+    static let maximumContentHeight: CGFloat = 360
+
+    static func visibleItems<Element>(_ items: [Element]) -> [Element] {
+        items
+    }
+}
+
 struct ProcessingPopoverView: View {
     @ObservedObject var processingManager: ProcessingQueueManager
     @EnvironmentObject private var libraryManager: LibraryManager
@@ -24,6 +32,10 @@ struct ProcessingPopoverView: View {
         videoFileManager.failedTransferSnapshots
     }
 
+    private var activeTransfers: [VideoCloudTransferSnapshot] {
+        videoFileManager.activeTransferSnapshots
+    }
+
     private var cloudSyncStatus: ProcessingQueueManager.CloudSyncQueueStatus? {
         processingManager.cloudSyncQueueStatus
     }
@@ -31,86 +43,87 @@ struct ProcessingPopoverView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
 
-            if activeTasks.isEmpty && failedTasks.isEmpty && transferIssues.isEmpty && cloudSyncStatus == nil {
+            if activeTasks.isEmpty && activeTransfers.isEmpty && failedTasks.isEmpty && transferIssues.isEmpty && cloudSyncStatus == nil {
                 Text("No active tasks")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .padding(.vertical, 8)
             } else {
-                if let cloudSyncStatus {
-                    CloudSyncStatusRow(status: cloudSyncStatus)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if let cloudSyncStatus {
+                            CloudSyncStatusRow(status: cloudSyncStatus)
 
-                    if !activeTasks.isEmpty || !transferIssues.isEmpty || !failedTasks.isEmpty {
-                        Divider()
-                    }
-                }
-
-                if !activeTasks.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(Array(activeTasks.prefix(5)), id: \.id) { task in
-                            CompactTaskRowView(task: task)
+                            if !activeTasks.isEmpty || !activeTransfers.isEmpty || !transferIssues.isEmpty || !failedTasks.isEmpty {
+                                Divider()
+                            }
                         }
 
-                        if activeTasks.count > 5 {
-                            Text("... and \(activeTasks.count - 5) more")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-
-                if !transferIssues.isEmpty {
-                    if !activeTasks.isEmpty {
-                        Divider()
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Transfer issues")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        ForEach(Array(transferIssues.prefix(3))) { issue in
-                            TransferIssueRow(
-                                issue: issue,
-                                onRetry: {
-                                    Task {
-                                        await videoFileManager.retryTransfer(videoID: issue.videoID)
-                                    }
+                        if !activeTasks.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(ActivityPopoverPolicy.visibleItems(activeTasks), id: \.id) { task in
+                                    CompactTaskRowView(task: task)
                                 }
-                            )
+                            }
                         }
 
-                        if transferIssues.count > 3 {
-                            Text("... and \(transferIssues.count - 3) more")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                        if !activeTransfers.isEmpty {
+                            if !activeTasks.isEmpty {
+                                Divider()
+                            }
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("File transfers")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+
+                                ForEach(ActivityPopoverPolicy.visibleItems(activeTransfers)) { transfer in
+                                    ActiveTransferRow(transfer: transfer)
+                                }
+                            }
+                        }
+
+                        if !transferIssues.isEmpty {
+                            if !activeTasks.isEmpty || !activeTransfers.isEmpty {
+                                Divider()
+                            }
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Transfer issues")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+
+                                ForEach(ActivityPopoverPolicy.visibleItems(transferIssues)) { issue in
+                                    TransferIssueRow(
+                                        issue: issue,
+                                        onRetry: {
+                                            Task {
+                                                await videoFileManager.retryTransfer(videoID: issue.videoID)
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        if !failedTasks.isEmpty {
+                            if !activeTasks.isEmpty || !activeTransfers.isEmpty || !transferIssues.isEmpty {
+                                Divider()
+                            }
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Failed tasks")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+
+                                ForEach(ActivityPopoverPolicy.visibleItems(failedTasks), id: \.id) { task in
+                                    CompactTaskRowView(task: task)
+                                }
+                            }
                         }
                     }
                 }
-
-                if !failedTasks.isEmpty {
-                    if !activeTasks.isEmpty || !transferIssues.isEmpty {
-                        Divider()
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Failed tasks")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        ForEach(Array(failedTasks.prefix(3)), id: \.id) { task in
-                            CompactTaskRowView(task: task)
-                        }
-
-                        if failedTasks.count > 3 {
-                            Text("... and \(failedTasks.count - 3) more")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-
-                
+                .frame(maxHeight: ActivityPopoverPolicy.maximumContentHeight)
 
                 HStack {
                     if processingManager.isPaused {
@@ -161,6 +174,61 @@ struct ProcessingPopoverView: View {
         }
         .padding()
         .frame(minWidth: 300, maxWidth: 360)
+    }
+}
+
+private struct ActiveTransferRow: View {
+    let transfer: VideoCloudTransferSnapshot
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 8) {
+                Image(systemName: iconName)
+                    .foregroundStyle(.blue)
+                    .frame(width: 16)
+
+                Text(transfer.videoTitle)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+
+                Spacer()
+
+                Text(transfer.displayName)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+
+            if let progress {
+                ProgressView(value: progress)
+                    .controlSize(.mini)
+            } else {
+                ProgressView()
+                    .controlSize(.mini)
+            }
+        }
+    }
+
+    private var iconName: String {
+        switch transfer.state {
+        case .queuedForUploading, .uploading:
+            return "icloud.and.arrow.up"
+        case .downloading:
+            return "icloud.and.arrow.down"
+        case .inCloudOnly, .downloaded, .error:
+            return "icloud"
+        }
+    }
+
+    private var progress: Double? {
+        switch transfer.state {
+        case .uploading(let progress), .downloading(let progress):
+            return progress
+        case .queuedForUploading:
+            return 0.02
+        case .inCloudOnly, .downloaded, .error:
+            return nil
+        }
     }
 }
 

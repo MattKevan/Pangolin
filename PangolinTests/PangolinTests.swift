@@ -38,6 +38,51 @@ private final class ManualVideoPresentationTransitionSleeper {
 }
 
 struct PangolinTests {
+    @Test("Activity popover shows every item in order")
+    func activityPopoverPolicyShowsEveryActiveItem() {
+        let items = [1, 2, 3, 4, 5, 6]
+
+        #expect(ActivityPopoverPolicy.visibleItems(items) == items)
+    }
+
+    @Test("Sidebar project selection opens projects only")
+    func sidebarProjectSelectionPolicyOpensOnlyProjects() {
+        #expect(SidebarProjectSelectionPolicy.canOpen(isProject: true))
+        #expect(!SidebarProjectSelectionPolicy.canOpen(isProject: false))
+    }
+
+    @Test("Sidebar highlights an open project instead of the projects shortcut")
+    func sidebarProjectSelectionPolicyHighlightsOpenProject() {
+        #expect(SidebarProjectSelectionPolicy.prefersProjectRowHighlight(
+            isProjectsDestination: true,
+            hasSelectedProject: true
+        ))
+        #expect(!SidebarProjectSelectionPolicy.prefersProjectRowHighlight(
+            isProjectsDestination: true,
+            hasSelectedProject: false
+        ))
+        #expect(!SidebarProjectSelectionPolicy.prefersProjectRowHighlight(
+            isProjectsDestination: false,
+            hasSelectedProject: true
+        ))
+    }
+
+    @Test("Sidebar projects shortcut resets an open project detail")
+    func sidebarProjectSelectionPolicyResetsProjectDetailForProjectsShortcut() {
+        #expect(SidebarProjectSelectionPolicy.shouldResetProjectDetail(
+            isProjectsDestination: true,
+            hasSelectedProject: true
+        ))
+        #expect(!SidebarProjectSelectionPolicy.shouldResetProjectDetail(
+            isProjectsDestination: true,
+            hasSelectedProject: false
+        ))
+        #expect(!SidebarProjectSelectionPolicy.shouldResetProjectDetail(
+            isProjectsDestination: false,
+            hasSelectedProject: true
+        ))
+    }
+
     @Test("Core Data store file protection uses a valid protection class string")
     func persistentStoreFileProtectionUsesValidString() {
         #expect(
