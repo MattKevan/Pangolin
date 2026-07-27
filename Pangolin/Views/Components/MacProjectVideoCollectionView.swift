@@ -258,8 +258,13 @@ private final class ProjectVideoCollectionScrollView: NSScrollView {
         guard size.width > 0 else { return }
 
         if collectionView.frame.width != size.width {
-            collectionView.frame.size.width = size.width
+            collectionView.frame = NSRect(origin: .zero, size: size)
             collectionView.collectionViewLayout?.invalidateLayout()
+            // The initial reload can happen while SwiftUI is still assigning the
+            // scroll view a zero-sized document rect. Reload after the clip view
+            // has its real width so the flow layout asks the delegate for usable
+            // card dimensions rather than retaining the bootstrap layout.
+            collectionView.reloadData()
         }
     }
 }
