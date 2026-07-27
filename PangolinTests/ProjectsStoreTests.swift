@@ -125,6 +125,14 @@ struct ProjectsStoreTests {
         ) == second)
     }
 
+    @Test("Mac collection item sizes stay positive before the document view is laid out")
+    func macProjectVideoCollectionItemSizingHandlesZeroWidth() {
+        let size = MacProjectVideoCollectionLayout.itemSize(containerWidth: 0)
+
+        #expect(size.width > 0)
+        #expect(size.height > size.width)
+    }
+
     @Test("Project video grid keeps two columns in compact and regular layouts")
     func projectVideoGridColumnPolicyKeepsMinimumOfTwoColumns() {
         #expect(ProjectVideoGridLayout.columnCount(availableWidth: 300, isCompact: true) == 2)

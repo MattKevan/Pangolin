@@ -42,6 +42,19 @@ enum MacProjectVideoCollectionPolicy {
     }
 }
 
+enum MacProjectVideoCollectionLayout {
+    static let minimumCardWidth: CGFloat = 220
+    static let horizontalInsets: CGFloat = 48
+
+    static func itemSize(containerWidth: CGFloat) -> NSSize {
+        let minimumContentWidth = (minimumCardWidth * 2) + ProjectVideoGridLayout.spacing
+        let available = max(minimumContentWidth, containerWidth - horizontalInsets)
+        let columns = max(2, Int((available + ProjectVideoGridLayout.spacing) / (minimumCardWidth + ProjectVideoGridLayout.spacing)))
+        let width = floor((available - CGFloat(columns - 1) * ProjectVideoGridLayout.spacing) / CGFloat(columns))
+        return NSSize(width: width, height: width * 0.82 + 96)
+    }
+}
+
 struct MacProjectVideoCollectionView: NSViewRepresentable {
     let sections: [ProjectSectionSnapshot]
     @Binding var selection: Set<UUID>
@@ -71,12 +84,7 @@ struct MacProjectVideoCollectionView: NSViewRepresentable {
         collectionView.onReturn = { [weak coordinator = context.coordinator] in coordinator?.activateSelectionFromReturn() }
         collectionView.onDoubleClick = { [weak coordinator = context.coordinator] indexPath in coordinator?.activateDoubleClick(at: indexPath) }
 
-        let scrollView = NSScrollView()
-        scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = true
-        scrollView.documentView = collectionView
-        collectionView.frame = scrollView.contentView.bounds
-        collectionView.autoresizingMask = [.width]
+        let scrollView = ProjectVideoCollectionScrollView(collectionView: collectionView)
         context.coordinator.collectionView = collectionView
         return scrollView
     }
@@ -129,10 +137,7 @@ struct MacProjectVideoCollectionView: NSViewRepresentable {
         }
 
         func collectionView(_ collectionView: NSCollectionView, layout collectionViewLayout: NSCollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> NSSize {
-            let available = max(1, collectionView.bounds.width - 48)
-            let columns = max(2, Int((available + ProjectVideoGridLayout.spacing) / (220 + ProjectVideoGridLayout.spacing)))
-            let width = floor((available - CGFloat(columns - 1) * ProjectVideoGridLayout.spacing) / CGFloat(columns))
-            return NSSize(width: width, height: width * 0.82 + 96)
+            MacProjectVideoCollectionLayout.itemSize(containerWidth: collectionView.bounds.width)
         }
 
         func collectionView(_ collectionView: NSCollectionView, menuForItemsAt indexPaths: Set<IndexPath>) -> NSMenu? {
@@ -231,6 +236,31 @@ private final class ActivatingCollectionView: NSCollectionView {
         let indexPath = indexPathForItem(at: convert(event.locationInWindow, from: nil))
         super.mouseDown(with: event)
         if event.clickCount == 2, let indexPath { onDoubleClick?(indexPath) }
+    }
+}
+
+private final class ProjectVideoCollectionScrollView: NSScrollView {
+    private let collectionView: NSCollectionView
+
+    init(collectionView: NSCollectionView) {
+        self.collectionView = collectionView
+        super.init(frame: .zero)
+        drawsBackground = false
+        hasVerticalScroller = true
+        documentView = collectionView
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func layout() {
+        super.layout()
+        let size = contentView.bounds.size
+        guard size.width > 0 else { return }
+
+        if collectionView.frame.width != size.width {
+            collectionView.frame.size.width = size.width
+            collectionView.collectionViewLayout?.invalidateLayout()
+        }
     }
 }
 
