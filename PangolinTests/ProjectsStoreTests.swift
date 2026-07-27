@@ -173,6 +173,29 @@ struct ProjectsStoreTests {
         #expect(ProjectVideoSelectionPolicy.activationID(selection: [first], visibleIDs: [second]) == nil)
     }
 
+    @Test("Project marquee replaces or extends its visible selection")
+    func projectMarqueeSelectionPolicy() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+
+        #expect(ProjectVideoSelectionPolicy.marqueeSelection(
+            hitIDs: [first, second],
+            selection: [third],
+            extendingSelection: false
+        ) == [first, second])
+        #expect(ProjectVideoSelectionPolicy.marqueeSelection(
+            hitIDs: [first, second],
+            selection: [second, third],
+            extendingSelection: true
+        ) == [first, third])
+    }
+
+    @Test("Project background interaction clears selection")
+    func projectBackgroundSelectionPolicy() {
+        #expect(ProjectVideoSelectionPolicy.backgroundSelection() == [])
+    }
+
     @Test("Projects becomes the default destination on startup")
     @MainActor
     func projectsIsDefaultStartupDestination() async throws {

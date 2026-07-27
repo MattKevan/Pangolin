@@ -9,6 +9,16 @@ import SwiftUI
 import AppKit
 #endif
 
+#if os(macOS)
+private struct ProjectVideoGridCardFrameKey: PreferenceKey {
+    static var defaultValue = [UUID: Anchor<CGRect>]()
+
+    static func reduce(value: inout [UUID: Anchor<CGRect>], nextValue: () -> [UUID: Anchor<CGRect>]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
+    }
+}
+#endif
+
 struct ProjectVideoGrid: View {
     let sections: [ProjectSectionSnapshot]
     let searchQuery: String
@@ -20,6 +30,14 @@ struct ProjectVideoGrid: View {
     let onEdit: (Video) -> Void
     let onDelete: (Video) -> Void
     let onToggleFavorite: (Video) -> Void
+
+    #if os(macOS)
+    @State private var marqueeStart: CGPoint?
+    @State private var marqueeRect: CGRect?
+    @State private var marqueeInitialSelection = Set<UUID>()
+    @State private var marqueeExtendsSelection = false
+    @State private var resolvedCardFrames = [UUID: CGRect]()
+    #endif
 
     private var columns: [GridItem] {
         if isCompact {
@@ -46,7 +64,21 @@ struct ProjectVideoGrid: View {
                     .frame(maxWidth: .infinity, minHeight: 220)
             }
         } else {
-            LazyVStack(alignment: .leading, spacing: 28) {
+            gridContent
+            #if os(macOS)
+                .simultaneousGesture(canvasSelectionGesture, including: .subviews)
+                .overlayPreferenceValue(ProjectVideoGridCardFrameKey.self) { anchors in
+                    GeometryReader { proxy in
+                        let cardFrames = anchors.mapValues { proxy[$0] }
+                        marqueeOverlay(in: cardFrames)
+                    }
+                }
+            #endif
+        }
+    }
+
+    private var gridContent: some View {
+        LazyVStack(alignment: .leading, spacing: 28) {
                 ForEach(sections) { section in
                     VStack(alignment: .leading, spacing: 12) {
                         ProjectSectionHeader(title: section.title)
@@ -65,14 +97,118 @@ struct ProjectVideoGrid: View {
                                     onEdit: { onEdit(video) },
                                     onDelete: { onDelete(video) }
                                 )
+                                #if os(macOS)
+                                .anchorPreference(
+                                    key: ProjectVideoGridCardFrameKey.self,
+                                    value: .bounds
+                                ) { anchor in
+                                    guard let id = video.id else { return [:] }
+                                    return [id: anchor]
+                                }
+                                #endif
                             }
                         }
                     }
                 }
             }
+            .contentShape(Rectangle())
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    #if os(macOS)
+    @ViewBuilder
+    private func marqueeOverlay(in cardFrames: [UUID: CGRect]) -> some View {
+        ZStack {
+            Color.clear
+                .allowsHitTesting(false)
+
+            if let marqueeRect {
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.12))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .stroke(Color.accentColor.opacity(0.75), lineWidth: 1)
+                    }
+                    .frame(width: marqueeRect.width, height: marqueeRect.height)
+                    .position(x: marqueeRect.midX, y: marqueeRect.midY)
+                    .allowsHitTesting(false)
+                }
+        }
+        .onAppear { resolvedCardFrames = cardFrames }
+        .onChange(of: cardFrames) { _, newFrames in
+            resolvedCardFrames = newFrames
         }
     }
+
+    private var canvasSelectionGesture: some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .local)
+            .onChanged { value in
+                beginOrUpdateMarquee(with: value)
+            }
+            .onEnded { value in
+                finishMarquee(with: value)
+            }
+    }
+
+    private func beginOrUpdateMarquee(with value: DragGesture.Value) {
+        guard marqueeStart != nil || !isPointInCard(value.startLocation) else { return }
+
+        if marqueeStart == nil {
+            marqueeStart = value.startLocation
+            marqueeInitialSelection = selection
+            marqueeExtendsSelection = NSEvent.modifierFlags.contains(.command)
+        }
+
+        guard let marqueeStart else { return }
+        marqueeRect = selectionRect(from: marqueeStart, to: value.location)
+        updateMarqueeSelection()
+    }
+
+    private func finishMarquee(with value: DragGesture.Value) {
+        defer {
+            marqueeStart = nil
+            marqueeRect = nil
+        }
+
+        guard let marqueeStart else { return }
+        let rect = selectionRect(from: marqueeStart, to: value.location)
+        if rect.width < 4, rect.height < 4 {
+            onInteraction(.macOSBackgroundClick)
+        } else {
+            marqueeRect = rect
+            updateMarqueeSelection()
+        }
+    }
+
+    private func updateMarqueeSelection() {
+        guard let marqueeRect else { return }
+        let hitIDs = cardFramesIntersecting(marqueeRect)
+        onInteraction(.macOSMarquee(ProjectVideoSelectionPolicy.marqueeSelection(
+            hitIDs: hitIDs,
+            selection: marqueeInitialSelection,
+            extendingSelection: marqueeExtendsSelection
+        )))
+    }
+
+    private func cardFramesIntersecting(_ rect: CGRect) -> Set<UUID> {
+        return Set(resolvedCardFrames.compactMap { id, frame in
+            frame.intersects(rect) ? id : nil
+        })
+    }
+
+    private func isPointInCard(_ point: CGPoint) -> Bool {
+        resolvedCardFrames.values.contains(where: { $0.contains(point) })
+    }
+
+    private func selectionRect(from start: CGPoint, to end: CGPoint) -> CGRect {
+        CGRect(
+            x: min(start.x, end.x),
+            y: min(start.y, end.y),
+            width: abs(end.x - start.x),
+            height: abs(end.y - start.y)
+        )
+    }
+    #endif
 }
 
 private struct ProjectVideoGridCard: View {
@@ -120,7 +256,8 @@ private struct ProjectVideoGridCard: View {
                 Button("Edit Video") { onEdit() }
                 Button("Delete Video", role: .destructive) { onDelete() }
             }
-            .gesture(macInteractionGesture)
+            .onTapGesture(count: 2, perform: performMacOpen)
+            .onTapGesture(perform: performMacClick)
         #else
         if isSelecting {
             cardContent
@@ -164,12 +301,6 @@ private struct ProjectVideoGridCard: View {
     }
 
     #if os(macOS)
-    private var macInteractionGesture: some Gesture {
-        TapGesture(count: 2)
-            .onEnded(performMacOpen)
-            .exclusively(before: TapGesture().onEnded(performMacClick))
-    }
-
     private func performMacClick() {
         guard isInteractive, let id = video.id else { return }
         let modifiers = NSEvent.modifierFlags

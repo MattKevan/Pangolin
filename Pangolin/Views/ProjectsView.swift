@@ -279,6 +279,18 @@ enum ProjectVideoSelectionPolicy {
     ) -> UUID? {
         activationID(selection: selection, visibleIDs: visibleIDs)
     }
+
+    static func marqueeSelection(
+        hitIDs: Set<UUID>,
+        selection: Set<UUID>,
+        extendingSelection: Bool
+    ) -> Set<UUID> {
+        extendingSelection ? selection.symmetricDifference(hitIDs) : hitIDs
+    }
+
+    static func backgroundSelection() -> Set<UUID> {
+        []
+    }
 }
 
 enum ProjectVideoGridLayout {
@@ -304,6 +316,8 @@ enum ProjectVideoTouchInteraction: Equatable {
     case macOSSelection(UUID, extendingSelection: Bool, rangeSelecting: Bool)
     case macOSOpen(UUID)
     case macOSReturn
+    case macOSMarquee(Set<UUID>)
+    case macOSBackgroundClick
 }
 
 enum ProjectVideoTouchInteractionPolicy {
@@ -973,6 +987,10 @@ struct ProjectDetailView: View {
         case .macOSReturn:
             guard let video = selectedProjectVideo else { return }
             store.openProjectVideo(video, in: project)
+        case .macOSMarquee(let selection):
+            store.selectedProjectVideoIDs = selection
+        case .macOSBackgroundClick:
+            store.clearProjectVideoSelection()
         }
     }
 

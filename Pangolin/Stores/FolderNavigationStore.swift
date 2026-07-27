@@ -723,6 +723,10 @@ class FolderNavigationStore: ObservableObject {
     }
 
     func openProjectVideo(_ video: Video, in project: Folder? = nil) {
+        // Publish the video route first. When opening from a project this prevents
+        // the detail column from briefly reconciling back to the project surface.
+        selectedVideo = video
+
         if let project {
             captureVideoNavigationOrigin(.project(project))
             openProject(project, preservingVideoDetail: true)
@@ -734,7 +738,6 @@ class FolderNavigationStore: ObservableObject {
             }
         }
 
-        selectedVideo = video
         if let videoID = video.id {
             selectedProjectVideoIDs = [videoID]
             projectSelectionAnchorID = videoID
