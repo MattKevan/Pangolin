@@ -17,6 +17,7 @@ struct ProjectVideoGrid: View {
     let onToggleFavorite: (Video) -> Void
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var availableWidth: CGFloat = 0
 
     private var columns: [GridItem] {
         if horizontalSizeClass == .compact {
@@ -26,12 +27,7 @@ struct ProjectVideoGrid: View {
             )
         }
 
-        return [
-            GridItem(
-                .adaptive(minimum: ProjectVideoGridLayout.minimumRegularCardWidth),
-                spacing: ProjectVideoGridLayout.spacing
-            )
-        ]
+        return ProjectVideoGridLayout.regularColumns(availableWidth: availableWidth)
     }
 
     var body: some View {
@@ -73,6 +69,14 @@ struct ProjectVideoGrid: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                GeometryReader { proxy in
+                    Color.clear.preference(key: ProjectVideoGridWidthPreferenceKey.self, value: proxy.size.width)
+                }
+            }
+            .onPreferenceChange(ProjectVideoGridWidthPreferenceKey.self) { width in
+                availableWidth = width
+            }
         }
     }
 }
@@ -97,23 +101,44 @@ private struct ProjectVideoGridCard: View {
     }
 
     private var interactiveCard: some View {
-        cardContent
-            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .gesture(interactionGesture)
-            .accessibilityElement(children: .contain)
+        interactiveCardContent
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel(accessibilityLabel)
             .accessibilityValue(isSelected ? "Selected" : "")
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { performTap() }
             .accessibilityAction(named: Text("Open")) { performOpen() }
             .accessibilityAction(named: Text("Select video")) { performLongPress() }
+            .accessibilityAction(named: Text(video.isFavorite ? "Remove from favourites" : "Add to favourites")) { onToggleFavorite() }
+            .accessibilityAction(named: Text("Edit Video")) { onEdit() }
+            .accessibilityAction(named: Text("Delete Video")) { onDelete() }
+    }
+
+    @ViewBuilder
+    private var interactiveCardContent: some View {
+        if isSelecting {
+            cardContent
+                .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .contextMenu {
+                    Button(video.isFavorite ? "Remove from favourites" : "Add to favourites", systemImage: video.isFavorite ? "heart.slash" : "heart") {
+                        onToggleFavorite()
+                    }
+                    Button("Edit Video") { onEdit() }
+                    Button("Delete Video", role: .destructive) { onDelete() }
+                }
+                .gesture(TapGesture().onEnded(performTap))
+        } else {
+            cardContent
+                .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .gesture(interactionGesture)
+        }
     }
 
     private var staticCard: some View {
         cardContent
             .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .opacity(0.55)
-            .accessibilityElement(children: .contain)
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel(accessibilityLabel)
             .accessibilityAddTraits(.isStaticText)
     }
@@ -121,61 +146,14 @@ private struct ProjectVideoGridCard: View {
     private var cardContent: some View {
         ProjectVideoCardContent(
             video: video,
-            isSelected: isSelected,
-            onToggleFavorite: onToggleFavorite,
-            onEdit: onEdit,
-            onDelete: onDelete
+            isSelected: isSelected
         )
-    }
-
-    private var thumbnail: some View {
-        SyncedThumbnailImage(video: video, contentMode: .fill) {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.secondary.opacity(0.16))
-                .overlay {
-                    Image(systemName: "play.rectangle.fill")
-                        .font(.title2)
-                        .foregroundStyle(.secondary)
-                }
-        }
-        .aspectRatio(16 / 9, contentMode: .fit)
-        .frame(maxWidth: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(alignment: .bottomTrailing) {
-            Text(video.formattedDuration)
-                .font(.caption2.weight(.medium).monospacedDigit())
-                .foregroundStyle(.white)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-                .padding(6)
-        }
-        .overlay(alignment: .topTrailing) {
-            cloudStatusIcon
-                .padding(6)
-        }
     }
 
     private var interactionGesture: some Gesture {
         LongPressGesture(minimumDuration: 0.45)
             .onEnded { _ in performLongPress() }
             .exclusively(before: TapGesture().onEnded(performTap))
-    }
-
-    private var cardActionsMenu: some View {
-        Menu {
-            Button(video.isFavorite ? "Remove from favourites" : "Add to favourites", systemImage: video.isFavorite ? "heart.slash" : "heart") {
-                onToggleFavorite()
-            }
-            Button("Edit Video") { onEdit() }
-            Button("Delete Video", role: .destructive) { onDelete() }
-        } label: {
-            Image(systemName: "ellipsis.circle")
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .frame(width: 28, height: 28)
-        }
-        .accessibilityLabel("More actions for \(resolvedTitle)")
     }
 
     private var resolvedTitle: String {
@@ -201,59 +179,11 @@ private struct ProjectVideoGridCard: View {
         }
     }
 
-    @ViewBuilder
-    private var cloudStatusIcon: some View {
-        if let cloudStatusPresentation {
-            Image(systemName: cloudStatusPresentation.systemImage)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.white)
-                .padding(4)
-                .background(cloudStatusPresentation.color, in: Circle())
-                .accessibilityLabel(cloudStatusPresentation.label)
-        }
-    }
-
-    private var cloudStatusPresentation: (systemImage: String, label: String, color: Color)? {
-        switch fileStatus {
-        case .cloudOnly:
-            ("icloud", "Available in iCloud", .blue)
-        case .downloading:
-            ("icloud.and.arrow.down", "Downloading from iCloud", .blue)
-        case .missing:
-            ("exclamationmark.icloud", "File not found", .red)
-        case .error:
-            ("questionmark.diamond", "File unavailable", .gray)
-        case .local:
-            nil
-        }
-    }
-
-    private var fileStatus: VideoFileStatus {
-        if let rawState = video.fileAvailabilityState,
-           let status = VideoFileStatus(rawValue: rawState) {
-            return status
-        }
-        return video.cloudRelativePath?.isEmpty == false ? .cloudOnly : .local
-    }
-
     private var accessibilityLabel: String {
         ProjectVideoCardContent(
             video: video,
-            isSelected: isSelected,
-            onToggleFavorite: onToggleFavorite,
-            onEdit: onEdit,
-            onDelete: onDelete
+            isSelected: isSelected
         ).accessibilityLabel
-    }
-
-    private var availabilityLabel: String {
-        switch fileStatus {
-        case .local: return "On device"
-        case .cloudOnly: return "Available in iCloud"
-        case .downloading: return "Downloading from iCloud"
-        case .missing: return "File not found"
-        case .error: return "File unavailable"
-        }
     }
 
     private func performTap() {
@@ -281,9 +211,6 @@ private struct ProjectVideoGridCard: View {
 struct ProjectVideoCardContent: View {
     let video: Video
     let isSelected: Bool
-    let onToggleFavorite: () -> Void
-    let onEdit: () -> Void
-    let onDelete: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -307,6 +234,7 @@ struct ProjectVideoCardContent: View {
                     .padding(.vertical, 3)
                     .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
                     .padding(6)
+                    .accessibilityHidden(true)
             }
             .overlay(alignment: .topTrailing) {
                 if let cloudStatusPresentation {
@@ -315,7 +243,7 @@ struct ProjectVideoCardContent: View {
                         .foregroundStyle(.white)
                         .padding(4)
                         .background(cloudStatusPresentation.color, in: Circle())
-                        .accessibilityLabel(cloudStatusPresentation.label)
+                        .accessibilityHidden(true)
                         .padding(6)
                 }
             }
@@ -343,17 +271,6 @@ struct ProjectVideoCardContent: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                Menu {
-                    Button(video.isFavorite ? "Remove from favourites" : "Add to favourites", systemImage: video.isFavorite ? "heart.slash" : "heart") { onToggleFavorite() }
-                    Button("Edit Video") { onEdit() }
-                    Button("Delete Video", role: .destructive) { onDelete() }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 28, height: 28)
-                }
-                .accessibilityLabel("More actions for \(resolvedTitle)")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -421,3 +338,10 @@ struct ProjectVideoCardContent: View {
         }
     }
 }
+
+#if os(iOS)
+private struct ProjectVideoGridWidthPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+#endif

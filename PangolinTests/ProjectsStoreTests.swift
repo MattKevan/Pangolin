@@ -132,6 +132,12 @@ struct ProjectsStoreTests {
         #expect(ProjectVideoGridLayout.columnCount(availableWidth: 800, isCompact: false) > 2)
     }
 
+    @Test("Project video grid creates explicit flexible regular columns")
+    func projectVideoGridRegularColumnsMatchLayoutPolicy() {
+        #expect(ProjectVideoGridLayout.regularColumns(availableWidth: 300).count == 2)
+        #expect(ProjectVideoGridLayout.regularColumns(availableWidth: 800).count == 4)
+    }
+
     @Test("Touch video interactions open, begin selection, and toggle predictably")
     func projectTouchInteractionPolicy() {
         let id = UUID()

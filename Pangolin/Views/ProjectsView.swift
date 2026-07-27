@@ -289,6 +289,13 @@ enum ProjectVideoGridLayout {
         guard !isCompact else { return 2 }
         return max(2, Int((availableWidth + spacing) / (minimumRegularCardWidth + spacing)))
     }
+
+    static func regularColumns(availableWidth: CGFloat) -> [GridItem] {
+        Array(
+            repeating: GridItem(.flexible(), spacing: spacing),
+            count: columnCount(availableWidth: availableWidth, isCompact: false)
+        )
+    }
 }
 
 enum ProjectVideoTouchInteraction: Equatable {
@@ -567,6 +574,14 @@ struct ProjectDetailView: View {
 
     private var displayedVideoIDs: Set<UUID> {
         Set(orderedDisplayedVideos.compactMap(\.id))
+    }
+
+    private var selectedProjectVideo: Video? {
+        guard let id = ProjectVideoSelectionPolicy.primaryActionID(
+            selection: store.selectedProjectVideoIDs,
+            visibleIDs: displayedVideoIDs
+        ) else { return nil }
+        return orderedDisplayedVideos.first { $0.id == id }
     }
 
     private var hasProjectSearch: Bool {
@@ -934,6 +949,18 @@ struct ProjectDetailView: View {
 
     private var projectOverflowMenu: some View {
         Menu {
+            if let selectedProjectVideo {
+                Button(
+                    selectedProjectVideo.isFavorite ? "Remove from favourites" : "Add to favourites",
+                    systemImage: selectedProjectVideo.isFavorite ? "heart.slash" : "heart"
+                ) {
+                    toggleFavorite(selectedProjectVideo)
+                }
+                Button("Edit Video") { editingVideo = selectedProjectVideo }
+                Button("Delete Video", role: .destructive) { promptVideoDeletion(selectedProjectVideo) }
+                Divider()
+            }
+
             Button("Clear search", systemImage: "xmark.circle") {
                 store.projectSearchQuery = ""
             }

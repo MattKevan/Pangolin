@@ -106,10 +106,7 @@ struct MacProjectVideoCollectionView: NSViewRepresentable {
                 video: video,
                 isSelected: video.id.map(parent.selection.contains) ?? false,
                 onOpen: parent.onOpen,
-                onSelect: { [weak self] in self?.toggleAccessibilitySelection(for: video) },
-                onEdit: parent.onEdit,
-                onDelete: parent.onDelete,
-                onToggleFavorite: parent.onToggleFavorite
+                onSelect: { [weak self] in self?.toggleAccessibilitySelection(for: video) }
             )
             return item
         }
@@ -126,6 +123,10 @@ struct MacProjectVideoCollectionView: NSViewRepresentable {
 
         func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) { publishSelection() }
         func collectionView(_ collectionView: NSCollectionView, didDeselectItemsAt indexPaths: Set<IndexPath>) { publishSelection() }
+
+        func collectionView(_ collectionView: NSCollectionView, shouldSelectItemsAt indexPaths: Set<IndexPath>) -> Set<IndexPath> {
+            indexPaths.filter { video(at: $0).id != nil }
+        }
 
         func collectionView(_ collectionView: NSCollectionView, layout collectionViewLayout: NSCollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> NSSize {
             let available = max(1, collectionView.bounds.width - 48)
@@ -145,8 +146,9 @@ struct MacProjectVideoCollectionView: NSViewRepresentable {
             if selectedVideo == nil {
                 let summary = menu.addItem(withTitle: "\(parent.selection.count) Videos Selected", action: nil, keyEquivalent: "")
                 summary.isEnabled = false
-            } else {
+            } else if let selectedVideo {
                 menu.addItem(withTitle: "Open Video", action: #selector(openFromMenu), keyEquivalent: "")
+                menu.addItem(withTitle: selectedVideo.isFavorite ? "Remove from favourites" : "Add to favourites", action: #selector(toggleFavoriteFromMenu), keyEquivalent: "")
                 menu.addItem(withTitle: "Edit Video", action: #selector(editFromMenu), keyEquivalent: "")
                 menu.addItem(NSMenuItem.separator())
                 menu.addItem(withTitle: "Delete Video", action: #selector(deleteFromMenu), keyEquivalent: "")
@@ -156,6 +158,7 @@ struct MacProjectVideoCollectionView: NSViewRepresentable {
         }
 
         @objc private func openFromMenu() { activateSelectionFromReturn() }
+        @objc private func toggleFavoriteFromMenu() { if let video = selectedVideo { parent.onToggleFavorite(video) } }
         @objc private func editFromMenu() { if let video = selectedVideo { parent.onEdit(video) } }
         @objc private func deleteFromMenu() { if let video = selectedVideo { parent.onDelete(video) } }
 
@@ -236,40 +239,53 @@ private final class MacProjectVideoCollectionItem: NSCollectionViewItem {
         video: Video,
         isSelected: Bool,
         onOpen: @escaping (Video) -> Void,
-        onSelect: @escaping () -> Void,
-        onEdit: @escaping (Video) -> Void,
-        onDelete: @escaping (Video) -> Void,
-        onToggleFavorite: @escaping (Video) -> Void
+        onSelect: @escaping () -> Void
     ) {
         let card = ProjectVideoCardContent(
             video: video,
-            isSelected: isSelected,
-            onToggleFavorite: { onToggleFavorite(video) },
-            onEdit: { onEdit(video) },
-            onDelete: { onDelete(video) }
+            isSelected: isSelected
         )
-        let accessibleCard = card
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(card.accessibilityLabel)
-        .accessibilityValue(isSelected ? "Selected" : "")
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction { onOpen(video) }
-        .accessibilityAction(named: Text("Open")) { onOpen(video) }
-        .accessibilityAction(named: Text("Select video")) { onSelect() }
+        let accessibleCard: AnyView
+        if video.id != nil {
+            accessibleCard = AnyView(
+                card
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(card.accessibilityLabel)
+                    .accessibilityValue(isSelected ? "Selected" : "")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction { onOpen(video) }
+                    .accessibilityAction(named: Text("Open")) { onOpen(video) }
+                    .accessibilityAction(named: Text("Select video")) { onSelect() }
+            )
+        } else {
+            accessibleCard = AnyView(
+                card
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(card.accessibilityLabel)
+                    .accessibilityAddTraits(.isStaticText)
+            )
+        }
 
-        view = NSHostingView(rootView: AnyView(accessibleCard))
+        view = NSHostingView(rootView: accessibleCard)
         view.setAccessibilityIdentifier(video.id.map { "project-video-card-\($0.uuidString)" })
     }
 }
 
 private final class MacProjectVideoSectionHeader: NSView {
     private let label = NSTextField(labelWithString: "")
-    var title: String { didSet { label.stringValue = title } }
+    var title: String {
+        didSet {
+            label.stringValue = title
+            setAccessibilityLabel(title)
+        }
+    }
 
     override init(frame frameRect: NSRect) {
         title = ""
         super.init(frame: frameRect)
         label.font = .preferredFont(forTextStyle: .headline)
+        label.setAccessibilityElement(false)
+        setAccessibilityRole(NSAccessibility.Role(rawValue: "AXHeading"))
         addSubview(label)
     }
     required init?(coder: NSCoder) { nil }
