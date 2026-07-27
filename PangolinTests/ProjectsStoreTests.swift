@@ -74,6 +74,34 @@ struct ProjectsStoreTests {
         ) == nil)
     }
 
+    @Test("Project video grid keeps two columns in compact and regular layouts")
+    func projectVideoGridColumnPolicyKeepsMinimumOfTwoColumns() {
+        #expect(ProjectVideoGridLayout.columnCount(availableWidth: 300, isCompact: true) == 2)
+        #expect(ProjectVideoGridLayout.columnCount(availableWidth: 300, isCompact: false) == 2)
+        #expect(ProjectVideoGridLayout.columnCount(availableWidth: 800, isCompact: false) > 2)
+    }
+
+    @Test("Touch video interactions open, begin selection, and toggle predictably")
+    func projectTouchInteractionPolicy() {
+        let id = UUID()
+        let alreadySelected = UUID()
+
+        #expect(ProjectVideoTouchInteractionPolicy.tap(id, selection: [], isSelecting: false) == .open(id))
+        #expect(ProjectVideoTouchInteractionPolicy.longPress(id, selection: []) == .selecting([id]))
+        #expect(ProjectVideoTouchInteractionPolicy.longPress(id, selection: [alreadySelected]) == .selecting([alreadySelected, id]))
+        #expect(ProjectVideoTouchInteractionPolicy.tap(id, selection: [id], isSelecting: true) == .selecting([]))
+    }
+
+    @Test("Project video activation requires one visible selection")
+    func projectGridActivationRequiresExactlyOneVisibleSelection() {
+        let first = UUID()
+        let second = UUID()
+
+        #expect(ProjectVideoSelectionPolicy.activationID(selection: [first], visibleIDs: [first, second]) == first)
+        #expect(ProjectVideoSelectionPolicy.activationID(selection: [first, second], visibleIDs: [first, second]) == nil)
+        #expect(ProjectVideoSelectionPolicy.activationID(selection: [first], visibleIDs: [second]) == nil)
+    }
+
     @Test("Projects becomes the default destination on startup")
     @MainActor
     func projectsIsDefaultStartupDestination() async throws {
