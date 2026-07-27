@@ -289,9 +289,30 @@ enum ProjectRenamePolicy {
     }
 }
 
+enum ProjectGridLayout {
+    static let contentPadding: CGFloat = 22
+    static let spacing: CGFloat = 22
+    static let minimumRegularCardWidth: CGFloat = 220
+    static let compactColumnCount = 2
+    static let minimumRegularColumnCount = 2
+    static let cardAspectRatio: CGFloat = 5.0 / 3.0
+
+    static func columnCount(availableWidth: CGFloat, isCompact: Bool) -> Int {
+        guard !isCompact else { return compactColumnCount }
+
+        let fittedColumnCount = Int(
+            (availableWidth + spacing) / (minimumRegularCardWidth + spacing)
+        )
+        return max(minimumRegularColumnCount, fittedColumnCount)
+    }
+}
+
 struct ProjectsGridView: View {
     @EnvironmentObject private var store: FolderNavigationStore
     @EnvironmentObject private var libraryManager: LibraryManager
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    #endif
 
     @State private var renamingProjectID: UUID?
     @State private var editedProjectTitle = ""
@@ -301,12 +322,16 @@ struct ProjectsGridView: View {
 
     private let projectSelectionAction: ((Folder) -> Void)?
 
-    private let columns = [
-        GridItem(.adaptive(minimum: 220, maximum: 260), spacing: 24, alignment: .top)
-    ]
-
     private var projects: [Folder] {
         store.projects()
+    }
+
+    private var usesCompactGrid: Bool {
+        #if os(iOS)
+        horizontalSizeClass == .compact
+        #else
+        false
+        #endif
     }
 
     init(projectSelectionAction: ((Folder) -> Void)? = nil) {
@@ -314,45 +339,49 @@ struct ProjectsGridView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                Text("Projects")
-                    .font(.title2.weight(.semibold))
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: ProjectGridLayout.spacing) {
 
-                if projects.isEmpty {
-                    ContentUnavailableView(
-                        "No projects yet",
-                        systemImage: "square.grid.2x2",
-                        description: Text("Create a project to organize sections and videos.")
-                    )
-                    .frame(maxWidth: .infinity, minHeight: 320)
-                } else {
-                    LazyVGrid(columns: columns, alignment: .leading, spacing: 24) {
-                        ForEach(projects, id: \.objectID) { project in
-                            ProjectCard(
-                                project: project,
-                                action: {
-                                    if let projectSelectionAction {
-                                        projectSelectionAction(project)
-                                    } else {
-                                        store.openProject(project)
-                                    }
-                                },
-                                isRenaming: renamingProjectID == project.id,
-                                editedTitle: $editedProjectTitle,
-                                focusedProjectID: $focusedProjectID,
-                                onRename: { beginRenaming(project) },
-                                onCommitRename: { Task { await commitRename(for: project) } },
-                                onCancelRename: cancelRenaming,
-                                onDelete: { promptDeletion(of: project) }
-                            )
-                            .accessibilityIdentifier("project-card-\(project.id?.uuidString ?? project.objectID.uriRepresentation().absoluteString)")
+                    if projects.isEmpty {
+                        ContentUnavailableView(
+                            "No projects yet",
+                            systemImage: "square.grid.2x2",
+                            description: Text("Create a project to organize sections and videos.")
+                        )
+                        .frame(maxWidth: .infinity, minHeight: 320)
+                    } else {
+                        LazyVGrid(
+                            columns: columns(for: geometry.size.width),
+                            alignment: .leading,
+                            spacing: ProjectGridLayout.spacing
+                        ) {
+                            ForEach(projects, id: \.objectID) { project in
+                                ProjectCard(
+                                    project: project,
+                                    action: {
+                                        if let projectSelectionAction {
+                                            projectSelectionAction(project)
+                                        } else {
+                                            store.openProject(project)
+                                        }
+                                    },
+                                    isRenaming: renamingProjectID == project.id,
+                                    editedTitle: $editedProjectTitle,
+                                    focusedProjectID: $focusedProjectID,
+                                    onRename: { beginRenaming(project) },
+                                    onCommitRename: { Task { await commitRename(for: project) } },
+                                    onCancelRename: cancelRenaming,
+                                    onDelete: { promptDeletion(of: project) }
+                                )
+                                .accessibilityIdentifier("project-card-\(project.id?.uuidString ?? project.objectID.uriRepresentation().absoluteString)")
+                            }
                         }
                     }
                 }
+                .padding(ProjectGridLayout.contentPadding)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .navigationTitle("Projects")
         .projectFolderDrop(
@@ -369,6 +398,25 @@ struct ProjectsGridView: View {
         } message: {
             Text("This project and all its contents will be permanently deleted from your library and removed from disk. This action cannot be undone.")
         }
+    }
+
+    private func columns(for containerWidth: CGFloat) -> [GridItem] {
+        let availableWidth = max(
+            0,
+            containerWidth - (ProjectGridLayout.contentPadding * 2)
+        )
+        let count = ProjectGridLayout.columnCount(
+            availableWidth: availableWidth,
+            isCompact: usesCompactGrid
+        )
+        return Array(
+            repeating: GridItem(
+                .flexible(minimum: 0, maximum: .infinity),
+                spacing: ProjectGridLayout.spacing,
+                alignment: .top
+            ),
+            count: count
+        )
     }
 
     private func beginRenaming(_ project: Folder) {
@@ -451,7 +499,7 @@ struct ProjectDetailView: View {
     init(
         project: Folder,
         showsPhoneToolbar: Bool = false,
-        opensVideoOnSingleTap: Bool = false
+        opensVideoOnSingleTap: Bool = true
     ) {
         self.project = project
         self.showsPhoneToolbar = showsPhoneToolbar
@@ -961,16 +1009,13 @@ private struct ProjectCard: View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 10) {
                 Color.clear
-                    .aspectRatio(1, contentMode: .fit)
+                    .aspectRatio(ProjectGridLayout.cardAspectRatio, contentMode: .fit)
                     .frame(maxWidth: .infinity)
                     .overlay {
                         thumbnail
                     }
-                    .clipShape(.rect(cornerRadius: 14))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                    )
+                    .clipShape(.rect(cornerRadius: 6))
+                    .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
 
                 VStack(alignment: .leading, spacing: 2) {
                     projectTitle
@@ -984,7 +1029,7 @@ private struct ProjectCard: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .buttonStyle(.plain)
         .contextMenu {
@@ -1001,7 +1046,7 @@ private struct ProjectCard: View {
     private var projectTitle: some View {
         if isRenaming, let projectID = project.id {
             TextField("Project title", text: $editedTitle)
-                .font(.headline)
+                .font(.subheadline)
                 .textFieldStyle(.plain)
                 .focused($focusedProjectID, equals: projectID)
                 .onSubmit(onCommitRename)
@@ -1019,7 +1064,7 @@ private struct ProjectCard: View {
                 }
         } else {
             Text(project.resolvedProjectTitle)
-                .font(.headline)
+                .font(.subheadline)
                 .foregroundStyle(.primary)
                 .lineLimit(2)
         }

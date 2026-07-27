@@ -1,5 +1,19 @@
 import SwiftUI
 
+enum ProjectSidebarDropPolicy {
+    static func canMove(videoIDs: [UUID], isProject: Bool) -> Bool {
+        isProject && !videoIDs.isEmpty
+    }
+
+    static func shouldConsumePayload(
+        videoIDs: [UUID],
+        isProject: Bool,
+        hasAlreadyHandledSession: Bool
+    ) -> Bool {
+        canMove(videoIDs: videoIDs, isProject: isProject) && !hasAlreadyHandledSession
+    }
+}
+
 enum SidebarProjectSelectionPolicy {
     static func canOpen(isProject: Bool) -> Bool {
         isProject
@@ -24,6 +38,32 @@ enum SidebarProjectRowPresentation {
     static let systemImage = "folder"
 }
 
+enum ProjectSidebarRowIdentity {
+    static func value(projectID: UUID?, objectURI: URL) -> String {
+        if let projectID {
+            return "project:\(projectID.uuidString)"
+        }
+        return "object:\(objectURI.absoluteString)"
+    }
+
+    static func value(for project: Folder) -> String {
+        value(
+            projectID: project.id,
+            objectURI: project.objectID.uriRepresentation()
+        )
+    }
+}
+
+private struct SidebarProjectRowModel: Identifiable {
+    let project: Folder
+    let id: String
+
+    init(project: Folder) {
+        self.project = project
+        id = ProjectSidebarRowIdentity.value(for: project)
+    }
+}
+
 struct SidebarView: View {
     @EnvironmentObject private var store: FolderNavigationStore
     @EnvironmentObject private var libraryManager: LibraryManager
@@ -35,6 +75,8 @@ struct SidebarView: View {
     @FocusState private var focusedProjectID: UUID?
     @State private var projectPendingDeletion: Folder?
     @State private var showingProjectDeletionConfirmation = false
+    @State private var projectDropTargetID: UUID?
+    @State private var handledProjectDropSessions = Set<DropSession.ID>()
 
     var body: some View {
         List(selection: $sidebarSelections) {
@@ -63,9 +105,9 @@ struct SidebarView: View {
             }
 
             Section("Projects") {
-                ForEach(store.projects(), id: \.objectID) { project in
-                    projectSidebarRow(project)
-                        .tag(SidebarSelection.folder(project))
+                ForEach(sidebarProjects) { row in
+                    projectSidebarRow(row.project)
+                        .tag(SidebarSelection.folder(row.project))
                 }
             }
         }
@@ -81,7 +123,7 @@ struct SidebarView: View {
         .navigationTitle("Library")
         .contextMenu {
             Button("New project") {
-                createTopLevelProject()
+                requestNewProject()
             }
             .disabled(libraryManager.currentLibrary == nil)
         }
@@ -112,6 +154,10 @@ struct SidebarView: View {
         }
     }
 
+    private var sidebarProjects: [SidebarProjectRowModel] {
+        store.projects().map { SidebarProjectRowModel(project: $0) }
+    }
+
     @ViewBuilder
     private func sidebarShortcutRow(
         title: String,
@@ -139,6 +185,22 @@ struct SidebarView: View {
                 Text(project.resolvedProjectTitle)
             }
         }
+        .background {
+            if let projectID = project.id, projectDropTargetID == projectID {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.18))
+            }
+        }
+        .dropDestination(
+            for: VideoTableDragTransfer.self,
+            isEnabled: project.isProject
+        ) { transfers, session in
+            handleProjectVideoDrop(
+                transfers,
+                session: session,
+                project: project
+            )
+        }
         .contextMenu {
             Button("Open") {
                 store.openProject(project)
@@ -149,6 +211,58 @@ struct SidebarView: View {
             Button("Delete", role: .destructive) {
                 promptProjectDeletion(of: project)
             }
+        }
+    }
+
+    private func updateProjectDropTarget(_ isTargeted: Bool, for project: Folder) {
+        guard let projectID = project.id else { return }
+        if isTargeted {
+            projectDropTargetID = projectID
+        } else if projectDropTargetID == projectID {
+            projectDropTargetID = nil
+        }
+    }
+
+    private func moveDroppedVideos(
+        _ transfers: [VideoTableDragTransfer],
+        to project: Folder
+    ) -> Bool {
+        guard let projectID = project.id else { return false }
+        let videoIDs = Array(Set(transfers.flatMap(\.videoIDs)))
+        guard ProjectSidebarDropPolicy.canMove(videoIDs: videoIDs, isProject: project.isProject) else {
+            return false
+        }
+
+        Task { @MainActor in
+            await store.moveItems(Set(videoIDs), to: projectID)
+        }
+        return true
+    }
+
+    private func handleProjectVideoDrop(
+        _ transfers: [VideoTableDragTransfer],
+        session: DropSession,
+        project: Folder
+    ) {
+        switch session.phase {
+        case .entering, .active:
+            updateProjectDropTarget(true, for: project)
+        case .exiting:
+            updateProjectDropTarget(false, for: project)
+        case .ended, .dataTransferCompleted:
+            updateProjectDropTarget(false, for: project)
+            let videoIDs = Array(Set(transfers.flatMap(\.videoIDs)))
+            guard ProjectSidebarDropPolicy.shouldConsumePayload(
+                videoIDs: videoIDs,
+                isProject: project.isProject,
+                hasAlreadyHandledSession: handledProjectDropSessions.contains(session.id)
+            ) else {
+                return
+            }
+            handledProjectDropSessions.insert(session.id)
+            _ = moveDroppedVideos(transfers, to: project)
+        @unknown default:
+            updateProjectDropTarget(false, for: project)
         }
     }
 
@@ -199,14 +313,8 @@ struct SidebarView: View {
         }
     }
 
-    private func createTopLevelProject() {
-        Task { @MainActor in
-            guard let createdProjectID = await store.createFolder(name: "Untitled Project", in: nil),
-                  let project = store.projects().first(where: { $0.id == createdProjectID }) else {
-                return
-            }
-            store.openProject(project)
-        }
+    private func requestNewProject() {
+        NotificationCenter.default.post(name: .triggerCreateFolder, object: nil)
     }
 
     private func beginProjectRename(_ project: Folder) {

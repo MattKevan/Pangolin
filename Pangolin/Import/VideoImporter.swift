@@ -98,6 +98,8 @@ class VideoImporter: ObservableObject {
             progress = 1.0
             processedFiles = totalFiles
         }
+
+        StoragePolicyManager.shared.scheduleAutomaticPolicyApply(for: library)
     }
 
     func prepareImportPlan(
@@ -122,7 +124,13 @@ class VideoImporter: ObservableObject {
         return ImportPlan(videoFiles: videoFiles, createdFolders: createdFolders)
     }
 
-    func importSingleFile(_ fileURL: URL, library: Library, context: NSManagedObjectContext, createdFolders: [String: Folder]) async throws -> Video {
+    func importSingleFile(
+        _ fileURL: URL,
+        library: Library,
+        context: NSManagedObjectContext,
+        createdFolders: [String: Folder],
+        originalSourceURL: URL? = nil
+    ) async throws -> Video {
         guard let libraryURL = library.url else { throw FileSystemError.invalidLibraryPath }
         let manager = fileSystemManager
         let copyFile = library.copyFilesOnImport
@@ -134,6 +142,9 @@ class VideoImporter: ObservableObject {
             )
         }.value
         let video = try manager.makeVideo(from: preparedImport, library: library, context: context)
+        if let originalSourceURL {
+            video.sourcePath = ImportDuplicatePolicy.canonicalSourcePath(originalSourceURL)
+        }
         print("✅ IMPORT: Successfully imported video: \(video.title ?? "Unknown")")
         
         assignVideoToFolder(video: video, originalPath: fileURL, createdFolders: createdFolders)

@@ -271,7 +271,10 @@ class FolderNavigationStore: ObservableObject {
         clearProjectDetailState(clearProject: true)
     }
 
-    private func clearProjectDetailState(clearProject: Bool = false) {
+    private func clearProjectDetailState(
+        clearProject: Bool = false,
+        clearSelectedVideo: Bool = true
+    ) {
         if clearProject, selectedProject != nil {
             selectedProject = nil
         }
@@ -284,7 +287,7 @@ class FolderNavigationStore: ObservableObject {
             selectedTopLevelFolder = nil
         }
 
-        if selectedVideo != nil {
+        if clearSelectedVideo, selectedVideo != nil {
             selectedVideo = nil
         }
 
@@ -722,12 +725,12 @@ class FolderNavigationStore: ObservableObject {
     func openProjectVideo(_ video: Video, in project: Folder? = nil) {
         if let project {
             captureVideoNavigationOrigin(.project(project))
-            openProject(project)
+            openProject(project, preservingVideoDetail: true)
         } else if let folder = video.folder {
             let topLevelFolder = topLevelAncestor(for: folder)
             if topLevelFolder.isProject {
                 captureVideoNavigationOrigin(.project(topLevelFolder))
-                openProject(topLevelFolder)
+                openProject(topLevelFolder, preservingVideoDetail: true)
             }
         }
 
@@ -806,7 +809,7 @@ class FolderNavigationStore: ObservableObject {
         }
     }
 
-    func openProject(_ project: Folder) {
+    func openProject(_ project: Folder, preservingVideoDetail: Bool = false) {
         guard project.isProject else { return }
 
         if selectionKey(selectedSidebarItem) != selectionKey(.projects) {
@@ -826,7 +829,7 @@ class FolderNavigationStore: ObservableObject {
             currentFolderID = project.id
         }
 
-        clearProjectDetailState()
+        clearProjectDetailState(clearSelectedVideo: !preservingVideoDetail)
 
         if !navigationPath.isEmpty {
             navigationPath = NavigationPath()

@@ -1,6 +1,7 @@
 import CoreData
 import Foundation
 import Testing
+import Combine
 @testable import Pangolin
 
 @Suite(.serialized)
@@ -27,6 +28,36 @@ struct VideoNavigationSequenceTests {
         let neighbors = store.videoNeighbors(for: second)
         #expect(neighbors.previous?.objectID == first.objectID)
         #expect(neighbors.next?.objectID == third.objectID)
+
+        await manager.closeCurrentLibrary()
+    }
+
+    @Test("Opening another video in a project does not transiently deselect it")
+    @MainActor
+    func openingAnotherProjectVideoDoesNotClearTheVideoRoute() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
+        let first = try makeVideo(title: "Lesson 1", thumbnailData: nil, in: context, folder: project, library: library)
+        let second = try makeVideo(title: "Lesson 2", thumbnailData: nil, in: context, folder: project, library: library)
+        try context.save()
+
+        let store = FolderNavigationStore(libraryManager: manager)
+        store.openProjectVideo(first, in: project)
+
+        var observedVideoIDs: [UUID?] = []
+        let observation = store.$selectedVideo
+            .dropFirst()
+            .sink { observedVideoIDs.append($0?.id) }
+        defer { observation.cancel() }
+
+        store.openProjectVideo(second, in: project)
+
+        #expect(observedVideoIDs == [second.id])
+        #expect(store.currentDetailSurface == .videoDetail)
+        #expect(store.selectedVideo?.objectID == second.objectID)
 
         await manager.closeCurrentLibrary()
     }

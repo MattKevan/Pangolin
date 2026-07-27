@@ -1,11 +1,43 @@
 import SwiftUI
 import CoreData
+import CoreTransferable
+import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#endif
+
+struct VideoTableDragTransfer: Codable, Transferable {
+    let videoIDs: [UUID]
+
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .pangolinVideoTableDrag)
+    }
+}
+
+extension UTType {
+    static let pangolinVideoTableDrag = UTType(exportedAs: "com.newindustries.pangolin.video-table-drag")
+}
+
+enum VideoTableDragPolicy {
+    static func videoIDs(for videoID: UUID, selection: Set<UUID>) -> Set<UUID> {
+        selection.contains(videoID) ? selection : [videoID]
+    }
+}
+
+enum VideoTableInteractionPolicy {
+    static func shouldOpen(selectionCount: Int) -> Bool {
+        selectionCount == 1
+    }
+}
 
 struct VideoResultsTableView: View {
     @EnvironmentObject private var store: FolderNavigationStore
+    @EnvironmentObject private var libraryManager: LibraryManager
     let videos: [Video]
     @Binding var selectedVideoIDs: Set<UUID>
     let onSelectionChange: (Set<UUID>) -> Void
+    let onOpenVideo: (Video) -> Void
+    let acceptsExternalVideoImports: Bool
 
     @State private var sortOrder: [KeyPathComparator<Row>] = []
     @State private var editingVideo: Video?
@@ -20,14 +52,33 @@ struct VideoResultsTableView: View {
         let watchSort: Int
         let favoriteSort: Int
         let cloudSort: Int
+        let projectTitle: String
+        let projectSort: String
     }
 
     var body: some View {
+        #if os(macOS)
+        let videoDescriptors = VideoTablePresentationPolicy.descriptorMap(
+            videos.compactMap(VideoFileExportDescriptor.init)
+        )
+        #endif
+
         Table(sortedRows, selection: $selectedVideoIDs, sortOrder: $sortOrder) {
             TableColumn("Title", value: \.titleSort) { row in
-                VideoResultTitleCell(video: row.video)
+                #if os(macOS)
+                titleCell(for: row, videoDescriptors: videoDescriptors)
+                #else
+                titleCell(for: row)
+                #endif
             }
             .width(min: 220, ideal: 440)
+
+            TableColumn("Project", value: \.projectSort) { row in
+                Text(row.projectTitle.isEmpty ? "—" : row.projectTitle)
+                    .foregroundStyle(row.projectTitle.isEmpty ? .secondary : .primary)
+                    .lineLimit(1)
+            }
+            .width(min: 130, ideal: 180)
 
             TableColumn("Duration", value: \.durationSort) { row in
                 Text(row.video.formattedDuration)
@@ -65,11 +116,17 @@ struct VideoResultsTableView: View {
                 Button("Edit Video") { editingVideo = video }
                 Button("Delete Video", role: .destructive) { promptVideoDeletion(video) }
             }
+        } primaryAction: { selection in
+            openSelectedVideo(from: selection)
         }
         #endif
         .onChange(of: selectedVideoIDs) { _, newSelection in
             onSelectionChange(newSelection)
         }
+        .allVideosImportDrop(
+            isEnabled: acceptsExternalVideoImports,
+            libraryManager: libraryManager
+        )
         .sheet(item: $editingVideo) { video in
             VideoMetadataEditor(video: video)
         }
@@ -84,6 +141,7 @@ struct VideoResultsTableView: View {
     private var rows: [Row] {
         videos.compactMap { video in
             guard let id = video.id else { return nil }
+            let projectTitle = projectTitle(for: video)
             return Row(
                 id: id,
                 video: video,
@@ -91,7 +149,9 @@ struct VideoResultsTableView: View {
                 durationSort: video.duration,
                 watchSort: video.watchStatus.rawValue,
                 favoriteSort: video.isFavorite ? 1 : 0,
-                cloudSort: cloudSortRank(for: video)
+                cloudSort: cloudSortRank(for: video),
+                projectTitle: projectTitle,
+                projectSort: projectTitle.localizedLowercase
             )
         }
     }
@@ -108,6 +168,52 @@ struct VideoResultsTableView: View {
               let videoID = selection.first else { return nil }
         return videos.first(where: { $0.id == videoID })
     }
+
+    private func openSelectedVideo(from selection: Set<UUID>) {
+        guard VideoTableInteractionPolicy.shouldOpen(
+            selectionCount: selection.count
+        ), let video = selectedVideo(from: selection) else {
+            return
+        }
+
+        onOpenVideo(video)
+    }
+
+    private func projectTitle(for video: Video) -> String {
+        guard var folder = video.folder else { return "" }
+        while let parent = folder.parentFolder {
+            folder = parent
+        }
+        return folder.isProject ? folder.resolvedProjectTitle : ""
+    }
+
+    private func dragTransfer(for row: Row) -> VideoTableDragTransfer {
+        VideoTableDragTransfer(
+            videoIDs: Array(VideoTableDragPolicy.videoIDs(
+                for: row.id,
+                selection: selectedVideoIDs
+            ))
+        )
+    }
+
+    #if os(macOS)
+    private func titleCell(
+        for row: Row,
+        videoDescriptors: [UUID: VideoFileExportDescriptor]
+    ) -> some View {
+        VideoTableFileDragSource(
+            video: row.video,
+            videoDescriptors: videoDescriptors,
+            selectedVideoIDs: $selectedVideoIDs,
+            onOpenVideo: onOpenVideo
+        )
+    }
+    #else
+    private func titleCell(for row: Row) -> some View {
+        VideoResultTitleCell(video: row.video)
+            .draggable(dragTransfer(for: row))
+    }
+    #endif
 
     private func promptVideoDeletion(_ video: Video) {
         videoPendingDeletion = video
@@ -167,7 +273,7 @@ struct VideoResultsTableView: View {
     }
 }
 
-private struct VideoResultTitleCell: View {
+struct VideoResultTitleCell: View {
     let video: Video
 
     var body: some View {
@@ -292,12 +398,6 @@ struct VideoICloudStatusCell: View {
         .help(effectiveSnapshot.detailMessage)
         .onAppear {
             refreshSnapshotFromManager()
-            videoFileManager.beginTracking(video: video)
-        }
-        .onDisappear {
-            if let videoID = video.id {
-                videoFileManager.endTracking(videoID: videoID)
-            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .videoStorageAvailabilityChanged)) { notification in
             guard shouldRefresh(for: notification) else { return }

@@ -13,6 +13,12 @@ enum PangolinCloudContainer {
     static let identifier = "iCloud.com.newindustries.pangolin"
 }
 
+enum LocalCopyOffloadResult: Sendable, Equatable {
+    case evicted
+    case waitingForUpload
+    case alreadyCloudOnly
+}
+
 @MainActor
 class VideoFileManager: ObservableObject {
     static let shared = VideoFileManager()
@@ -115,6 +121,15 @@ class VideoFileManager: ObservableObject {
         try await ensureLocalAvailability(for: video, downloadIfNeeded: downloadIfNeeded)
     }
 
+    /// Resolves a video for external file promises. If its local copy has been
+    /// offloaded, this starts the normal tracked iCloud download before export.
+    func getVideoFileURL(forID videoID: UUID, downloadIfNeeded: Bool = true) async throws -> URL {
+        guard let video = fetchVideo(withID: videoID) else {
+            throw VideoFileError.invalidVideoPath
+        }
+        return try await getVideoFileURL(for: video, downloadIfNeeded: downloadIfNeeded)
+    }
+
     func ensureLocalAvailability(for video: Video) async throws -> URL {
         try await ensureLocalAvailability(for: video, downloadIfNeeded: true)
     }
@@ -146,9 +161,50 @@ class VideoFileManager: ObservableObject {
 
             clearFailure(for: videoID)
             _ = await refreshTransferState(for: video)
+            beginTracking(video: video)
         } catch {
             markTransferFailure(for: video, operation: .upload, message: error.localizedDescription)
             throw VideoFileError.uploadFailed(error.localizedDescription)
+        }
+    }
+
+    /// Uploads an optimised replacement under a new cloud path, confirms that
+    /// upload, then removes the old cloud object. This never deletes the old
+    /// version before the replacement is safely in iCloud.
+    func replaceCloudVideoFile(localURL: URL, for video: Video) async throws {
+        guard let videoID = video.id,
+              let root = ubiquitousRootURL() else {
+            throw VideoFileError.invalidVideoPath
+        }
+        let oldURL = cloudURL(for: video)
+        let oldRelativePath = video.cloudRelativePath
+        let relative = "Media/Videos/\(videoID.uuidString)-optimized-\(UUID().uuidString).mp4"
+        let destinationURL = root.appendingPathComponent(relative)
+        do {
+            try await Self.moveImportedFileToCloud(localURL: localURL, destinationURL: destinationURL)
+            video.cloudRelativePath = relative
+            video.fileAvailabilityState = VideoFileStatus.local.rawValue
+            _ = await refreshTransferState(for: video)
+            beginTracking(video: video)
+
+            let timeout = Date().addingTimeInterval(300)
+            while Date() < timeout {
+                if await Self.isUbiquitousFileUploaded(at: destinationURL) {
+                    if let oldURL, oldURL != destinationURL {
+                        try? await Task.detached(priority: .utility) {
+                            if FileManager.default.fileExists(atPath: oldURL.path) {
+                                try FileManager.default.removeItem(at: oldURL)
+                            }
+                        }.value
+                    }
+                    return
+                }
+                try await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+            throw VideoFileError.uploadFailed("Timed out waiting for the optimised replacement to upload.")
+        } catch {
+            video.cloudRelativePath = oldRelativePath
+            throw error
         }
     }
 
@@ -187,28 +243,33 @@ class VideoFileManager: ObservableObject {
     }
 
     func evictLocalCopy(for video: Video) async throws {
+        let result = try await offloadLocalCopy(for: video)
+        if case .waitingForUpload = result {
+            let error = VideoFileError.offloadFailed("Waiting for iCloud upload confirmation before offloading local copy.")
+            markTransferFailure(for: video, operation: .offload, message: error.localizedDescription)
+            throw error
+        }
+    }
+
+    func offloadLocalCopy(for video: Video) async throws -> LocalCopyOffloadResult {
         guard let url = cloudURL(for: video) else {
             let error = VideoFileError.invalidVideoPath
             markTransferFailure(for: video, operation: .offload, message: error.localizedDescription)
             throw error
         }
 
-        let uploadConfirmed = await isUploadConfirmed(for: video)
-        guard uploadConfirmed else {
-            let error = VideoFileError.offloadFailed("Waiting for iCloud upload confirmation before offloading local copy.")
-            markTransferFailure(for: video, operation: .offload, message: error.localizedDescription)
-            throw error
-        }
-
         do {
-            try fileManager.evictUbiquitousItem(at: url)
+            let result = try await Self.offloadUbiquitousFile(at: url)
+            guard result == .evicted else { return result }
+
             video.fileAvailabilityState = VideoFileStatus.cloudOnly.rawValue
             video.lastFileSyncDate = Date()
 
             if let id = video.id {
                 clearFailure(for: id)
             }
-            _ = await refreshTransferState(for: video)
+            setTransferState(.inCloudOnly, for: video)
+            return result
         } catch {
             markTransferFailure(for: video, operation: .offload, message: error.localizedDescription)
             throw VideoFileError.offloadFailed(error.localizedDescription)
@@ -383,17 +444,11 @@ class VideoFileManager: ObservableObject {
     }
 
     func isUploadConfirmed(for video: Video) async -> Bool {
-        guard let url = cloudURL(for: video),
-              let metadata = ubiquityMetadata(for: url),
-              metadata.isUbiquitous else {
+        guard let url = cloudURL(for: video) else {
             return false
         }
 
-        if metadata.isUploaded == true {
-            return true
-        }
-
-        return false
+        return await Self.isUbiquitousFileUploaded(at: url)
     }
 
     func downloadAllVideos(in library: Library) async {
@@ -794,6 +849,54 @@ class VideoFileManager: ObservableObject {
         case .error:
             return .error
         }
+    }
+
+    private nonisolated static func isUbiquitousFileUploaded(at url: URL) async -> Bool {
+        await Task.detached(priority: .utility) {
+            let keys: Set<URLResourceKey> = [
+                .isUbiquitousItemKey,
+                .ubiquitousItemIsUploadedKey
+            ]
+            guard let values = try? url.resourceValues(forKeys: keys) else {
+                return false
+            }
+
+            let allValues = values.allValues
+            return (allValues[.isUbiquitousItemKey] as? Bool) == true
+                && (allValues[.ubiquitousItemIsUploadedKey] as? Bool) == true
+        }.value
+    }
+
+    private nonisolated static func offloadUbiquitousFile(
+        at url: URL
+    ) async throws -> LocalCopyOffloadResult {
+        try await Task.detached(priority: .utility) {
+            let fileManager = FileManager.default
+            guard fileManager.fileExists(atPath: url.path) else {
+                return .alreadyCloudOnly
+            }
+
+            let keys: Set<URLResourceKey> = [
+                .isUbiquitousItemKey,
+                .ubiquitousItemIsUploadedKey,
+                .ubiquitousItemDownloadingStatusKey
+            ]
+            let values = try url.resourceValues(forKeys: keys)
+            let allValues = values.allValues
+            guard (allValues[.isUbiquitousItemKey] as? Bool) == true,
+                  (allValues[.ubiquitousItemIsUploadedKey] as? Bool) == true else {
+                return .waitingForUpload
+            }
+
+            let status = allValues[.ubiquitousItemDownloadingStatusKey]
+                as? URLUbiquitousItemDownloadingStatus
+            guard status == .current || status == .downloaded else {
+                return .alreadyCloudOnly
+            }
+
+            try fileManager.evictUbiquitousItem(at: url)
+            return .evicted
+        }.value
     }
 
     private func ubiquityMetadata(for url: URL) -> UbiquityMetadata? {

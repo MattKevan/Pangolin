@@ -787,6 +787,9 @@ private struct RootEventsModifier: ViewModifier {
                 }
             }
         configuredContent
+            .onReceive(NotificationCenter.default.publisher(for: .triggerCreateFolder)) { _ in
+                createTopLevelProject()
+            }
             .onReceive(NotificationCenter.default.publisher(for: .triggerSearch)) { _ in
                 // Activate search mode when Cmd+F is pressed
                 folderStore.selectedSidebarItem = .search
@@ -799,6 +802,17 @@ private struct RootEventsModifier: ViewModifier {
                 showingURLImportSheet = true
             }
             #endif
+    }
+
+    private func createTopLevelProject() {
+        Task { @MainActor in
+            guard libraryManager.currentLibrary != nil,
+                  let createdProjectID = await folderStore.createFolder(name: "Untitled Project", in: nil),
+                  let project = folderStore.projects().first(where: { $0.id == createdProjectID }) else {
+                return
+            }
+            folderStore.openProject(project)
+        }
     }
 }
 

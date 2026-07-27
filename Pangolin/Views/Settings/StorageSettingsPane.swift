@@ -9,8 +9,10 @@ struct StorageSettingsPane: View {
     @EnvironmentObject private var libraryManager: LibraryManager
     @EnvironmentObject private var storagePolicyManager: StoragePolicyManager
     @EnvironmentObject private var videoFileManager: VideoFileManager
+    @StateObject private var libraryOptimizationManager = VideoLibraryOptimizationManager.shared
 
     @State private var selectedPreference: LibraryStoragePreference = .optimizeStorage
+    @State private var selectedUploadOptimization: VideoUploadOptimizationPreset = .original
     @State private var cacheLimitGB: Int = 10
     @State private var localUsageBytes: Int64 = 0
     @State private var cloudOnlyCount: Int = 0
@@ -21,6 +23,7 @@ struct StorageSettingsPane: View {
     @State private var isRefreshingStats = false
     @State private var isApplyingChanges = false
     @State private var isRetryingTransfers = false
+    @State private var showingOptimizeAllConfirmation = false
 
     private var currentLibrary: Library? {
         libraryManager.currentLibrary
@@ -47,6 +50,29 @@ struct StorageSettingsPane: View {
                         Stepper(value: $cacheLimitGB, in: 1...500, step: 1) {
                             Text("Max Local Video Cache: \(cacheLimitGB) GB")
                         }
+                    }
+                }
+
+                Section("Upload Optimisation") {
+                    Picker("Before Upload", selection: $selectedUploadOptimization) {
+                        ForEach(VideoUploadOptimizationPreset.allCases) { preset in
+                            Text(preset.title).tag(preset)
+                        }
+                    }
+
+                    Text(selectedUploadOptimization.subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Button("Optimise All Videos") {
+                        showingOptimizeAllConfirmation = true
+                    }
+                    .disabled(!selectedUploadOptimization.isEnabled || libraryOptimizationManager.isOptimizing)
+
+                    if libraryOptimizationManager.isOptimizing {
+                        ProgressView(
+                            "Optimising \(libraryOptimizationManager.processedCount) of \(libraryOptimizationManager.totalCount)"
+                        )
                     }
                 }
 
@@ -169,6 +195,10 @@ struct StorageSettingsPane: View {
                 await persistAndApply()
             }
         }
+        .onChange(of: selectedUploadOptimization) { _, newPreset in
+            guard !isHydratingForm, let library = currentLibrary else { return }
+            library.uploadOptimizationPreset = newPreset
+        }
         .onChange(of: cacheLimitGB) { _, _ in
             guard !isHydratingForm, selectedPreference == .optimizeStorage else { return }
             Task {
@@ -185,12 +215,30 @@ struct StorageSettingsPane: View {
                 await refreshStats()
             }
         }
+        .confirmationDialog(
+            "Optimise All Videos?",
+            isPresented: $showingOptimizeAllConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Optimise All Videos") {
+                guard let library = currentLibrary else { return }
+                Task {
+                    await libraryOptimizationManager.optimizeAllVideos(
+                        in: library,
+                        preset: selectedUploadOptimization
+                    )
+                }
+            }
+        } message: {
+            Text("Videos larger than the selected target will download, be re-encoded, and replace their iCloud copies. This cannot restore the original quality.")
+        }
     }
 
     private func syncFormFromCurrentLibrary() {
         guard let library = currentLibrary else { return }
         isHydratingForm = true
         selectedPreference = library.storagePreference
+        selectedUploadOptimization = library.uploadOptimizationPreset
         cacheLimitGB = library.maxLocalCacheGB
         isHydratingForm = false
     }

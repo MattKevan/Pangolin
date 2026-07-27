@@ -7,6 +7,7 @@
 
 import Foundation
 import CoreData
+import Combine
 
 // MARK: - Library Manager
 @MainActor
@@ -26,6 +27,8 @@ class LibraryManager: ObservableObject {
     private let fileManager = FileManager.default
     private var coreDataStack: CoreDataStack?
     private var thumbnailReconciliationTask: Task<Void, Never>?
+    private var contextObjectsDidChangeCancellable: AnyCancellable?
+    private var isReconcilingCloudImportedLibraries = false
     var textArtifactsCloudRootURLProvider: () -> URL? = {
         let fileManager = FileManager.default
         return fileManager.url(forUbiquityContainerIdentifier: VideoFileManager.shared.cloudContainerIdentifier)
@@ -139,6 +142,79 @@ class LibraryManager: ObservableObject {
         }
 
         return canonical
+    }
+
+    private func observeCloudImportedLibraries(in context: NSManagedObjectContext) {
+        contextObjectsDidChangeCancellable?.cancel()
+        contextObjectsDidChangeCancellable = NotificationCenter.default
+            .publisher(for: .NSManagedObjectContextObjectsDidChange, object: context)
+            .debounce(for: .milliseconds(50), scheduler: DispatchQueue.main)
+            .sink { [weak self] notification in
+                guard Self.didChangeLibraryRecords(notification) else { return }
+                Task { @MainActor [weak self] in
+                    await self?.reconcileCloudImportedLibrariesIfNeeded()
+                }
+            }
+    }
+
+    private static func didChangeLibraryRecords(_ notification: Notification) -> Bool {
+        let changeKeys = [NSInsertedObjectsKey, NSUpdatedObjectsKey]
+        return changeKeys
+            .compactMap { notification.userInfo?[$0] as? Set<NSManagedObject> }
+            .joined()
+            .contains { $0 is Library }
+    }
+
+    /// Replaces a locally-created empty library with the data-bearing library
+    /// imported from the same user's CloudKit private database.
+    func reconcileCloudImportedLibrariesIfNeeded() async {
+        guard !isReconcilingCloudImportedLibraries,
+              let context = viewContext,
+              let libraryURL = currentLibrary?.url else {
+            return
+        }
+
+        let request = Library.fetchRequest()
+        guard let libraries = try? context.fetch(request), libraries.count > 1 else {
+            return
+        }
+
+        isReconcilingCloudImportedLibraries = true
+        defer { isReconcilingCloudImportedLibraries = false }
+
+        do {
+            let previousLibraryID = currentLibrary?.id
+            let reconciledLibrary = try consolidateDuplicateLibraries(
+                in: context,
+                preferredStoreURL: libraryURL
+            )
+
+            guard currentLibrary?.objectID != reconciledLibrary.objectID else { return }
+
+            if let previousLibraryID,
+               previousLibraryID != reconciledLibrary.id,
+               let sourceID = coreDataStack?.cloudEventSourceID {
+                await ProcessingQueueManager.shared.cancelThumbnailWork(
+                    for: previousLibraryID,
+                    sourceID: sourceID
+                )
+            }
+
+            currentLibrary = reconciledLibrary
+            addToRecentLibraries(reconciledLibrary)
+            saveLastOpenedLibrary(libraryURL)
+
+            if let libraryID = reconciledLibrary.id,
+               let sourceID = coreDataStack?.cloudEventSourceID {
+                ProcessingQueueManager.shared.activateThumbnailWork(
+                    for: libraryID,
+                    sourceID: sourceID
+                )
+            }
+            scheduleThumbnailReconciliation(for: reconciledLibrary)
+        } catch {
+            self.error = .saveFailed(error)
+        }
     }
     
     // MARK: - Public Methods
@@ -298,6 +374,8 @@ class LibraryManager: ObservableObject {
         loadingProgress = 0.8
         
         try context.save()
+
+        observeCloudImportedLibraries(in: context)
         
         self.currentLibrary = library
         self.isLibraryOpen = true
@@ -361,6 +439,7 @@ class LibraryManager: ObservableObject {
         guard let context = stack.viewContext else {
             throw LibraryError.corruptedDatabase
         }
+        observeCloudImportedLibraries(in: context)
         let library = try consolidateDuplicateLibraries(in: context, preferredStoreURL: url)
         let previousLibraryURL = library.libraryPath.map(URL.init(fileURLWithPath:))
         loadingProgress = 0.7
@@ -403,6 +482,8 @@ class LibraryManager: ObservableObject {
     func closeCurrentLibrary() async {
         thumbnailReconciliationTask?.cancel()
         thumbnailReconciliationTask = nil
+        contextObjectsDidChangeCancellable?.cancel()
+        contextObjectsDidChangeCancellable = nil
         guard let library = currentLibrary else { return }
 
         if let sourceID = coreDataStack?.cloudEventSourceID {

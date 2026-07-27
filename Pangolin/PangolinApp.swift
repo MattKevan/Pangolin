@@ -4,6 +4,11 @@ import SwiftUI
 import Combine
 import AppIntents
 
+enum FileCommandPolicy {
+    static let newProjectShortcut: KeyEquivalent = "n"
+    static let importVideosShortcut: KeyEquivalent = "o"
+}
+
 @main
 struct PangolinApp: App {
     @StateObject private var libraryManager = LibraryManager.shared
@@ -12,7 +17,6 @@ struct PangolinApp: App {
     @State private var hasAttemptedStartup = false
 
     var body: some Scene {
-        #if os(macOS)
         WindowGroup {
             MainView(
                 libraryManager: libraryManager,
@@ -31,7 +35,20 @@ struct PangolinApp: App {
             }
         }
         .commands {
-            CommandGroup(after: .newItem) {
+            CommandGroup(replacing: .newItem) {
+                Button("New Project") {
+                    triggerCreateProject()
+                }
+                .keyboardShortcut(FileCommandPolicy.newProjectShortcut, modifiers: .command)
+                .disabled(libraryManager.currentLibrary == nil)
+
+                Button("Import Videos...") {
+                    triggerImportVideos()
+                }
+                .keyboardShortcut(FileCommandPolicy.importVideosShortcut, modifiers: .command)
+                .disabled(libraryManager.currentLibrary == nil)
+
+                #if os(macOS)
                 Button("Reload Library") {
                     retryLibraryOpen()
                 }
@@ -39,19 +56,15 @@ struct PangolinApp: App {
 
                 Divider()
 
-                Button("Import Videos...") {
-                    triggerImportVideos()
-                }
-                .keyboardShortcut("I", modifiers: .command)
-                .disabled(libraryManager.currentLibrary == nil)
-
                 Button("Import from URL...") {
                     triggerImportFromURL()
                 }
                 .keyboardShortcut("I", modifiers: [.command, .shift])
                 .disabled(libraryManager.currentLibrary == nil)
+                #endif
             }
 
+            #if os(macOS)
             CommandGroup(after: .undoRedo) {
                 Button("Search") {
                     triggerSearch()
@@ -74,30 +87,15 @@ struct PangolinApp: App {
                 }
                 .disabled(libraryManager.currentLibrary == nil)
             }
+            #endif
         }
+
+        #if os(macOS)
         Settings {
             SettingsView()
                 .environmentObject(libraryManager)
                 .environmentObject(storagePolicyManager)
                 .environmentObject(videoFileManager)
-        }
-        #else
-        WindowGroup {
-            MainView(
-                libraryManager: libraryManager,
-                isStartingUp: libraryManager.currentLibrary == nil && hasAttemptedStartup,
-                startupError: libraryManager.error,
-                startupLoadingProgress: libraryManager.loadingProgress,
-                retryAction: retryLibraryOpen,
-                resetAction: resetCorruptedLibrary
-            )
-            .environmentObject(libraryManager)
-            .environmentObject(videoFileManager)
-            .onAppear {
-                if !hasAttemptedStartup {
-                    startLibraryStartup()
-                }
-            }
         }
         #endif
     }
@@ -115,7 +113,8 @@ struct PangolinApp: App {
 
         Task {
             do {
-                _ = try await libraryManager.smartStartup()
+                let library = try await libraryManager.smartStartup()
+                await StoragePolicyManager.shared.scheduleAutomaticPolicyApply(for: library)
             } catch {
                 print("❌ APP: Startup failed: \(error)")
                 libraryManager.error = error as? LibraryError
@@ -165,6 +164,10 @@ struct PangolinApp: App {
     
     private func triggerImportVideos() {
         NotificationCenter.default.post(name: .triggerImportVideos, object: nil)
+    }
+
+    private func triggerCreateProject() {
+        NotificationCenter.default.post(name: .triggerCreateFolder, object: nil)
     }
 
     private func triggerImportFromURL() {

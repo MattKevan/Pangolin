@@ -4,6 +4,63 @@ import Testing
 @testable import Pangolin
 
 struct LibraryManagerTests {
+    @Test("Cloud-imported libraries replace an empty bootstrap library")
+    @MainActor
+    func cloudImportedLibraryReplacesEmptyBootstrapLibrary() async throws {
+        let manager = LibraryManager.shared
+        let fileManager = FileManager.default
+        let tempRoot = fileManager.temporaryDirectory.appendingPathComponent("PangolinCloudRestore-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+        defer {
+            try? fileManager.removeItem(at: tempRoot)
+        }
+
+        let libraryURL = tempRoot.appendingPathComponent("RestoredLibrary", isDirectory: true)
+        let bootstrapLibrary = try await manager.createLibrary(at: libraryURL, name: "Pangolin Library")
+        guard let context = manager.viewContext,
+              let libraryEntity = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Library"],
+              let folderEntity = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Folder"] else {
+            #expect(false)
+            return
+        }
+
+        let cloudLibrary = Library(entity: libraryEntity, insertInto: context)
+        cloudLibrary.id = UUID()
+        cloudLibrary.name = "Pangolin Library"
+        cloudLibrary.libraryPath = libraryURL.path
+        cloudLibrary.createdDate = Date().addingTimeInterval(-60)
+        cloudLibrary.lastOpenedDate = Date().addingTimeInterval(-60)
+        cloudLibrary.version = "1.1.0"
+        cloudLibrary.copyFilesOnImport = true
+        cloudLibrary.organizeByDate = true
+        cloudLibrary.autoMatchSubtitles = true
+        cloudLibrary.defaultPlaybackSpeed = 1.0
+        cloudLibrary.rememberPlaybackPosition = true
+        cloudLibrary.videoStorageType = LibraryStoragePreference.optimizeStorage.rawValue
+        cloudLibrary.maxLocalVideoCacheBytes = Library.defaultMaxLocalVideoCacheBytes
+
+        let restoredProject = Folder(entity: folderEntity, insertInto: context)
+        restoredProject.id = UUID()
+        restoredProject.name = "Restored Project"
+        restoredProject.isTopLevel = true
+        restoredProject.isSmartFolder = false
+        restoredProject.dateCreated = Date()
+        restoredProject.dateModified = Date()
+        restoredProject.library = cloudLibrary
+        try context.save()
+
+        await manager.reconcileCloudImportedLibrariesIfNeeded()
+
+        #expect(manager.currentLibrary?.objectID == cloudLibrary.objectID)
+        #expect(manager.currentLibrary?.objectID != bootstrapLibrary.objectID)
+
+        let libraries = try context.fetch(Library.fetchRequest())
+        #expect(libraries.count == 1)
+        #expect(restoredProject.library?.objectID == cloudLibrary.objectID)
+
+        await manager.closeCurrentLibrary()
+    }
+
     @Test("Open library consolidates duplicate library records")
     @MainActor
     func openLibraryConsolidatesDuplicateLibraryRecords() async throws {

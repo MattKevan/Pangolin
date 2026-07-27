@@ -5,6 +5,8 @@ struct SmartCollectionTablePane: View {
     let videos: [Video]
     let selectedVideo: Video?
     let onSelectVideo: (Video) -> Void
+    let onOpenVideo: (Video) -> Void
+    let acceptsExternalVideoImports: Bool
 
     @State private var selectedVideoIDs: Set<UUID> = []
     @State private var suppressedProgrammaticSelection: Set<UUID>?
@@ -24,7 +26,9 @@ struct SmartCollectionTablePane: View {
                     VideoResultsTableView(
                         videos: videos,
                         selectedVideoIDs: $selectedVideoIDs,
-                        onSelectionChange: handleSelectionChange
+                        onSelectionChange: handleSelectionChange,
+                        onOpenVideo: onOpenVideo,
+                        acceptsExternalVideoImports: acceptsExternalVideoImports
                     )
                     .onAppear(perform: syncSelectedVideoForTable)
                     .onChange(of: selectedVideo?.id) { _, _ in

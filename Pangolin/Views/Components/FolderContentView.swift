@@ -31,11 +31,9 @@ struct FolderContentView: View {
                     title: kind.title,
                     videos: smartCollectionVideos,
                     selectedVideo: store.selectedVideo,
-                    onSelectVideo: handleSmartCollectionVideoSelection
-                )
-                .allVideosImportDrop(
-                    isEnabled: kind == .allVideos,
-                    libraryManager: libraryManager
+                    onSelectVideo: store.selectVideo,
+                    onOpenVideo: handleSmartCollectionVideoSelection,
+                    acceptsExternalVideoImports: kind == .allVideos
                 )
             } else {
                 ContentUnavailableView(

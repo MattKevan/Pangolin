@@ -1,6 +1,14 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+enum ExternalImportDropPolicy {
+    static let acceptedContentTypes: [UTType] = [.fileURL, .url]
+
+    static func importURLs(from urls: [URL], foldersOnly: Bool) -> [URL] {
+        foldersOnly ? urls.filter(\.hasDirectoryPath) : urls
+    }
+}
+
 struct AllVideosImportDropModifier: ViewModifier {
     let isEnabled: Bool
     let libraryManager: LibraryManager
@@ -12,7 +20,8 @@ struct AllVideosImportDropModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onDrop(of: [.fileURL], isTargeted: $isExternalDropTargeted) { providers in
+            .contentShape(Rectangle())
+            .onDrop(of: ExternalImportDropPolicy.acceptedContentTypes, isTargeted: $isExternalDropTargeted) { providers in
                 handleExternalFileDrop(providers: providers)
             }
             .overlay(alignment: .top) {
@@ -63,7 +72,10 @@ struct AllVideosImportDropModifier: ViewModifier {
         }
 
         group.notify(queue: .main) {
-            let importURLs = foldersOnly ? droppedURLs.filter(\.hasDirectoryPath) : droppedURLs
+            let importURLs = ExternalImportDropPolicy.importURLs(
+                from: droppedURLs,
+                foldersOnly: foldersOnly
+            )
             guard !importURLs.isEmpty else { return }
             Task {
                 await processingQueueManager.enqueueImport(urls: importURLs, library: library, context: context)

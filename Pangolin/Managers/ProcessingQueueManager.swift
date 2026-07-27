@@ -80,6 +80,7 @@ class ProcessingQueueManager: ObservableObject {
 
     let transcriptionService = SpeechTranscriptionService()
     private let videoFileManager = VideoFileManager.shared
+    private let videoUploadOptimizer = VideoUploadOptimizer.shared
     private let importer = VideoImporter()
     private let remoteDownloadService = RemoteVideoDownloadService()
     private var videoPagePreferences: VideoPagePreferences {
@@ -813,10 +814,33 @@ class ProcessingQueueManager: ObservableObject {
         #endif
         let folderMap = importFolderMaps[library.id ?? UUID()] ?? [:]
 
-        task.statusMessage = "Importing \(fileURL.lastPathComponent)..."
+        let optimizationPreset = library.uploadOptimizationPreset
+        task.statusMessage = optimizationPreset.isEnabled
+            ? "Optimising \(fileURL.lastPathComponent)..."
+            : "Importing \(fileURL.lastPathComponent)..."
         task.updateProgress(0.1, message: task.statusMessage)
 
-        let video = try await importer.importSingleFile(fileURL, library: library, context: context, createdFolders: folderMap)
+        let optimization = try await videoUploadOptimizer.optimizeIfNeeded(
+            sourceURL: fileURL,
+            preset: optimizationPreset
+        )
+        defer {
+            if optimization.didOptimize {
+                Task { await videoUploadOptimizer.removeTemporaryOutput(at: optimization.url) }
+            }
+        }
+        task.statusMessage = optimization.didOptimize
+            ? "Importing optimised \(fileURL.lastPathComponent)..."
+            : "Importing \(fileURL.lastPathComponent)..."
+        task.updateProgress(0.35, message: task.statusMessage)
+
+        let video = try await importer.importSingleFile(
+            optimization.url,
+            library: library,
+            context: context,
+            createdFolders: folderMap,
+            originalSourceURL: fileURL
+        )
 
         if let originalRemoteURLString = task.originalRemoteURLString, !originalRemoteURLString.isEmpty {
             video.originalURL = originalRemoteURLString

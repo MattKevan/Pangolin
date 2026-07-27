@@ -8,6 +8,15 @@
 import Foundation
 import CoreData
 
+enum StoragePolicyWorkPolicy {
+    static let evictionBatchSize = 8
+    static let automaticApplyDelay: TimeInterval = 30
+
+    static func shouldScheduleAutomatically(for preference: LibraryStoragePreference) -> Bool {
+        preference == .optimizeStorage
+    }
+}
+
 @MainActor
 final class StoragePolicyManager: ObservableObject {
     struct StorageStatistics: Sendable {
@@ -37,6 +46,17 @@ final class StoragePolicyManager: ObservableObject {
 
     func setProtectedSelectedVideoID(_ videoID: UUID?) {
         protectedSelectedVideoID = videoID
+    }
+
+    func scheduleAutomaticPolicyApply(for library: Library) {
+        guard StoragePolicyWorkPolicy.shouldScheduleAutomatically(for: library.storagePreference),
+              let libraryID = library.id else {
+            return
+        }
+        scheduleDeferredPolicyApply(
+            for: libraryID,
+            after: StoragePolicyWorkPolicy.automaticApplyDelay
+        )
     }
 
     func applyPolicy(for library: Library) async {
@@ -74,7 +94,10 @@ final class StoragePolicyManager: ObservableObject {
 
             if summary.shouldRetryLater,
                let libraryID = library.id {
-                scheduleDeferredPolicyApply(for: libraryID, after: 30)
+                scheduleDeferredPolicyApply(
+                    for: libraryID,
+                    after: StoragePolicyWorkPolicy.automaticApplyDelay
+                )
             }
         }
     }
@@ -99,7 +122,7 @@ final class StoragePolicyManager: ObservableObject {
     func enforceCacheLimit(for library: Library) async -> StoragePolicySummary {
         let startedAt = Date()
         let maxCacheBytes = library.resolvedMaxLocalVideoCacheBytes
-        var currentUsageBytes = await currentLocalVideoUsageBytes(for: library)
+        var currentUsageBytes = await currentStorageStatistics(for: library).localUsageBytes
 
         var summary = StoragePolicySummary(
             libraryID: library.id,
@@ -123,7 +146,7 @@ final class StoragePolicyManager: ObservableObject {
         let protectedVideoIDs = protectedVideoIDsForEviction()
         let candidates = evictionCandidates(in: library)
 
-        for video in candidates {
+        for (index, video) in candidates.enumerated() {
             guard currentUsageBytes > maxCacheBytes else { break }
 
             guard let videoID = video.id else { continue }
@@ -139,22 +162,18 @@ final class StoragePolicyManager: ObservableObject {
                 continue
             }
 
-            let uploadConfirmed = await videoFileManager.isUploadConfirmed(for: video)
-            if !uploadConfirmed {
-                summary.blockedNotUploadedCount += 1
-                _ = await videoFileManager.refreshTransferState(for: video)
-                continue
-            }
-
-            let status = await videoFileManager.isVideoFileAccessible(video)
-            guard status == .local else { continue }
-
             let evictedBytes = localFileSize(for: video)
 
             do {
-                try await videoFileManager.evictLocalCopy(for: video)
-                currentUsageBytes = max(0, currentUsageBytes - evictedBytes)
-                summary.evictedCount += 1
+                switch try await videoFileManager.offloadLocalCopy(for: video) {
+                case .evicted:
+                    currentUsageBytes = max(0, currentUsageBytes - evictedBytes)
+                    summary.evictedCount += 1
+                case .waitingForUpload:
+                    summary.blockedNotUploadedCount += 1
+                case .alreadyCloudOnly:
+                    break
+                }
             } catch {
                 summary.failedOffloadCount += 1
                 summary.lastErrorText = error.localizedDescription
@@ -163,6 +182,10 @@ final class StoragePolicyManager: ObservableObject {
                     operation: .offload,
                     message: error.localizedDescription
                 )
+            }
+
+            if (index + 1).isMultiple(of: StoragePolicyWorkPolicy.evictionBatchSize) {
+                await Task.yield()
             }
         }
 

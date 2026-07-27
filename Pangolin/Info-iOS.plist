@@ -7,5 +7,18 @@
         <string>audio</string>
         <string>remote-notification</string>
     </array>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeDescription</key>
+            <string>Pangolin Video Table Drag</string>
+            <key>UTTypeIdentifier</key>
+            <string>com.newindustries.pangolin.video-table-drag</string>
+        </dict>
+    </array>
 </dict>
 </plist>
