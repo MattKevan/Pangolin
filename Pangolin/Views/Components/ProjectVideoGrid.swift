@@ -5,7 +5,10 @@
 
 import SwiftUI
 
-#if os(iOS)
+#if os(macOS)
+import AppKit
+#endif
+
 struct ProjectVideoGrid: View {
     let sections: [ProjectSectionSnapshot]
     let searchQuery: String
@@ -16,16 +19,20 @@ struct ProjectVideoGrid: View {
     let onDelete: (Video) -> Void
     let onToggleFavorite: (Video) -> Void
 
+    #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    #endif
     @State private var availableWidth: CGFloat = 0
 
     private var columns: [GridItem] {
+        #if os(iOS)
         if horizontalSizeClass == .compact {
             return Array(
                 repeating: GridItem(.flexible(), spacing: ProjectVideoGridLayout.spacing),
                 count: 2
             )
         }
+        #endif
 
         return ProjectVideoGridLayout.regularColumns(availableWidth: availableWidth)
     }
@@ -77,6 +84,14 @@ struct ProjectVideoGrid: View {
             .onPreferenceChange(ProjectVideoGridWidthPreferenceKey.self) { width in
                 availableWidth = width
             }
+            #if os(macOS)
+            .focusable()
+            .onKeyPress { keyPress in
+                guard keyPress.key == .return else { return .ignored }
+                onInteraction(.macOSReturn)
+                return .handled
+            }
+            #endif
         }
     }
 }
@@ -116,6 +131,18 @@ private struct ProjectVideoGridCard: View {
 
     @ViewBuilder
     private var interactiveCardContent: some View {
+        #if os(macOS)
+        cardContent
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .contextMenu {
+                Button(video.isFavorite ? "Remove from favourites" : "Add to favourites", systemImage: video.isFavorite ? "heart.slash" : "heart") {
+                    onToggleFavorite()
+                }
+                Button("Edit Video") { onEdit() }
+                Button("Delete Video", role: .destructive) { onDelete() }
+            }
+            .gesture(macInteractionGesture)
+        #else
         if isSelecting {
             cardContent
                 .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -132,6 +159,7 @@ private struct ProjectVideoGridCard: View {
                 .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .gesture(interactionGesture)
         }
+        #endif
     }
 
     private var staticCard: some View {
@@ -155,6 +183,31 @@ private struct ProjectVideoGridCard: View {
             .onEnded { _ in performLongPress() }
             .exclusively(before: TapGesture().onEnded(performTap))
     }
+
+    #if os(macOS)
+    private var macInteractionGesture: some Gesture {
+        TapGesture(count: 2)
+            .onEnded(performMacOpen)
+            .exclusively(before: TapGesture().onEnded(performMacClick))
+    }
+
+    private func performMacClick() {
+        guard isInteractive, let id = video.id else { return }
+        let modifiers = NSEvent.modifierFlags
+        interaction(
+            .macOSSelection(
+                id,
+                extendingSelection: modifiers.contains(.command),
+                rangeSelecting: modifiers.contains(.shift)
+            )
+        )
+    }
+
+    private func performMacOpen() {
+        guard isInteractive, let id = video.id else { return }
+        interaction(.macOSOpen(id))
+    }
+    #endif
 
     private var resolvedTitle: String {
         let title = video.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -205,7 +258,6 @@ private struct ProjectVideoGridCard: View {
         interaction(.open(id))
     }
 }
-#endif
 
 /// Shared visual treatment for project video cards. Platform-specific containers own selection and activation.
 struct ProjectVideoCardContent: View {
@@ -339,9 +391,7 @@ struct ProjectVideoCardContent: View {
     }
 }
 
-#if os(iOS)
 private struct ProjectVideoGridWidthPreferenceKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
-#endif

@@ -133,6 +133,12 @@ struct ProjectsStoreTests {
         #expect(size.height > size.width)
     }
 
+    @Test("Shared project video grid expands with the available macOS width")
+    func projectVideoGridUsesResponsiveColumnsOnMac() {
+        #expect(ProjectVideoGridLayout.regularColumns(availableWidth: 420).count == 2)
+        #expect(ProjectVideoGridLayout.regularColumns(availableWidth: 1_200).count == 6)
+    }
+
     @Test("Project video grid keeps two columns in compact and regular layouts")
     func projectVideoGridColumnPolicyKeepsMinimumOfTwoColumns() {
         #expect(ProjectVideoGridLayout.columnCount(availableWidth: 300, isCompact: true) == 2)

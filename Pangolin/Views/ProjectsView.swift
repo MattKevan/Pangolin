@@ -301,6 +301,9 @@ enum ProjectVideoGridLayout {
 enum ProjectVideoTouchInteraction: Equatable {
     case open(UUID)
     case selecting(Set<UUID>)
+    case macOSSelection(UUID, extendingSelection: Bool, rangeSelecting: Bool)
+    case macOSOpen(UUID)
+    case macOSReturn
 }
 
 enum ProjectVideoTouchInteractionPolicy {
@@ -646,36 +649,14 @@ struct ProjectDetailView: View {
 
     #if os(macOS)
     private var macProjectDetail: some View {
-        VStack(spacing: 0) {
-            macAlbumHero
-                .padding(.horizontal, 24)
-                .padding(.top, 24)
-                .padding(.bottom, 28)
-
-            if sections.isEmpty {
-                projectEmptyState
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 24)
-            } else {
-                MacProjectVideoCollectionView(
-                    sections: sections,
-                    selection: $store.selectedProjectVideoIDs,
-                    onOpen: { store.openProjectVideo($0, in: project) },
-                    onEdit: { editingVideo = $0 },
-                    onDelete: promptVideoDeletion,
-                    onToggleFavorite: toggleFavorite
-                )
-                .accessibilityIdentifier("project-video-collection")
-
-                ProjectAlbumFooter(
-                    videoCount: totalVideoCount,
-                    duration: formattedProjectDuration(totalDuration)
-                )
-                .padding(.horizontal, 24)
-                .padding(.top, 14)
-                .padding(.bottom, 28)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                macAlbumHero
+                sectionListContent
             }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 24)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .navigationTitle(project.resolvedProjectTitle)
     }
@@ -734,16 +715,14 @@ struct ProjectDetailView: View {
     }
     #endif
 
-    @ViewBuilder
     private var sectionListContent: some View {
-        #if os(iOS)
         VStack(alignment: .leading, spacing: 28) {
             ProjectVideoGrid(
                 sections: sections,
                 searchQuery: store.projectSearchQuery,
                 selection: store.selectedProjectVideoIDs,
                 isSelecting: isSelectingProjectVideos,
-                onInteraction: handleTouchInteraction,
+                onInteraction: handleGridInteraction,
                 onEdit: { editingVideo = $0 },
                 onDelete: promptVideoDeletion,
                 onToggleFavorite: toggleFavorite
@@ -756,45 +735,6 @@ struct ProjectDetailView: View {
                 )
             }
         }
-        #else
-        if sections.isEmpty {
-            ContentUnavailableView(
-                "No videos in this project",
-                systemImage: "video.slash",
-                description: Text("Import videos or add sections to populate the project.")
-            )
-            .frame(maxWidth: .infinity, minHeight: 220)
-        } else {
-            LazyVStack(alignment: .leading, spacing: 28) {
-                ForEach(sections) { section in
-                    VStack(alignment: .leading, spacing: 0) {
-                        ProjectSectionHeader(title: section.title)
-
-                        ForEach(Array(section.videos.enumerated()), id: \.element.objectID) { index, video in
-                            ProjectVideoRow(
-                                video: video,
-                                ordinal: index + 1,
-                                isSelected: isVideoSelected(video),
-                                showsSelectionAccessory: isEditingSelection,
-                                tapAction: {
-                                    if opensVideoOnSingleTap && !isEditingSelection {
-                                        store.openProjectVideo(video, in: project)
-                                    } else {
-                                        handleSelection(for: video)
-                                    }
-                                }
-                            )
-                            .contextMenu {
-                                Button("Edit Video") { editingVideo = video }
-                                Button("Delete Video", role: .destructive) { promptVideoDeletion(video) }
-                            }
-                        }
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        #endif
     }
 
     @ViewBuilder
@@ -992,8 +932,7 @@ struct ProjectDetailView: View {
         }
     }
 
-    #if os(iOS)
-    private func handleTouchInteraction(_ interaction: ProjectVideoTouchInteraction) {
+    private func handleGridInteraction(_ interaction: ProjectVideoTouchInteraction) {
         switch interaction {
         case .open(let videoID):
             guard opensVideoOnSingleTap,
@@ -1002,11 +941,26 @@ struct ProjectDetailView: View {
             }
             store.openProjectVideo(video, in: project)
         case .selecting(let selection):
+            #if os(iOS)
             isTouchSelectingVideos = true
+            #endif
             store.selectedProjectVideoIDs = selection
+        case .macOSSelection(let videoID, let extendingSelection, let rangeSelecting):
+            guard let video = orderedDisplayedVideos.first(where: { $0.id == videoID }) else { return }
+            store.selectProjectVideo(
+                video,
+                in: orderedDisplayedVideos,
+                extendingSelection: extendingSelection,
+                rangeSelecting: rangeSelecting
+            )
+        case .macOSOpen(let videoID):
+            guard let video = orderedDisplayedVideos.first(where: { $0.id == videoID }) else { return }
+            store.openProjectVideo(video, in: project)
+        case .macOSReturn:
+            guard let video = selectedProjectVideo else { return }
+            store.openProjectVideo(video, in: project)
         }
     }
-    #endif
 
     private func isVideoSelected(_ video: Video) -> Bool {
         guard let videoID = video.id else { return false }
