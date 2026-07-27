@@ -631,63 +631,36 @@ struct ProjectDetailView: View {
 
     #if os(macOS)
     private var macProjectDetail: some View {
-        List(selection: $store.selectedProjectVideoIDs) {
+        VStack(spacing: 0) {
             macAlbumHero
-                .listRowInsets(EdgeInsets(top: 24, leading: 24, bottom: 28, trailing: 24))
-                .listRowSeparator(.hidden)
+                .padding(.horizontal, 24)
+                .padding(.top, 24)
+                .padding(.bottom, 28)
 
             if sections.isEmpty {
                 projectEmptyState
-                    .frame(maxWidth: .infinity, minHeight: 220)
-                    .listRowInsets(EdgeInsets(top: 12, leading: 24, bottom: 24, trailing: 24))
-                    .listRowSeparator(.hidden)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 24)
             } else {
-                ForEach(sections) { section in
-                    Section {
-                        ForEach(Array(section.videos.enumerated()), id: \.element.objectID) { index, video in
-                            if let videoID = video.id {
-                                ProjectVideoRow(
-                                    video: video,
-                                    ordinal: index + 1,
-                                    isSelected: false,
-                                    showsSelectionAccessory: false,
-                                    usesNativeListStyling: true,
-                                    tapAction: nil
-                                )
-                                .tag(videoID)
-                                .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12))
-                                .accessibilityIdentifier("project-video-row-\(videoID.uuidString)")
-                            }
-                        }
-                    } header: {
-                        ProjectAlbumSectionHeader(title: section.title)
-                            .accessibilityIdentifier("project-section-\(section.id)")
-                    }
-                }
+                MacProjectVideoCollectionView(
+                    sections: sections,
+                    selection: $store.selectedProjectVideoIDs,
+                    onOpen: { store.openProjectVideo($0, in: project) },
+                    onEdit: { editingVideo = $0 },
+                    onDelete: promptVideoDeletion,
+                    onToggleFavorite: toggleFavorite
+                )
+                .accessibilityIdentifier("project-video-collection")
 
                 ProjectAlbumFooter(
                     videoCount: totalVideoCount,
                     duration: formattedProjectDuration(totalDuration)
                 )
-                .listRowInsets(EdgeInsets(top: 14, leading: 24, bottom: 28, trailing: 24))
-                .listRowSeparator(.hidden)
+                .padding(.horizontal, 24)
+                .padding(.top, 14)
+                .padding(.bottom, 28)
             }
-        }
-        .listStyle(.plain)
-        .contextMenu(forSelectionType: UUID.self) { selection in
-            if let video = selectedVideo(from: selection) {
-                Button("Open Video") {
-                    _ = openProjectVideo(from: selection)
-                }
-                Button("Edit Video") { editingVideo = video }
-                Button("Delete Video", role: .destructive) { promptVideoDeletion(video) }
-            }
-        } primaryAction: { selection in
-            _ = openProjectVideo(from: selection)
-        }
-        .accessibilityIdentifier("project-video-list")
-        .onKeyPress(.return) {
-            openSelectedProjectVideo() ? .handled : .ignored
         }
         .navigationTitle(project.resolvedProjectTitle)
     }
@@ -715,34 +688,6 @@ struct ProjectDetailView: View {
         }
     }
 
-    private func openSelectedProjectVideo() -> Bool {
-        guard let selectedID = ProjectVideoSelectionPolicy.activationID(
-            selection: store.selectedProjectVideoIDs,
-            visibleIDs: displayedVideoIDs
-        ), let video = orderedDisplayedVideos.first(where: { $0.id == selectedID }) else {
-            return false
-        }
-
-        store.openProjectVideo(video, in: project)
-        return true
-    }
-
-    private func openProjectVideo(from selection: Set<UUID>) -> Bool {
-        guard let video = selectedVideo(from: selection) else {
-            return false
-        }
-
-        store.openProjectVideo(video, in: project)
-        return true
-    }
-
-    private func selectedVideo(from selection: Set<UUID>) -> Video? {
-        guard let selectedID = ProjectVideoSelectionPolicy.primaryActionID(
-            selection: selection,
-            visibleIDs: displayedVideoIDs
-        ) else { return nil }
-        return orderedDisplayedVideos.first(where: { $0.id == selectedID })
-    }
     #endif
 
     #if os(iOS)

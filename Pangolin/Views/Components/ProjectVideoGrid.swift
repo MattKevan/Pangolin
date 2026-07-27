@@ -119,56 +119,13 @@ private struct ProjectVideoGridCard: View {
     }
 
     private var cardContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            thumbnail
-
-            Text(resolvedTitle)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
-                .lineLimit(2)
-                .frame(maxWidth: .infinity, minHeight: 34, alignment: .topLeading)
-
-            HStack(spacing: 6) {
-                watchStatus
-
-                Text(video.watchStatus.displayName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-
-                Spacer(minLength: 0)
-
-                Text(video.formattedDuration)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-
-                Text(availabilityLabel)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-
-                cardActionsMenu
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(8)
-        .background {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.secondary.opacity(isSelected ? 0.14 : 0.07))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(isSelected ? Color.accentColor : Color.secondary.opacity(0.18), lineWidth: isSelected ? 2 : 1)
-        }
-        .overlay(alignment: .topTrailing) {
-            if isSelected {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(Color.accentColor, .background)
-                    .font(.title3)
-                    .padding(6)
-            }
-        }
+        ProjectVideoCardContent(
+            video: video,
+            isSelected: isSelected,
+            onToggleFavorite: onToggleFavorite,
+            onEdit: onEdit,
+            onDelete: onDelete
+        )
     }
 
     private var thumbnail: some View {
@@ -231,13 +188,17 @@ private struct ProjectVideoGridCard: View {
         switch video.watchStatus {
         case .unwatched:
             Image(systemName: "circle")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         case .inProgress:
             Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         case .watched:
             Image(systemName: "checkmark.circle.fill")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
-        .font(.caption)
-        .foregroundStyle(.secondary)
     }
 
     @ViewBuilder
@@ -276,7 +237,13 @@ private struct ProjectVideoGridCard: View {
     }
 
     private var accessibilityLabel: String {
-        "\(resolvedTitle), \(video.formattedDuration), \(video.watchStatus.displayName), \(availabilityLabel)"
+        ProjectVideoCardContent(
+            video: video,
+            isSelected: isSelected,
+            onToggleFavorite: onToggleFavorite,
+            onEdit: onEdit,
+            onDelete: onDelete
+        ).accessibilityLabel
     }
 
     private var availabilityLabel: String {
@@ -309,3 +276,148 @@ private struct ProjectVideoGridCard: View {
     }
 }
 #endif
+
+/// Shared visual treatment for project video cards. Platform-specific containers own selection and activation.
+struct ProjectVideoCardContent: View {
+    let video: Video
+    let isSelected: Bool
+    let onToggleFavorite: () -> Void
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SyncedThumbnailImage(video: video, contentMode: .fill) {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.secondary.opacity(0.16))
+                    .overlay {
+                        Image(systemName: "play.rectangle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.secondary)
+                    }
+            }
+            .aspectRatio(16 / 9, contentMode: .fit)
+            .frame(maxWidth: .infinity)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(alignment: .bottomTrailing) {
+                Text(video.formattedDuration)
+                    .font(.caption2.weight(.medium).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .padding(6)
+            }
+            .overlay(alignment: .topTrailing) {
+                if let cloudStatusPresentation {
+                    Image(systemName: cloudStatusPresentation.systemImage)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(4)
+                        .background(cloudStatusPresentation.color, in: Circle())
+                        .accessibilityLabel(cloudStatusPresentation.label)
+                        .padding(6)
+                }
+            }
+
+            Text(resolvedTitle)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, minHeight: 34, alignment: .topLeading)
+
+            HStack(spacing: 6) {
+                Image(systemName: watchStatusImage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(video.watchStatus.displayName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Text(video.formattedDuration)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Text(availabilityLabel)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Menu {
+                    Button(video.isFavorite ? "Remove from favourites" : "Add to favourites", systemImage: video.isFavorite ? "heart.slash" : "heart") { onToggleFavorite() }
+                    Button("Edit Video") { onEdit() }
+                    Button("Delete Video", role: .destructive) { onDelete() }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                }
+                .accessibilityLabel("More actions for \(resolvedTitle)")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(8)
+        .background {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.secondary.opacity(isSelected ? 0.14 : 0.07))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(isSelected ? Color.accentColor : Color.secondary.opacity(0.18), lineWidth: isSelected ? 2 : 1)
+        }
+        .overlay(alignment: .topTrailing) {
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Color.accentColor, .background)
+                    .font(.title3)
+                    .padding(6)
+            }
+        }
+    }
+
+    var accessibilityLabel: String {
+        "\(resolvedTitle), \(video.formattedDuration), \(video.watchStatus.displayName), \(availabilityLabel)"
+    }
+
+    private var resolvedTitle: String {
+        let title = video.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return title.isEmpty ? (video.fileName ?? "Untitled Video") : title
+    }
+
+    private var watchStatusImage: String {
+        switch video.watchStatus {
+        case .unwatched: "circle"
+        case .inProgress: "clock.arrow.trianglehead.counterclockwise.rotate.90"
+        case .watched: "checkmark.circle.fill"
+        }
+    }
+
+    private var fileStatus: VideoFileStatus {
+        if let rawState = video.fileAvailabilityState,
+           let status = VideoFileStatus(rawValue: rawState) {
+            return status
+        }
+        return video.cloudRelativePath?.isEmpty == false ? .cloudOnly : .local
+    }
+
+    private var cloudStatusPresentation: (systemImage: String, label: String, color: Color)? {
+        switch fileStatus {
+        case .cloudOnly: ("icloud", "Available in iCloud", .blue)
+        case .downloading: ("icloud.and.arrow.down", "Downloading from iCloud", .blue)
+        case .missing: ("exclamationmark.icloud", "File not found", .red)
+        case .error: ("questionmark.diamond", "File unavailable", .gray)
+        case .local: nil
+        }
+    }
+
+    private var availabilityLabel: String {
+        switch fileStatus {
+        case .local: "On device"
+        case .cloudOnly: "Available in iCloud"
+        case .downloading: "Downloading from iCloud"
+        case .missing: "File not found"
+        case .error: "File unavailable"
+        }
+    }
+}

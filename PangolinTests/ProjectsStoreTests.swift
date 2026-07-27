@@ -74,6 +74,57 @@ struct ProjectsStoreTests {
         ) == nil)
     }
 
+    @Test("Mac project collection keeps native selection and activation scoped to visible videos")
+    func macProjectVideoCollectionPolicy() {
+        let first = UUID()
+        let second = UUID()
+        let hidden = UUID()
+
+        #expect(MacProjectVideoCollectionPolicy.reconciledSelection(
+            [first, hidden],
+            visibleIDs: [first, second]
+        ) == [first])
+        #expect(MacProjectVideoCollectionPolicy.returnActivationID(
+            selection: [first],
+            visibleIDs: [first, second]
+        ) == first)
+        #expect(MacProjectVideoCollectionPolicy.returnActivationID(
+            selection: [first, second],
+            visibleIDs: [first, second]
+        ) == nil)
+        #expect(MacProjectVideoCollectionPolicy.doubleClickActivationID(
+            clickedID: second,
+            selection: [second],
+            visibleIDs: [first, second]
+        ) == second)
+        #expect(MacProjectVideoCollectionPolicy.doubleClickActivationID(
+            clickedID: second,
+            selection: [first],
+            visibleIDs: [first, second]
+        ) == nil)
+
+        #expect(MacProjectVideoCollectionPolicy.contextSelection(
+            clickedID: second,
+            selection: [first, second],
+            visibleIDs: [first, second]
+        ) == [first, second])
+        #expect(MacProjectVideoCollectionPolicy.contextSelection(
+            clickedID: second,
+            selection: [first],
+            visibleIDs: [first, second]
+        ) == [second])
+        #expect(MacProjectVideoCollectionPolicy.contextOpenID(
+            clickedID: second,
+            selection: [first, second],
+            visibleIDs: [first, second]
+        ) == nil)
+        #expect(MacProjectVideoCollectionPolicy.contextOpenID(
+            clickedID: second,
+            selection: [first],
+            visibleIDs: [first, second]
+        ) == second)
+    }
+
     @Test("Project video grid keeps two columns in compact and regular layouts")
     func projectVideoGridColumnPolicyKeepsMinimumOfTwoColumns() {
         #expect(ProjectVideoGridLayout.columnCount(availableWidth: 300, isCompact: true) == 2)

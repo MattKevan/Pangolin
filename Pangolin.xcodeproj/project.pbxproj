@@ -102,6 +102,8 @@
 		EB485127D639337042F4F6CA /* VideoModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0494EEFBA9CEA95212F8DA3 /* VideoModel.swift */; };
 		EBFDFC4A9483355B2ABC6FE6 /* SearchPresentationModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9505F39918347E4BA4039BC9 /* SearchPresentationModels.swift */; };
 		F01F76261A130E674800A1D1 /* ProjectsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78B3F445583D16F809991AED /* ProjectsView.swift */; };
+		F2A100000000000000000001 /* ProjectVideoGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A100000000000000000002 /* ProjectVideoGrid.swift */; };
+		F2A100000000000000000003 /* MacProjectVideoCollectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A100000000000000000004 /* MacProjectVideoCollectionView.swift */; };
 		F1E6D14149478AC6E9DCE405 /* ThumbnailImageCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9C281329ED37A88C6FB0607 /* ThumbnailImageCacheTests.swift */; };
 		F80BF1985F25AC8076A1BE06 /* VideoPresentationFrameController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C89C9AECDD53743EEF15DA29 /* VideoPresentationFrameController.swift */; };
 		F84A0D82CFD2B6F232B80FDF /* ThumbnailCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C959C2624799003EBCD37F8 /* ThumbnailCoordinatorTests.swift */; };
@@ -168,6 +170,8 @@
 		7160DB97F1F9C256A9B53DA2 /* FileSystemManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSystemManager.swift; sourceTree = "<group>"; };
 		75E24246155926F87F9ACD93 /* SearchManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchManager.swift; sourceTree = "<group>"; };
 		78B3F445583D16F809991AED /* ProjectsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectsView.swift; sourceTree = "<group>"; };
+		F2A100000000000000000002 /* ProjectVideoGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectVideoGrid.swift; sourceTree = "<group>"; };
+		F2A100000000000000000004 /* MacProjectVideoCollectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacProjectVideoCollectionView.swift; sourceTree = "<group>"; };
 		7B24B035147F0F00E66A73A8 /* VideoPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerView.swift; sourceTree = "<group>"; };
 		842EF6A04CD045279F43F0D7 /* PangolinUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PangolinUITestsLaunchTests.swift; sourceTree = "<group>"; };
 		861A4C66A40173589AAB6E62 /* ContentRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentRowView.swift; sourceTree = "<group>"; };
@@ -349,6 +353,8 @@
 				B667E82EE2E6FA1FF993AE85 /* FolderNavigationHeader.swift */,
 				AFEA6C8077F01019D192E39B /* InspectorContentView.swift */,
 				EE429A782F01433C102B5359 /* ProcessingPopoverView.swift */,
+				F2A100000000000000000002 /* ProjectVideoGrid.swift */,
+				F2A100000000000000000004 /* MacProjectVideoCollectionView.swift */,
 				AC33176EA111CFE584E008C7 /* SummaryView.swift */,
 				EFE9A63BE6B9C1D30E21858E /* SyncedThumbnailImage.swift */,
 				90BEF1F008BEA178FB54B820 /* TranscriptionView.swift */,
@@ -731,6 +737,8 @@
 				B3D157785A8450C59CD4C761 /* ProcessingQueueManager.swift in Sources */,
 				AB0D278195A92B0EC871679A /* ProcessingTask.swift in Sources */,
 				F01F76261A130E674800A1D1 /* ProjectsView.swift in Sources */,
+				F2A100000000000000000001 /* ProjectVideoGrid.swift in Sources */,
+				F2A100000000000000000003 /* MacProjectVideoCollectionView.swift in Sources */,
 				605B15F28A91BF0AB2B13E7E /* RemoteVideoDownloadService.swift in Sources */,
 				CF3C51EC9802684F12BCC36D /* SearchEvidenceBuilder.swift in Sources */,
 				0F41C58DED6003BD54F6C6AF /* SearchManager.swift in Sources */,
