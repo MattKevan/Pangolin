@@ -1,0 +1,311 @@
+//
+//  ProjectVideoGrid.swift
+//  Pangolin
+//
+
+import SwiftUI
+
+#if os(iOS)
+struct ProjectVideoGrid: View {
+    let sections: [ProjectSectionSnapshot]
+    let searchQuery: String
+    let selection: Set<UUID>
+    let isSelecting: Bool
+    let onInteraction: (ProjectVideoTouchInteraction) -> Void
+    let onEdit: (Video) -> Void
+    let onDelete: (Video) -> Void
+    let onToggleFavorite: (Video) -> Void
+
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    private var columns: [GridItem] {
+        if horizontalSizeClass == .compact {
+            return Array(
+                repeating: GridItem(.flexible(), spacing: ProjectVideoGridLayout.spacing),
+                count: 2
+            )
+        }
+
+        return [
+            GridItem(
+                .adaptive(minimum: ProjectVideoGridLayout.minimumRegularCardWidth),
+                spacing: ProjectVideoGridLayout.spacing
+            )
+        ]
+    }
+
+    var body: some View {
+        if sections.isEmpty {
+            if searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                ContentUnavailableView(
+                    "No videos in this project",
+                    systemImage: "video.slash",
+                    description: Text("Import videos or add sections to populate the project.")
+                )
+                .frame(maxWidth: .infinity, minHeight: 220)
+            } else {
+                ContentUnavailableView.search(text: searchQuery)
+                    .frame(maxWidth: .infinity, minHeight: 220)
+            }
+        } else {
+            LazyVStack(alignment: .leading, spacing: 28) {
+                ForEach(sections) { section in
+                    VStack(alignment: .leading, spacing: 12) {
+                        ProjectSectionHeader(title: section.title)
+                            .accessibilityAddTraits(.isHeader)
+
+                        LazyVGrid(columns: columns, alignment: .leading, spacing: ProjectVideoGridLayout.spacing) {
+                            ForEach(section.videos, id: \.objectID) { video in
+                                ProjectVideoGridCard(
+                                    video: video,
+                                    isSelected: video.id.map(selection.contains) ?? false,
+                                    selection: selection,
+                                    isSelecting: isSelecting,
+                                    isInteractive: video.id != nil,
+                                    interaction: onInteraction,
+                                    onToggleFavorite: { onToggleFavorite(video) },
+                                    onEdit: { onEdit(video) },
+                                    onDelete: { onDelete(video) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+private struct ProjectVideoGridCard: View {
+    let video: Video
+    let isSelected: Bool
+    let selection: Set<UUID>
+    let isSelecting: Bool
+    let isInteractive: Bool
+    let interaction: (ProjectVideoTouchInteraction) -> Void
+    let onToggleFavorite: () -> Void
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        if isInteractive {
+            interactiveCard
+        } else {
+            staticCard
+        }
+    }
+
+    private var interactiveCard: some View {
+        cardContent
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .gesture(interactionGesture)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(accessibilityLabel)
+            .accessibilityValue(isSelected ? "Selected" : "")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { performTap() }
+            .accessibilityAction(named: Text("Open")) { performOpen() }
+            .accessibilityAction(named: Text("Select video")) { performLongPress() }
+    }
+
+    private var staticCard: some View {
+        cardContent
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .opacity(0.55)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(accessibilityLabel)
+            .accessibilityAddTraits(.isStaticText)
+    }
+
+    private var cardContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            thumbnail
+
+            Text(resolvedTitle)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, minHeight: 34, alignment: .topLeading)
+
+            HStack(spacing: 6) {
+                watchStatus
+
+                Text(video.watchStatus.displayName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
+
+                Text(video.formattedDuration)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                Text(availabilityLabel)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                cardActionsMenu
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(8)
+        .background {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.secondary.opacity(isSelected ? 0.14 : 0.07))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(isSelected ? Color.accentColor : Color.secondary.opacity(0.18), lineWidth: isSelected ? 2 : 1)
+        }
+        .overlay(alignment: .topTrailing) {
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Color.accentColor, .background)
+                    .font(.title3)
+                    .padding(6)
+            }
+        }
+    }
+
+    private var thumbnail: some View {
+        SyncedThumbnailImage(video: video, contentMode: .fill) {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.secondary.opacity(0.16))
+                .overlay {
+                    Image(systemName: "play.rectangle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                }
+        }
+        .aspectRatio(16 / 9, contentMode: .fit)
+        .frame(maxWidth: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(alignment: .bottomTrailing) {
+            Text(video.formattedDuration)
+                .font(.caption2.weight(.medium).monospacedDigit())
+                .foregroundStyle(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .padding(6)
+        }
+        .overlay(alignment: .topTrailing) {
+            cloudStatusIcon
+                .padding(6)
+        }
+    }
+
+    private var interactionGesture: some Gesture {
+        LongPressGesture(minimumDuration: 0.45)
+            .onEnded { _ in performLongPress() }
+            .exclusively(before: TapGesture().onEnded(performTap))
+    }
+
+    private var cardActionsMenu: some View {
+        Menu {
+            Button(video.isFavorite ? "Remove from favourites" : "Add to favourites", systemImage: video.isFavorite ? "heart.slash" : "heart") {
+                onToggleFavorite()
+            }
+            Button("Edit Video") { onEdit() }
+            Button("Delete Video", role: .destructive) { onDelete() }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .frame(width: 28, height: 28)
+        }
+        .accessibilityLabel("More actions for \(resolvedTitle)")
+    }
+
+    private var resolvedTitle: String {
+        let title = video.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return title.isEmpty ? (video.fileName ?? "Untitled Video") : title
+    }
+
+    @ViewBuilder
+    private var watchStatus: some View {
+        switch video.watchStatus {
+        case .unwatched:
+            Image(systemName: "circle")
+        case .inProgress:
+            Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+        case .watched:
+            Image(systemName: "checkmark.circle.fill")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+
+    @ViewBuilder
+    private var cloudStatusIcon: some View {
+        if let cloudStatusPresentation {
+            Image(systemName: cloudStatusPresentation.systemImage)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(4)
+                .background(cloudStatusPresentation.color, in: Circle())
+                .accessibilityLabel(cloudStatusPresentation.label)
+        }
+    }
+
+    private var cloudStatusPresentation: (systemImage: String, label: String, color: Color)? {
+        switch fileStatus {
+        case .cloudOnly:
+            ("icloud", "Available in iCloud", .blue)
+        case .downloading:
+            ("icloud.and.arrow.down", "Downloading from iCloud", .blue)
+        case .missing:
+            ("exclamationmark.icloud", "File not found", .red)
+        case .error:
+            ("questionmark.diamond", "File unavailable", .gray)
+        case .local:
+            nil
+        }
+    }
+
+    private var fileStatus: VideoFileStatus {
+        if let rawState = video.fileAvailabilityState,
+           let status = VideoFileStatus(rawValue: rawState) {
+            return status
+        }
+        return video.cloudRelativePath?.isEmpty == false ? .cloudOnly : .local
+    }
+
+    private var accessibilityLabel: String {
+        "\(resolvedTitle), \(video.formattedDuration), \(video.watchStatus.displayName), \(availabilityLabel)"
+    }
+
+    private var availabilityLabel: String {
+        switch fileStatus {
+        case .local: return "On device"
+        case .cloudOnly: return "Available in iCloud"
+        case .downloading: return "Downloading from iCloud"
+        case .missing: return "File not found"
+        case .error: return "File unavailable"
+        }
+    }
+
+    private func performTap() {
+        guard isInteractive, let id = video.id else { return }
+        interaction(ProjectVideoTouchInteractionPolicy.tap(
+            id,
+            selection: selection,
+            isSelecting: isSelecting
+        ))
+    }
+
+    private func performLongPress() {
+        guard isInteractive, let id = video.id else { return }
+        interaction(ProjectVideoTouchInteractionPolicy.longPress(id, selection: selection))
+    }
+
+    private func performOpen() {
+        guard isInteractive, let id = video.id else { return }
+        interaction(.open(id))
+    }
+}
+#endif

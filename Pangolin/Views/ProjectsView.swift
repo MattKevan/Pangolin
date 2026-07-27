@@ -529,6 +529,7 @@ struct ProjectDetailView: View {
     @State private var editingVideo: Video?
     @State private var videoPendingDeletion: Video?
     @State private var showingVideoDeletionConfirmation = false
+    @State private var isTouchSelectingVideos = false
 
     let project: Folder
     let showsPhoneToolbar: Bool
@@ -582,6 +583,10 @@ struct ProjectDetailView: View {
         #endif
     }
 
+    private var isSelectingProjectVideos: Bool {
+        isEditingSelection || isTouchSelectingVideos
+    }
+
     var body: some View {
         let baseView = Group {
             #if os(macOS)
@@ -595,6 +600,12 @@ struct ProjectDetailView: View {
             #endif
         }
         baseView
+            .onChange(of: displayedVideoIDs) { _, visibleIDs in
+                store.selectedProjectVideoIDs = ProjectVideoSelectionPolicy.reconciledSelection(
+                    store.selectedProjectVideoIDs,
+                    visibleIDs: visibleIDs
+                )
+            }
             .toolbar {
                 projectToolbarItems
             }
@@ -675,12 +686,6 @@ struct ProjectDetailView: View {
             _ = openProjectVideo(from: selection)
         }
         .accessibilityIdentifier("project-video-list")
-        .onChange(of: displayedVideoIDs) { _, visibleIDs in
-            store.selectedProjectVideoIDs = ProjectVideoSelectionPolicy.reconciledSelection(
-                store.selectedProjectVideoIDs,
-                visibleIDs: visibleIDs
-            )
-        }
         .onKeyPress(.return) {
             openSelectedProjectVideo() ? .handled : .ignored
         }
@@ -771,6 +776,27 @@ struct ProjectDetailView: View {
 
     @ViewBuilder
     private var sectionListContent: some View {
+        #if os(iOS)
+        VStack(alignment: .leading, spacing: 28) {
+            ProjectVideoGrid(
+                sections: sections,
+                searchQuery: store.projectSearchQuery,
+                selection: store.selectedProjectVideoIDs,
+                isSelecting: isSelectingProjectVideos,
+                onInteraction: handleTouchInteraction,
+                onEdit: { editingVideo = $0 },
+                onDelete: promptVideoDeletion,
+                onToggleFavorite: toggleFavorite
+            )
+
+            if !sections.isEmpty {
+                ProjectAlbumFooter(
+                    videoCount: totalVideoCount,
+                    duration: formattedProjectDuration(totalDuration)
+                )
+            }
+        }
+        #else
         if sections.isEmpty {
             ContentUnavailableView(
                 "No videos in this project",
@@ -808,6 +834,7 @@ struct ProjectDetailView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        #endif
     }
 
     @ViewBuilder
@@ -969,8 +996,11 @@ struct ProjectDetailView: View {
 
             Button("Clear selection", systemImage: "checkmark.circle") {
                 store.clearProjectVideoSelection()
+                #if os(iOS)
+                isTouchSelectingVideos = false
+                #endif
             }
-            .disabled(store.selectedProjectVideoIDs.isEmpty)
+            .disabled(store.selectedProjectVideoIDs.isEmpty && !isTouchSelectingVideos)
         } label: {
             Image(systemName: "ellipsis")
         }
@@ -990,9 +1020,36 @@ struct ProjectDetailView: View {
         }
     }
 
+    #if os(iOS)
+    private func handleTouchInteraction(_ interaction: ProjectVideoTouchInteraction) {
+        switch interaction {
+        case .open(let videoID):
+            guard opensVideoOnSingleTap,
+                  let video = orderedDisplayedVideos.first(where: { $0.id == videoID }) else {
+                return
+            }
+            store.openProjectVideo(video, in: project)
+        case .selecting(let selection):
+            isTouchSelectingVideos = true
+            store.selectedProjectVideoIDs = selection
+        }
+    }
+    #endif
+
     private func isVideoSelected(_ video: Video) -> Bool {
         guard let videoID = video.id else { return false }
         return store.selectedProjectVideoIDs.contains(videoID)
+    }
+
+    private func toggleFavorite(_ video: Video) {
+        video.isFavorite.toggle()
+        guard let context = video.managedObjectContext else { return }
+
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+        }
     }
 
     private func promptVideoDeletion(_ video: Video) {
@@ -1224,7 +1281,7 @@ private struct ProjectSyncedThumbnailImage<Placeholder: View>: View {
     }
 }
 
-private struct ProjectSectionHeader: View {
+struct ProjectSectionHeader: View {
     let title: String
 
     var body: some View {
