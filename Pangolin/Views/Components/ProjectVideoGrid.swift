@@ -256,7 +256,8 @@ struct ProjectVideoCardContent: View {
             }
             .aspectRatio(16 / 9, contentMode: .fit)
             .frame(maxWidth: .infinity)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(.rect(cornerRadius: 6))
+            .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
             .overlay(alignment: .bottomTrailing) {
                 Text(video.formattedDuration)
                     .font(.caption2.weight(.medium).monospacedDigit())
@@ -305,15 +306,6 @@ struct ProjectVideoCardContent: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(8)
-        .background {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.secondary.opacity(isSelected ? 0.14 : 0.07))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(isSelected ? Color.accentColor : Color.secondary.opacity(0.18), lineWidth: isSelected ? 2 : 1)
-        }
         .overlay(alignment: .topTrailing) {
             if isSelected {
                 Image(systemName: "checkmark.circle.fill")
