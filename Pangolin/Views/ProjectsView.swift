@@ -283,7 +283,7 @@ enum ProjectVideoSelectionPolicy {
 
 enum ProjectVideoGridLayout {
     static let spacing: CGFloat = ProjectGridLayout.spacing
-    static let minimumRegularCardWidth: CGFloat = 180
+    static let minimumRegularCardWidth: CGFloat = ProjectGridLayout.minimumRegularCardWidth
 
     static func columnCount(availableWidth: CGFloat, isCompact: Bool) -> Int {
         guard !isCompact else { return 2 }
@@ -649,14 +649,20 @@ struct ProjectDetailView: View {
 
     #if os(macOS)
     private var macProjectDetail: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                macAlbumHero
-                sectionListContent
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
+                    macAlbumHero
+                    sectionListContent(availableWidth: contentWidth(for: geometry.size.width), isCompact: false)
+                }
+                .padding(ProjectGridLayout.contentPadding)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 24)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .onKeyPress { keyPress in
+                guard keyPress.key == .return else { return .ignored }
+                handleGridInteraction(.macOSReturn)
+                return .handled
+            }
         }
         .navigationTitle(project.resolvedProjectTitle)
     }
@@ -688,38 +694,42 @@ struct ProjectDetailView: View {
 
     #if os(iOS)
     private var padProjectDetail: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                heroContent(isCompact: false)
-                sectionListContent
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
+                    heroContent(isCompact: false)
+                    sectionListContent(availableWidth: contentWidth(for: geometry.size.width), isCompact: false)
+                }
+                .padding(ProjectGridLayout.contentPadding)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 24)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .navigationTitle(project.resolvedProjectTitle)
     }
 
     private var phoneProjectDetail: some View {
-        ScrollView {
-            VStack(alignment: .center, spacing: 28) {
-                heroContent(isCompact: true)
-                sectionListContent
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .center, spacing: 28) {
+                    heroContent(isCompact: true)
+                    sectionListContent(availableWidth: contentWidth(for: geometry.size.width), isCompact: true)
+                }
+                .padding(ProjectGridLayout.contentPadding)
+                .frame(maxWidth: .infinity, alignment: .center)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 20)
-            .frame(maxWidth: .infinity, alignment: .center)
         }
         .navigationTitle(project.resolvedProjectTitle)
         .navigationBarTitleDisplayMode(.inline)
     }
     #endif
 
-    private var sectionListContent: some View {
+    private func sectionListContent(availableWidth: CGFloat, isCompact: Bool) -> some View {
         VStack(alignment: .leading, spacing: 28) {
             ProjectVideoGrid(
                 sections: sections,
                 searchQuery: store.projectSearchQuery,
+                availableWidth: availableWidth,
+                isCompact: isCompact,
                 selection: store.selectedProjectVideoIDs,
                 isSelecting: isSelectingProjectVideos,
                 onInteraction: handleGridInteraction,
@@ -735,6 +745,10 @@ struct ProjectDetailView: View {
                 )
             }
         }
+    }
+
+    private func contentWidth(for containerWidth: CGFloat) -> CGFloat {
+        max(0, containerWidth - (ProjectGridLayout.contentPadding * 2))
     }
 
     @ViewBuilder

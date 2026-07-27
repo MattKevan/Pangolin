@@ -12,6 +12,8 @@ import AppKit
 struct ProjectVideoGrid: View {
     let sections: [ProjectSectionSnapshot]
     let searchQuery: String
+    let availableWidth: CGFloat
+    let isCompact: Bool
     let selection: Set<UUID>
     let isSelecting: Bool
     let onInteraction: (ProjectVideoTouchInteraction) -> Void
@@ -19,20 +21,13 @@ struct ProjectVideoGrid: View {
     let onDelete: (Video) -> Void
     let onToggleFavorite: (Video) -> Void
 
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    #endif
-    @State private var availableWidth: CGFloat = 0
-
     private var columns: [GridItem] {
-        #if os(iOS)
-        if horizontalSizeClass == .compact {
+        if isCompact {
             return Array(
                 repeating: GridItem(.flexible(), spacing: ProjectVideoGridLayout.spacing),
                 count: 2
             )
         }
-        #endif
 
         return ProjectVideoGridLayout.regularColumns(availableWidth: availableWidth)
     }
@@ -76,22 +71,6 @@ struct ProjectVideoGrid: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                GeometryReader { proxy in
-                    Color.clear.preference(key: ProjectVideoGridWidthPreferenceKey.self, value: proxy.size.width)
-                }
-            }
-            .onPreferenceChange(ProjectVideoGridWidthPreferenceKey.self) { width in
-                availableWidth = width
-            }
-            #if os(macOS)
-            .focusable()
-            .onKeyPress { keyPress in
-                guard keyPress.key == .return else { return .ignored }
-                onInteraction(.macOSReturn)
-                return .handled
-            }
-            #endif
         }
     }
 }
@@ -389,9 +368,4 @@ struct ProjectVideoCardContent: View {
         case .error: "File unavailable"
         }
     }
-}
-
-private struct ProjectVideoGridWidthPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
