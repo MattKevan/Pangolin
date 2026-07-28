@@ -43,10 +43,10 @@ enum MacProjectVideoCollectionPolicy {
 }
 
 enum MacProjectVideoCollectionLayout {
-    static let minimumCardWidth: CGFloat = 220
     static let horizontalInsets: CGFloat = 48
 
     static func itemSize(containerWidth: CGFloat) -> NSSize {
+        let minimumCardWidth = ProjectVideoGridLayout.minimumRegularCardWidth
         let minimumContentWidth = (minimumCardWidth * 2) + ProjectVideoGridLayout.spacing
         let available = max(minimumContentWidth, containerWidth - horizontalInsets)
         let columns = max(2, Int((available + ProjectVideoGridLayout.spacing) / (minimumCardWidth + ProjectVideoGridLayout.spacing)))
@@ -75,6 +75,7 @@ struct MacProjectVideoCollectionView: NSViewRepresentable {
         let collectionView = ActivatingCollectionView()
         collectionView.collectionViewLayout = layout
         collectionView.allowsMultipleSelection = true
+        collectionView.allowsEmptySelection = true
         collectionView.isSelectable = true
         collectionView.backgroundColors = [.clear]
         collectionView.register(MacProjectVideoCollectionItem.self, forItemWithIdentifier: .item)
@@ -90,14 +91,15 @@ struct MacProjectVideoCollectionView: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        context.coordinator.parent = self
-        context.coordinator.reloadPreservingSelection()
+        context.coordinator.updateParent(self)
     }
 
     final class Coordinator: NSObject, NSCollectionViewDataSource, NSCollectionViewDelegateFlowLayout {
         var parent: MacProjectVideoCollectionView
         weak var collectionView: NSCollectionView?
         private var isSynchronizingSelection = false
+        private var contentSignature = [String]()
+        private var presentationSignature = [String]()
 
         init(_ parent: MacProjectVideoCollectionView) { self.parent = parent }
 
@@ -112,7 +114,6 @@ struct MacProjectVideoCollectionView: NSViewRepresentable {
             let video = parent.sections[indexPath.section].videos[indexPath.item]
             item.configure(
                 video: video,
-                isSelected: video.id.map(parent.selection.contains) ?? false,
                 onOpen: parent.onOpen,
                 onSelect: { [weak self] in self?.toggleAccessibilitySelection(for: video) }
             )
@@ -144,9 +145,10 @@ struct MacProjectVideoCollectionView: NSViewRepresentable {
             guard let clickedID = indexPaths.compactMap({ video(at: $0).id }).first else { return nil }
             parent.selection = MacProjectVideoCollectionPolicy.contextSelection(
                 clickedID: clickedID,
-                selection: parent.selection,
+                selection: nativeSelection,
                 visibleIDs: visibleIDs
             )
+            synchronizeSelection()
             let menu = NSMenu()
             if selectedVideo == nil {
                 let summary = menu.addItem(withTitle: "\(parent.selection.count) Videos Selected", action: nil, keyEquivalent: "")
@@ -168,7 +170,10 @@ struct MacProjectVideoCollectionView: NSViewRepresentable {
         @objc private func deleteFromMenu() { if let video = selectedVideo { parent.onDelete(video) } }
 
         func activateSelectionFromReturn() {
-            guard let id = MacProjectVideoCollectionPolicy.returnActivationID(selection: parent.selection, visibleIDs: visibleIDs), let video = video(id: id) else { return }
+            guard let id = MacProjectVideoCollectionPolicy.returnActivationID(
+                selection: nativeSelection,
+                visibleIDs: visibleIDs
+            ), let video = video(id: id) else { return }
             parent.onOpen(video)
         }
 
@@ -176,17 +181,62 @@ struct MacProjectVideoCollectionView: NSViewRepresentable {
             guard indexPath.section < parent.sections.count, indexPath.item < parent.sections[indexPath.section].videos.count else { return }
             let video = self.video(at: indexPath)
             guard let id = video.id,
-                  MacProjectVideoCollectionPolicy.doubleClickActivationID(clickedID: id, selection: parent.selection, visibleIDs: visibleIDs) != nil else { return }
+                  MacProjectVideoCollectionPolicy.doubleClickActivationID(
+                    clickedID: id,
+                    selection: nativeSelection,
+                    visibleIDs: visibleIDs
+                  ) != nil else { return }
             parent.onOpen(video)
         }
 
-        func reloadPreservingSelection() {
+        func updateParent(_ parent: MacProjectVideoCollectionView) {
+            self.parent = parent
+            guard let collectionView else { return }
+
+            let nextSignature = parent.sections.map { section in
+                let videoSignature = section.videos
+                    .map { $0.objectID.uriRepresentation().absoluteString }
+                    .joined(separator: ",")
+                return "\(section.title)|\(videoSignature)"
+            }
+            let nextPresentationSignature = parent.sections.flatMap(\.videos).map(cardPresentationSignature)
+
+            if contentSignature != nextSignature {
+                contentSignature = nextSignature
+                presentationSignature = nextPresentationSignature
+                isSynchronizingSelection = true
+                collectionView.reloadData()
+                isSynchronizingSelection = false
+            } else if presentationSignature != nextPresentationSignature {
+                presentationSignature = nextPresentationSignature
+                refreshVisibleItems()
+            }
+
+            synchronizeSelection()
+        }
+
+        private func synchronizeSelection() {
             guard let collectionView else { return }
             isSynchronizingSelection = true
-            collectionView.reloadData()
-            let paths = selectedIndexPaths
-            collectionView.selectItems(at: paths, scrollPosition: [])
+            let desiredSelection = selectedIndexPaths
+            collectionView.deselectItems(at: collectionView.selectionIndexPaths.subtracting(desiredSelection))
+            collectionView.selectItems(at: desiredSelection, scrollPosition: [])
             isSynchronizingSelection = false
+        }
+
+        private func refreshVisibleItems() {
+            guard let collectionView else { return }
+            for indexPath in collectionView.indexPathsForVisibleItems() {
+                guard let item = collectionView.item(at: indexPath) as? MacProjectVideoCollectionItem else {
+                    continue
+                }
+                let video = video(at: indexPath)
+                item.configure(
+                    video: video,
+                    onOpen: parent.onOpen,
+                    onSelect: { [weak self] in self?.toggleAccessibilitySelection(for: video) }
+                )
+            }
         }
 
         private func publishSelection() {
@@ -207,6 +257,10 @@ struct MacProjectVideoCollectionView: NSViewRepresentable {
         }
 
         private var visibleIDs: Set<UUID> { Set(parent.sections.flatMap(\.videos).compactMap(\.id)) }
+        private var nativeSelection: Set<UUID> {
+            guard let collectionView else { return [] }
+            return Set(collectionView.selectionIndexPaths.compactMap { video(at: $0).id })
+        }
         private var selectedIndexPaths: Set<IndexPath> {
             Set(parent.sections.enumerated().flatMap { section, snapshot in
                 snapshot.videos.enumerated().compactMap { item, video in
@@ -215,11 +269,27 @@ struct MacProjectVideoCollectionView: NSViewRepresentable {
             })
         }
         private var selectedVideo: Video? {
-            guard let id = MacProjectVideoCollectionPolicy.returnActivationID(selection: parent.selection, visibleIDs: visibleIDs) else { return nil }
+            guard let id = MacProjectVideoCollectionPolicy.returnActivationID(
+                selection: nativeSelection,
+                visibleIDs: visibleIDs
+            ) else { return nil }
             return video(id: id)
         }
         private func video(at indexPath: IndexPath) -> Video { parent.sections[indexPath.section].videos[indexPath.item] }
         private func video(id: UUID) -> Video? { parent.sections.flatMap(\.videos).first { $0.id == id } }
+        private func cardPresentationSignature(for video: Video) -> String {
+            [
+                video.objectID.uriRepresentation().absoluteString,
+                video.title ?? "",
+                video.fileName ?? "",
+                String(video.duration),
+                String(video.playbackPosition),
+                String(video.isFavorite),
+                video.fileAvailabilityState ?? "",
+                video.cloudRelativePath ?? "",
+                String(video.thumbnailGenerationVersion)
+            ].joined(separator: "|")
+        }
     }
 }
 
@@ -260,22 +330,35 @@ private final class ProjectVideoCollectionScrollView: NSScrollView {
         if collectionView.frame.width != size.width {
             collectionView.frame = NSRect(origin: .zero, size: size)
             collectionView.collectionViewLayout?.invalidateLayout()
-            // The initial reload can happen while SwiftUI is still assigning the
-            // scroll view a zero-sized document rect. Reload after the clip view
-            // has its real width so the flow layout asks the delegate for usable
-            // card dimensions rather than retaining the bootstrap layout.
-            collectionView.reloadData()
         }
     }
 }
 
 private final class MacProjectVideoCollectionItem: NSCollectionViewItem {
+    private var video: Video?
+    private var onOpen: ((Video) -> Void)?
+    private var onSelect: (() -> Void)?
+
+    override var isSelected: Bool {
+        didSet {
+            guard oldValue != isSelected else { return }
+            render()
+        }
+    }
+
     func configure(
         video: Video,
-        isSelected: Bool,
         onOpen: @escaping (Video) -> Void,
         onSelect: @escaping () -> Void
     ) {
+        self.video = video
+        self.onOpen = onOpen
+        self.onSelect = onSelect
+        render()
+    }
+
+    private func render() {
+        guard let video, let onOpen, let onSelect else { return }
         let card = ProjectVideoCardContent(
             video: video,
             isSelected: isSelected

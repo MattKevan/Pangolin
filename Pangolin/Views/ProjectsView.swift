@@ -295,7 +295,7 @@ enum ProjectVideoSelectionPolicy {
 
 enum ProjectVideoGridLayout {
     static let spacing: CGFloat = ProjectGridLayout.spacing
-    static let minimumRegularCardWidth: CGFloat = ProjectGridLayout.minimumRegularCardWidth
+    static let minimumRegularCardWidth: CGFloat = 180
 
     static func columnCount(availableWidth: CGFloat, isCompact: Bool) -> Int {
         guard !isCompact else { return 2 }
@@ -310,36 +310,24 @@ enum ProjectVideoGridLayout {
     }
 }
 
-enum ProjectVideoTouchInteraction: Equatable {
+enum IOSProjectVideoCollectionInteraction: Equatable {
     case open(UUID)
     case selecting(Set<UUID>)
-    case macOSSelection(UUID, extendingSelection: Bool, rangeSelecting: Bool)
-    case macOSOpen(UUID)
-    case macOSReturn
-    case macOSMarquee(Set<UUID>)
-    case macOSBackgroundClick
 }
 
-enum ProjectVideoTouchInteractionPolicy {
-    static func tap(
-        _ id: UUID,
+enum IOSProjectVideoCollectionPolicy {
+    static func interaction(
+        for id: UUID,
         selection: Set<UUID>,
-        isSelecting: Bool
-    ) -> ProjectVideoTouchInteraction {
-        guard isSelecting else { return .open(id) }
+        isEditing: Bool
+    ) -> IOSProjectVideoCollectionInteraction {
+        guard isEditing else { return .open(id) }
 
         var next = selection
         if !next.insert(id).inserted {
             next.remove(id)
         }
         return .selecting(next)
-    }
-
-    static func longPress(
-        _ id: UUID,
-        selection: Set<UUID>
-    ) -> ProjectVideoTouchInteraction {
-        .selecting(selection.union([id]))
     }
 }
 
@@ -553,20 +541,16 @@ struct ProjectDetailView: View {
     @State private var editingVideo: Video?
     @State private var videoPendingDeletion: Video?
     @State private var showingVideoDeletionConfirmation = false
-    @State private var isTouchSelectingVideos = false
 
     let project: Folder
     let showsPhoneToolbar: Bool
-    let opensVideoOnSingleTap: Bool
 
     init(
         project: Folder,
-        showsPhoneToolbar: Bool = false,
-        opensVideoOnSingleTap: Bool = true
+        showsPhoneToolbar: Bool = false
     ) {
         self.project = project
         self.showsPhoneToolbar = showsPhoneToolbar
-        self.opensVideoOnSingleTap = opensVideoOnSingleTap
     }
 
     private var sections: [ProjectSectionSnapshot] {
@@ -615,10 +599,6 @@ struct ProjectDetailView: View {
         #endif
     }
 
-    private var isSelectingProjectVideos: Bool {
-        isEditingSelection || isTouchSelectingVideos
-    }
-
     var body: some View {
         let baseView = Group {
             #if os(macOS)
@@ -663,19 +643,35 @@ struct ProjectDetailView: View {
 
     #if os(macOS)
     private var macProjectDetail: some View {
-        GeometryReader { geometry in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 28) {
-                    macAlbumHero
-                    sectionListContent(availableWidth: contentWidth(for: geometry.size.width), isCompact: false)
-                }
-                .padding(ProjectGridLayout.contentPadding)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .onKeyPress { keyPress in
-                guard keyPress.key == .return else { return .ignored }
-                handleGridInteraction(.macOSReturn)
-                return .handled
+        VStack(spacing: 0) {
+            macAlbumHero
+                .padding(.horizontal, ProjectGridLayout.contentPadding)
+                .padding(.top, ProjectGridLayout.contentPadding)
+                .padding(.bottom, 28)
+
+            if sections.isEmpty {
+                projectEmptyState
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.horizontal, ProjectGridLayout.contentPadding)
+                    .padding(.bottom, ProjectGridLayout.contentPadding)
+            } else {
+                MacProjectVideoCollectionView(
+                    sections: sections,
+                    selection: $store.selectedProjectVideoIDs,
+                    onOpen: { store.openProjectVideo($0, in: project) },
+                    onEdit: { editingVideo = $0 },
+                    onDelete: promptVideoDeletion,
+                    onToggleFavorite: toggleFavorite
+                )
+                .accessibilityIdentifier("project-video-collection")
+
+                ProjectAlbumFooter(
+                    videoCount: totalVideoCount,
+                    duration: formattedProjectDuration(totalDuration)
+                )
+                .padding(.horizontal, ProjectGridLayout.contentPadding)
+                .padding(.top, 14)
+                .padding(.bottom, 28)
             }
         }
         .navigationTitle(project.resolvedProjectTitle)
@@ -707,63 +703,71 @@ struct ProjectDetailView: View {
     #endif
 
     #if os(iOS)
-    private var padProjectDetail: some View {
-        GeometryReader { geometry in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 28) {
-                    heroContent(isCompact: false)
-                    sectionListContent(availableWidth: contentWidth(for: geometry.size.width), isCompact: false)
-                }
-                .padding(ProjectGridLayout.contentPadding)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
+    @ViewBuilder
+    private var projectEmptyState: some View {
+        if hasProjectSearch {
+            ContentUnavailableView.search(text: store.projectSearchQuery)
+        } else {
+            ContentUnavailableView(
+                "No videos in this project",
+                systemImage: "video.slash",
+                description: Text("Import videos or add sections to populate the project.")
+            )
         }
+    }
+
+    private var padProjectDetail: some View {
+        iosProjectDetail(isCompact: false)
         .navigationTitle(project.resolvedProjectTitle)
     }
 
     private var phoneProjectDetail: some View {
-        GeometryReader { geometry in
-            ScrollView {
-                VStack(alignment: .center, spacing: 28) {
-                    heroContent(isCompact: true)
-                    sectionListContent(availableWidth: contentWidth(for: geometry.size.width), isCompact: true)
-                }
-                .padding(ProjectGridLayout.contentPadding)
-                .frame(maxWidth: .infinity, alignment: .center)
-            }
-        }
+        iosProjectDetail(isCompact: true)
         .navigationTitle(project.resolvedProjectTitle)
         .navigationBarTitleDisplayMode(.inline)
     }
-    #endif
 
-    private func sectionListContent(availableWidth: CGFloat, isCompact: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 28) {
-            ProjectVideoGrid(
-                sections: sections,
-                searchQuery: store.projectSearchQuery,
-                availableWidth: availableWidth,
-                isCompact: isCompact,
-                selection: store.selectedProjectVideoIDs,
-                isSelecting: isSelectingProjectVideos,
-                onInteraction: handleGridInteraction,
-                onEdit: { editingVideo = $0 },
-                onDelete: promptVideoDeletion,
-                onToggleFavorite: toggleFavorite
-            )
+    private func iosProjectDetail(isCompact: Bool) -> some View {
+        VStack(spacing: 0) {
+            heroContent(isCompact: isCompact)
+                .padding(.horizontal, ProjectGridLayout.contentPadding)
+                .padding(.top, ProjectGridLayout.contentPadding)
+                .padding(.bottom, 28)
 
-            if !sections.isEmpty {
+            if sections.isEmpty {
+                projectEmptyState
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.horizontal, ProjectGridLayout.contentPadding)
+                    .padding(.bottom, ProjectGridLayout.contentPadding)
+            } else {
+                IOSProjectVideoCollectionView(
+                    sections: sections,
+                    selection: $store.selectedProjectVideoIDs,
+                    isEditing: isEditingSelection,
+                    isCompact: isCompact,
+                    onEditingChanged: setIOSSelectionMode,
+                    onOpen: { store.openProjectVideo($0, in: project) },
+                    onEdit: { editingVideo = $0 },
+                    onDelete: promptVideoDeletion,
+                    onToggleFavorite: toggleFavorite
+                )
+                .accessibilityIdentifier("project-video-collection")
+
                 ProjectAlbumFooter(
                     videoCount: totalVideoCount,
                     duration: formattedProjectDuration(totalDuration)
                 )
+                .padding(.horizontal, ProjectGridLayout.contentPadding)
+                .padding(.top, 14)
+                .padding(.bottom, 28)
             }
         }
     }
 
-    private func contentWidth(for containerWidth: CGFloat) -> CGFloat {
-        max(0, containerWidth - (ProjectGridLayout.contentPadding * 2))
+    private func setIOSSelectionMode(_ isActive: Bool) {
+        editMode?.wrappedValue = isActive ? .active : .inactive
     }
+    #endif
 
     @ViewBuilder
     private func heroContent(isCompact: Bool) -> some View {
@@ -883,6 +887,8 @@ struct ProjectDetailView: View {
         #else
         if UIDevice.current.userInterfaceIdiom == .phone, showsPhoneToolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                EditButton()
+
                 Button {
                     store.downloadAllVideos(in: project)
                 } label: {
@@ -936,67 +942,11 @@ struct ProjectDetailView: View {
 
             Button("Clear selection", systemImage: "checkmark.circle") {
                 store.clearProjectVideoSelection()
-                #if os(iOS)
-                isTouchSelectingVideos = false
-                #endif
             }
-            .disabled(store.selectedProjectVideoIDs.isEmpty && !isTouchSelectingVideos)
+            .disabled(store.selectedProjectVideoIDs.isEmpty)
         } label: {
             Image(systemName: "ellipsis")
         }
-    }
-
-    private func handleSelection(for video: Video) {
-        guard let videoID = video.id else { return }
-
-        if isEditingSelection {
-            if store.selectedProjectVideoIDs.contains(videoID) {
-                store.selectedProjectVideoIDs.remove(videoID)
-            } else {
-                store.selectedProjectVideoIDs.insert(videoID)
-            }
-        } else {
-            store.selectedProjectVideoIDs = [videoID]
-        }
-    }
-
-    private func handleGridInteraction(_ interaction: ProjectVideoTouchInteraction) {
-        switch interaction {
-        case .open(let videoID):
-            guard opensVideoOnSingleTap,
-                  let video = orderedDisplayedVideos.first(where: { $0.id == videoID }) else {
-                return
-            }
-            store.openProjectVideo(video, in: project)
-        case .selecting(let selection):
-            #if os(iOS)
-            isTouchSelectingVideos = true
-            #endif
-            store.selectedProjectVideoIDs = selection
-        case .macOSSelection(let videoID, let extendingSelection, let rangeSelecting):
-            guard let video = orderedDisplayedVideos.first(where: { $0.id == videoID }) else { return }
-            store.selectProjectVideo(
-                video,
-                in: orderedDisplayedVideos,
-                extendingSelection: extendingSelection,
-                rangeSelecting: rangeSelecting
-            )
-        case .macOSOpen(let videoID):
-            guard let video = orderedDisplayedVideos.first(where: { $0.id == videoID }) else { return }
-            store.openProjectVideo(video, in: project)
-        case .macOSReturn:
-            guard let video = selectedProjectVideo else { return }
-            store.openProjectVideo(video, in: project)
-        case .macOSMarquee(let selection):
-            store.selectedProjectVideoIDs = selection
-        case .macOSBackgroundClick:
-            store.clearProjectVideoSelection()
-        }
-    }
-
-    private func isVideoSelected(_ video: Video) -> Bool {
-        guard let videoID = video.id else { return false }
-        return store.selectedProjectVideoIDs.contains(videoID)
     }
 
     private func toggleFavorite(_ video: Video) {

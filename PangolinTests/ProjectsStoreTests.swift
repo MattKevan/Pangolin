@@ -152,15 +152,25 @@ struct ProjectsStoreTests {
         #expect(ProjectVideoGridLayout.regularColumns(availableWidth: 800).count == 4)
     }
 
-    @Test("Touch video interactions open, begin selection, and toggle predictably")
-    func projectTouchInteractionPolicy() {
+    @Test("Native iOS project collection opens outside editing and selects while editing")
+    func nativeIOSProjectCollectionInteractionPolicy() {
         let id = UUID()
-        let alreadySelected = UUID()
 
-        #expect(ProjectVideoTouchInteractionPolicy.tap(id, selection: [], isSelecting: false) == .open(id))
-        #expect(ProjectVideoTouchInteractionPolicy.longPress(id, selection: []) == .selecting([id]))
-        #expect(ProjectVideoTouchInteractionPolicy.longPress(id, selection: [alreadySelected]) == .selecting([alreadySelected, id]))
-        #expect(ProjectVideoTouchInteractionPolicy.tap(id, selection: [id], isSelecting: true) == .selecting([]))
+        #expect(IOSProjectVideoCollectionPolicy.interaction(
+            for: id,
+            selection: [],
+            isEditing: false
+        ) == .open(id))
+        #expect(IOSProjectVideoCollectionPolicy.interaction(
+            for: id,
+            selection: [],
+            isEditing: true
+        ) == .selecting([id]))
+        #expect(IOSProjectVideoCollectionPolicy.interaction(
+            for: id,
+            selection: [id],
+            isEditing: true
+        ) == .selecting([]))
     }
 
     @Test("Project video activation requires one visible selection")

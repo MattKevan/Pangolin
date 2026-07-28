@@ -434,8 +434,7 @@ struct MainView: View {
                             if let project = folderStore.project(with: projectID) {
                                 ProjectDetailView(
                                     project: project,
-                                    showsPhoneToolbar: true,
-                                    opensVideoOnSingleTap: true
+                                    showsPhoneToolbar: true
                                 )
                                 .environmentObject(folderStore)
                             } else {
