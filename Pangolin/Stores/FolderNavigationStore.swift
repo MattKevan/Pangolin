@@ -273,18 +273,21 @@ class FolderNavigationStore: ObservableObject {
 
     private func clearProjectDetailState(
         clearProject: Bool = false,
-        clearSelectedVideo: Bool = true
+        clearSelectedVideo: Bool = true,
+        clearFolderContext: Bool = true
     ) {
         if clearProject, selectedProject != nil {
             selectedProject = nil
         }
 
-        if currentFolderID != nil {
-            currentFolderID = nil
-        }
+        if clearFolderContext {
+            if currentFolderID != nil {
+                currentFolderID = nil
+            }
 
-        if selectedTopLevelFolder != nil {
-            selectedTopLevelFolder = nil
+            if selectedTopLevelFolder != nil {
+                selectedTopLevelFolder = nil
+            }
         }
 
         if clearSelectedVideo, selectedVideo != nil {
@@ -723,17 +726,24 @@ class FolderNavigationStore: ObservableObject {
     }
 
     func openProjectVideo(_ video: Video, in project: Folder? = nil) {
-        // Publish the video route first. When opening from a project this prevents
-        // the detail column from briefly reconciling back to the project surface.
-        selectedVideo = video
-
         if let project {
             captureVideoNavigationOrigin(.project(project))
-            openProject(project, preservingVideoDetail: true)
         } else if let folder = video.folder {
             let topLevelFolder = topLevelAncestor(for: folder)
             if topLevelFolder.isProject {
                 captureVideoNavigationOrigin(.project(topLevelFolder))
+            }
+        }
+
+        // Publish the video route before opening its project. This prevents the
+        // detail column from briefly reconciling back to the project surface.
+        selectedVideo = video
+
+        if let project {
+            openProject(project, preservingVideoDetail: true)
+        } else if let folder = video.folder {
+            let topLevelFolder = topLevelAncestor(for: folder)
+            if topLevelFolder.isProject {
                 openProject(topLevelFolder, preservingVideoDetail: true)
             }
         }
@@ -815,6 +825,14 @@ class FolderNavigationStore: ObservableObject {
     func openProject(_ project: Folder, preservingVideoDetail: Bool = false) {
         guard project.isProject else { return }
 
+        let isReopeningSelectedProject = selectedProject?.objectID == project.objectID
+        let selectedVideoBelongsToProject = selectedVideo
+            .flatMap(\.folder)
+            .map { topLevelAncestor(for: $0).objectID == project.objectID }
+            ?? false
+        let shouldPreserveVideoDetail = preservingVideoDetail
+            || (isReopeningSelectedProject && selectedVideoBelongsToProject)
+
         if selectionKey(selectedSidebarItem) != selectionKey(.projects) {
             suppressNextSidebarSelectionChange = true
             selectedSidebarItem = .projects
@@ -832,7 +850,10 @@ class FolderNavigationStore: ObservableObject {
             currentFolderID = project.id
         }
 
-        clearProjectDetailState(clearSelectedVideo: !preservingVideoDetail)
+        clearProjectDetailState(
+            clearSelectedVideo: !shouldPreserveVideoDetail,
+            clearFolderContext: false
+        )
 
         if !navigationPath.isEmpty {
             navigationPath = NavigationPath()

@@ -4,6 +4,9 @@ import CoreGraphics
 import ImageIO
 import Testing
 import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#endif
 @testable import Pangolin
 
 struct ProjectsStoreTests {
@@ -132,6 +135,55 @@ struct ProjectsStoreTests {
         #expect(size.width > 0)
         #expect(size.height > size.width)
     }
+
+    #if os(macOS)
+    @Test("Mac collection item keeps its layout-owned view while card content changes")
+    @MainActor
+    func macProjectVideoCollectionItemKeepsStableView() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Stable Cell", in: context, parent: nil, library: library)
+        let video = try makeVideo(
+            title: "Lesson",
+            thumbnailData: nil,
+            in: context,
+            folder: project,
+            library: library
+        )
+        let item = MacProjectVideoCollectionItem()
+        item.loadView()
+        let layoutOwnedView = item.view
+
+        item.configure(video: video, onOpen: { _ in }, onSelect: {})
+        #expect(item.view === layoutOwnedView)
+        layoutOwnedView.frame = NSRect(x: 0, y: 0, width: 320, height: 240)
+        layoutOwnedView.layoutSubtreeIfNeeded()
+        #expect(layoutOwnedView.hitTest(NSPoint(x: 160, y: 120)) === layoutOwnedView)
+
+        let collectionView = ProjectVideoMouseRecordingCollectionView()
+        collectionView.addSubview(layoutOwnedView)
+        let event = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: NSPoint(x: 160, y: 120),
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ))
+        layoutOwnedView.mouseDown(with: event)
+        #expect(collectionView.mouseDownCount == 1)
+
+        item.isSelected = true
+        #expect(item.view === layoutOwnedView)
+
+        await manager.closeCurrentLibrary()
+    }
+    #endif
 
     @Test("Shared project video grid expands with the available macOS width")
     func projectVideoGridUsesResponsiveColumnsOnMac() {
@@ -1088,6 +1140,39 @@ struct ProjectsStoreTests {
         await manager.closeCurrentLibrary()
     }
 
+    @Test("Opening a project video preserves its project context and video-detail route")
+    @MainActor
+    func projectVideoOpenPreservesVideoDetailRoute() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Navigation", in: context, parent: nil, library: library)
+        let video = try makeVideo(
+            title: "Lesson",
+            thumbnailData: nil,
+            in: context,
+            folder: project,
+            library: library
+        )
+        try context.save()
+
+        let store = FolderNavigationStore(libraryManager: manager)
+        store.openProject(project)
+        store.openProjectVideo(video, in: project)
+
+        #expect(store.selectedVideo?.objectID == video.objectID)
+        #expect(store.currentFolderID == project.id)
+        #expect(store.selectedTopLevelFolder?.objectID == project.objectID)
+        #expect(store.currentDetailSurface == .videoDetail)
+
+        store.openProject(project)
+        #expect(store.selectedVideo?.objectID == video.objectID)
+        #expect(store.currentDetailSurface == .videoDetail)
+
+        await manager.closeCurrentLibrary()
+    }
+
     @Test("Project detail aggregates and continue watching resolve from project content")
     @MainActor
     func projectDetailAggregatesAndContinueWatching() async throws {
@@ -1289,6 +1374,16 @@ struct ProjectsStoreTests {
         return video
     }
 }
+
+#if os(macOS)
+private final class ProjectVideoMouseRecordingCollectionView: NSCollectionView {
+    var mouseDownCount = 0
+
+    override func mouseDown(with event: NSEvent) {
+        mouseDownCount += 1
+    }
+}
+#endif
 
 private func makeValidJPEG() throws -> Data {
     let pixelData = Data([0x33, 0x66, 0x99, 0xFF])

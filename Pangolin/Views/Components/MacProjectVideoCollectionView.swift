@@ -334,10 +334,15 @@ private final class ProjectVideoCollectionScrollView: NSScrollView {
     }
 }
 
-private final class MacProjectVideoCollectionItem: NSCollectionViewItem {
+final class MacProjectVideoCollectionItem: NSCollectionViewItem {
+    private var hostingView: NSHostingView<AnyView>?
     private var video: Video?
     private var onOpen: ((Video) -> Void)?
     private var onSelect: (() -> Void)?
+
+    override func loadView() {
+        view = ProjectVideoCollectionItemView()
+    }
 
     override var isSelected: Bool {
         didSet {
@@ -384,8 +389,50 @@ private final class MacProjectVideoCollectionItem: NSCollectionViewItem {
             )
         }
 
-        view = NSHostingView(rootView: accessibleCard)
+        if let hostingView {
+            hostingView.rootView = accessibleCard
+        } else {
+            let hostingView = NSHostingView(rootView: accessibleCard)
+            hostingView.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(hostingView)
+            NSLayoutConstraint.activate([
+                hostingView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                hostingView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                hostingView.topAnchor.constraint(equalTo: view.topAnchor),
+                hostingView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            ])
+            self.hostingView = hostingView
+        }
         view.setAccessibilityIdentifier(video.id.map { "project-video-card-\($0.uuidString)" })
+    }
+}
+
+private final class ProjectVideoCollectionItemView: NSView {
+    override func mouseDown(with event: NSEvent) {
+        guard let collectionView = enclosingCollectionView else {
+            super.mouseDown(with: event)
+            return
+        }
+        collectionView.mouseDown(with: event)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        guard let collectionView = enclosingCollectionView else {
+            super.rightMouseDown(with: event)
+            return
+        }
+        collectionView.rightMouseDown(with: event)
+    }
+
+    private var enclosingCollectionView: NSCollectionView? {
+        var candidate = superview
+        while let view = candidate {
+            if let collectionView = view as? NSCollectionView {
+                return collectionView
+            }
+            candidate = view.superview
+        }
+        return nil
     }
 }
 
