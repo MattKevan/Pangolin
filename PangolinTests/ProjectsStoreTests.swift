@@ -145,6 +145,7 @@ struct ProjectsStoreTests {
     func macProjectVideoCollectionItemKeepsStableView() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Stable Cell", in: context, parent: nil, library: library)
@@ -184,7 +185,6 @@ struct ProjectsStoreTests {
         item.isSelected = true
         #expect(item.view === layoutOwnedView)
 
-        await manager.closeCurrentLibrary()
     }
     #endif
 
@@ -266,13 +266,13 @@ struct ProjectsStoreTests {
     func projectsIsDefaultStartupDestination() async throws {
         let (manager, _, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let store = FolderNavigationStore(libraryManager: manager)
 
         #expect(store.selectedSidebarItem == .projects)
         #expect(store.currentDetailSurface == .projectsGrid)
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Projects query only returns top-level non-smart folders")
@@ -280,6 +280,7 @@ struct ProjectsStoreTests {
     func projectsQueryFiltersToTopLevelFolders() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let project = try makeFolder(named: "Project One", in: context, parent: nil, library: try requireLibrary(from: manager))
         _ = try makeFolder(named: "Section One", in: context, parent: project, library: try requireLibrary(from: manager))
@@ -293,7 +294,6 @@ struct ProjectsStoreTests {
         #expect(projects.count == 1)
         #expect(projects.first?.name == "Project One")
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Only complete current-version JPEG data is a current thumbnail")
@@ -301,6 +301,7 @@ struct ProjectsStoreTests {
     func currentThumbnailRequiresValidJPEGData() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Artwork", in: context, parent: nil, library: library)
@@ -330,7 +331,6 @@ struct ProjectsStoreTests {
         #expect(!invalidVideo.hasCurrentThumbnail)
         #expect(ThumbnailValidityCache.shared.validationCount == 3)
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Content rows keep the bare icon until thumbnail data exists")
@@ -338,6 +338,7 @@ struct ProjectsStoreTests {
     func contentRowThumbnailPresentationTracksDataAvailability() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Rows", in: context, parent: nil, library: library)
@@ -355,7 +356,6 @@ struct ProjectsStoreTests {
 
         #expect(ContentRowThumbnailPresentation.forVideo(video) == .thumbnail)
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Project artwork refreshes only for relevant descendant thumbnail changes")
@@ -363,6 +363,7 @@ struct ProjectsStoreTests {
     func projectThumbnailChangePolicyFiltersRelevantVideosAndKeys() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Observed", in: context, parent: nil, library: library)
@@ -398,7 +399,6 @@ struct ProjectsStoreTests {
             changedKeys: ["thumbnailData"]
         ))
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Project artwork responds to video lifecycle context notifications")
@@ -406,6 +406,7 @@ struct ProjectsStoreTests {
     func projectThumbnailChangePolicyHandlesVideoLifecycleNotifications() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Lifecycle", in: context, parent: nil, library: library)
@@ -579,7 +580,6 @@ struct ProjectsStoreTests {
         )
         #expect(refreshes(invalidatedAllNotification, previous: initial, current: initial))
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Project artwork responds to structural folder context notifications")
@@ -587,6 +587,7 @@ struct ProjectsStoreTests {
     func projectThumbnailChangePolicyHandlesFolderStructureNotifications() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Structure", in: context, parent: nil, library: library)
@@ -711,7 +712,6 @@ struct ProjectsStoreTests {
             #expect(!refreshes(unrelatedNotification, previous: initial, current: initial))
         }
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Project thumbnail reconciler persists initial and replacement artwork")
@@ -719,6 +719,7 @@ struct ProjectsStoreTests {
     func projectThumbnailReconcilerPersistsResolvedArtwork() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Reconciled", in: context, parent: nil, library: library)
@@ -771,7 +772,6 @@ struct ProjectsStoreTests {
         #expect(context.hasChanges)
         context.rollback()
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Project thumbnail observation invalidates without traversing reset objects")
@@ -779,6 +779,7 @@ struct ProjectsStoreTests {
     func projectThumbnailObservationStopsAtContextReset() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Reset", in: context, parent: nil, library: library)
@@ -821,7 +822,6 @@ struct ProjectsStoreTests {
         #expect(!state.reconciliationPending)
         #expect(!didTraverseAfterInvalidation)
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Project thumbnail reconciliation retries after unrelated save and rollback")
@@ -829,6 +829,7 @@ struct ProjectsStoreTests {
     func projectThumbnailReconciliationRetriesWhenContextBecomesClean() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Retry", in: context, parent: nil, library: library)
@@ -915,7 +916,6 @@ struct ProjectsStoreTests {
         #expect(saveCount == 0)
         #expect(!state.reconciliationPending)
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Project thumbnail lifecycle retries only while reconciliation is pending")
@@ -923,6 +923,7 @@ struct ProjectsStoreTests {
     func projectThumbnailLifecycleRetryRequiresPendingReconciliation() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let project = try makeFolder(
             named: "Lifecycle Gate",
@@ -943,7 +944,6 @@ struct ProjectsStoreTests {
         state.recordReconciliation(.deferredDirty)
         #expect(state.canQueueLifecycleRetry)
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Project metadata replaces invalid stored artwork with valid descendant data")
@@ -951,6 +951,7 @@ struct ProjectsStoreTests {
     func projectMetadataFallsBackToExistingData() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Watercolour", in: context, parent: nil, library: library)
@@ -980,7 +981,6 @@ struct ProjectsStoreTests {
         #expect(fetchedProject.resolvedProjectThumbnailVideo?.id == validVideo.id)
         #expect(fetchedProject.projectThumbnailVideoID == validVideo.id)
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Project refresh replaces artwork moved out of the project")
@@ -988,6 +988,7 @@ struct ProjectsStoreTests {
     func projectRefreshReplacesMovedArtwork() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Editing", in: context, parent: nil, library: library)
@@ -1022,7 +1023,6 @@ struct ProjectsStoreTests {
         #expect(refreshedProject.resolvedProjectThumbnailVideo?.id == replacementVideo.id)
         #expect(refreshedProject.resolvedProjectThumbnailVideo?.thumbnailData == replacementData)
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Duplicate descendant names resolve artwork in stable UUID order")
@@ -1030,6 +1030,7 @@ struct ProjectsStoreTests {
     func duplicateDescendantNamesResolveInStableUUIDOrder() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Duplicates", in: context, parent: nil, library: library)
@@ -1086,7 +1087,6 @@ struct ProjectsStoreTests {
         #expect(fetchedProject.resolvedProjectThumbnailVideo?.id == lowerVideoInLowerFolder.id)
         #expect(fetchedProject.projectThumbnailVideoID == lowerVideoInLowerFolder.id)
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Project metadata backfill defers while unrelated edits are pending")
@@ -1094,6 +1094,7 @@ struct ProjectsStoreTests {
     func projectMetadataBackfillDefersForPendingEdits() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Deferred", in: context, parent: nil, library: library)
@@ -1118,7 +1119,6 @@ struct ProjectsStoreTests {
         #expect(project.resolvedProjectThumbnailVideo?.id == video.id)
 
         context.rollback()
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Project selection routes between grid and placeholder detail")
@@ -1126,6 +1126,7 @@ struct ProjectsStoreTests {
     func projectSelectionRoutesToPlaceholderDetail() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let project = try makeFolder(named: "Typography", in: context, parent: nil, library: try requireLibrary(from: manager))
         try context.save()
@@ -1140,7 +1141,6 @@ struct ProjectsStoreTests {
         #expect(store.selectedProject?.objectID == project.objectID)
         #expect(store.currentDetailSurface == .projectDetail)
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Opening a project video preserves its project context and video-detail route")
@@ -1148,6 +1148,7 @@ struct ProjectsStoreTests {
     func projectVideoOpenPreservesVideoDetailRoute() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Navigation", in: context, parent: nil, library: library)
@@ -1173,7 +1174,6 @@ struct ProjectsStoreTests {
         #expect(store.selectedVideo?.objectID == video.objectID)
         #expect(store.currentDetailSurface == .videoDetail)
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Project detail aggregates and continue watching resolve from project content")
@@ -1181,6 +1181,7 @@ struct ProjectsStoreTests {
     func projectDetailAggregatesAndContinueWatching() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Commerce", in: context, parent: nil, library: library)
@@ -1213,7 +1214,6 @@ struct ProjectsStoreTests {
         #expect(store.totalDuration(for: project) == 900)
         #expect(store.continueWatchingVideo(in: project)?.title == "Intro")
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Project sections flatten nested folders and expose root videos as fallback section")
@@ -1221,6 +1221,7 @@ struct ProjectsStoreTests {
     func projectSectionsFlattenNestedFoldersAndRootVideos() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
@@ -1239,7 +1240,6 @@ struct ProjectsStoreTests {
         #expect(sections.last?.title == "Videos")
         #expect(sections.last?.videos.first?.title == "Loose Video")
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Project search filters only inside the active project")
@@ -1247,6 +1247,7 @@ struct ProjectsStoreTests {
     func projectSearchFiltersOnlyActiveProject() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let activeProject = try makeFolder(named: "Active", in: context, parent: nil, library: library)
@@ -1265,7 +1266,6 @@ struct ProjectsStoreTests {
         #expect(results.first?.videos.count == 1)
         #expect(results.first?.videos.first?.folder?.parentFolder?.objectID == activeProject.objectID)
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Project videos sort by filename using natural numeric order")
@@ -1273,6 +1273,7 @@ struct ProjectsStoreTests {
     func projectVideosSortByFilenameUsingNaturalNumericOrder() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Numbered", in: context, parent: nil, library: library)
@@ -1287,7 +1288,6 @@ struct ProjectsStoreTests {
 
         #expect(videos.map(\.fileName) == ["2 - Lesson.mp4", "9 - Lesson.mp4", "10 - Lesson.mp4"])
 
-        await manager.closeCurrentLibrary()
     }
 
     @MainActor

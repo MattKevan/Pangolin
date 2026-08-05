@@ -40,6 +40,7 @@ struct TimedTranscriptTests {
     @MainActor
     func timedTranscriptOptionalReadReturnsNilWhenFileIsMissing() throws {
         let manager = LibraryManager.shared
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
         let missingURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("MissingTimedTranscript-\(UUID().uuidString)")
             .appendingPathExtension("timed.json")
@@ -52,6 +53,7 @@ struct TimedTranscriptTests {
     @MainActor
     func timedTranscriptOptionalReadReturnsTranscriptWhenFileExists() throws {
         let manager = LibraryManager.shared
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
         let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("TimedTranscriptOptionalRead-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
         defer {
@@ -86,6 +88,7 @@ struct TimedTranscriptTests {
     @MainActor
     func timedTranscriptURLPrefersSharedCloudRootWhenAvailable() async throws {
         let manager = LibraryManager.shared
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
         let originalProvider = manager.textArtifactsCloudRootURLProvider
         let fileManager = FileManager.default
         let tempRoot = fileManager.temporaryDirectory.appendingPathComponent("TimedTranscriptSharedRoot-\(UUID().uuidString)", isDirectory: true)
@@ -121,13 +124,13 @@ struct TimedTranscriptTests {
 
         #expect(manager.timedTranscriptURL(for: video) == expectedURL)
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Existing timed transcript migrates local artifact to shared cloud root")
     @MainActor
     func existingTimedTranscriptMigratesLocalArtifactToSharedCloudRoot() async throws {
         let manager = LibraryManager.shared
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
         let originalProvider = manager.textArtifactsCloudRootURLProvider
         let fileManager = FileManager.default
         let tempRoot = fileManager.temporaryDirectory.appendingPathComponent("TimedTranscriptMigration-\(UUID().uuidString)", isDirectory: true)
@@ -188,7 +191,6 @@ struct TimedTranscriptTests {
         #expect(fileManager.fileExists(atPath: expectedCloudURL.path))
         #expect(try manager.readTimedTranscript(from: expectedCloudURL) == transcript)
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Token timing split is proportional by token length")
@@ -328,6 +330,7 @@ struct TimedTranscriptTests {
     @MainActor
     func migrationWipesLegacyTextData() async throws {
         let manager = LibraryManager.shared
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
         let originalProvider = manager.textArtifactsCloudRootURLProvider
         let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("PangolinMigrationTest-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
@@ -418,13 +421,13 @@ struct TimedTranscriptTests {
         #expect(translationFiles.isEmpty)
         #expect(summaryFiles.isEmpty)
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Migration uses opened library URL instead of stale stored path")
     @MainActor
     func migrationUsesOpenedLibraryURLInsteadOfStaleStoredPath() async throws {
         let manager = LibraryManager.shared
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
         let fileManager = FileManager.default
         let tempRoot = fileManager.temporaryDirectory.appendingPathComponent("PangolinStalePathMigration-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: tempRoot, withIntermediateDirectories: true)
@@ -456,7 +459,6 @@ struct TimedTranscriptTests {
         #expect(reopenedLibrary.libraryPath == libraryURL.path)
         #expect(fileManager.fileExists(atPath: staleParent.appendingPathComponent("Library.pangolin", isDirectory: true).path) == false)
 
-        await manager.closeCurrentLibrary()
     }
 
 }

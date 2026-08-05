@@ -11,6 +11,7 @@ struct VideoNavigationSequenceTests {
     func projectVideoNeighborsFollowProjectSectionOrder() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
@@ -29,7 +30,6 @@ struct VideoNavigationSequenceTests {
         #expect(neighbors.previous?.objectID == first.objectID)
         #expect(neighbors.next?.objectID == third.objectID)
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Opening another video in a project does not transiently deselect it")
@@ -37,6 +37,7 @@ struct VideoNavigationSequenceTests {
     func openingAnotherProjectVideoDoesNotClearTheVideoRoute() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
@@ -56,7 +57,6 @@ struct VideoNavigationSequenceTests {
         #expect(store.currentDetailSurface == .videoDetail)
         #expect(store.selectedVideo?.objectID == second.objectID)
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Folder video neighbors follow current flat content order")
@@ -64,6 +64,7 @@ struct VideoNavigationSequenceTests {
     func folderVideoNeighborsFollowCurrentFlatContentOrder() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let folder = try makeFolder(named: "Folder", in: context, parent: nil, library: library)
@@ -83,7 +84,6 @@ struct VideoNavigationSequenceTests {
         #expect(neighbors.previous?.objectID == first.objectID)
         #expect(neighbors.next?.objectID == third.objectID)
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Orphaned video has no neighbors")
@@ -91,6 +91,7 @@ struct VideoNavigationSequenceTests {
     func orphanedVideoHasNoNeighbors() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let orphan = try makeVideo(title: "Orphan", thumbnailData: nil, in: context, folder: nil, library: library)
@@ -103,7 +104,6 @@ struct VideoNavigationSequenceTests {
         #expect(neighbors.previous == nil)
         #expect(neighbors.next == nil)
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Back from a project video returns to that project after moving between videos")
@@ -111,6 +111,7 @@ struct VideoNavigationSequenceTests {
     func projectVideoBackRestoresProjectOrigin() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
@@ -128,7 +129,6 @@ struct VideoNavigationSequenceTests {
         #expect(store.selectedProject?.objectID == project.objectID)
         #expect(store.selectedVideo == nil)
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Back from a smart collection video restores the collection")
@@ -136,6 +136,7 @@ struct VideoNavigationSequenceTests {
     func smartCollectionVideoBackRestoresOrigin() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
@@ -151,7 +152,6 @@ struct VideoNavigationSequenceTests {
         #expect(store.currentDetailSurface == .smartCollectionTable(.favorites))
         #expect(store.selectedVideo == nil)
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Back from a search result video restores search")
@@ -159,6 +159,7 @@ struct VideoNavigationSequenceTests {
     func searchVideoBackRestoresOrigin() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
@@ -174,7 +175,6 @@ struct VideoNavigationSequenceTests {
         #expect(store.currentDetailSurface == .searchResults)
         #expect(store.selectedVideo == nil)
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Back from a video without an origin falls back to Projects")
@@ -182,6 +182,7 @@ struct VideoNavigationSequenceTests {
     func originlessVideoBackFallsBackToProjects() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let video = try makeVideo(title: "Orphan", thumbnailData: nil, in: context, folder: nil, library: library)
@@ -196,7 +197,6 @@ struct VideoNavigationSequenceTests {
         #expect(store.currentDetailSurface == .projectsGrid)
         #expect(store.selectedVideo == nil)
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("Abandoning video detail clears selection state without restoring its origin")
@@ -204,6 +204,7 @@ struct VideoNavigationSequenceTests {
     func abandonVideoDetailClearsStateWithoutRestoringOrigin() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
@@ -231,7 +232,6 @@ struct VideoNavigationSequenceTests {
         #expect(store.currentDestination == .projects)
         #expect(store.currentDetailSurface == .projectsGrid)
 
-        await manager.closeCurrentLibrary()
     }
 
     @Test("External video deselection restores and consumes its search origin exactly once")
@@ -239,6 +239,7 @@ struct VideoNavigationSequenceTests {
     func externalDeselectionRestoresSearchOriginOnce() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
@@ -262,7 +263,6 @@ struct VideoNavigationSequenceTests {
         #expect(store.currentDestination == .search)
         #expect(store.currentDetailSurface == .searchResults)
 
-        await manager.closeCurrentLibrary()
     }
 
     @MainActor
@@ -289,6 +289,7 @@ struct VideoNavigationSequenceTests {
     func renameBumpsContentRevision() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
+        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
 
         let library = try requireLibrary(from: manager)
         let project = try makeFolder(named: "Before", in: context, parent: nil, library: library)
@@ -309,7 +310,6 @@ struct VideoNavigationSequenceTests {
         }
         #expect(store.contentRevision > before)
 
-        await manager.closeCurrentLibrary()
     }
 
     @MainActor
