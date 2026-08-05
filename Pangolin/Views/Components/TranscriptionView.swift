@@ -38,21 +38,10 @@ struct TranscriptionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             if let errorMessage = transcriptionErrorMessage {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Image(systemName: "exclamationmark.triangle")
-                            .foregroundStyle(.orange)
-                        Text("Transcription error")
-                            .font(.headline)
-                    }
-
-                    Text(errorMessage)
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                }
-                .padding()
-                .background(Color.orange.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                InlineErrorBanner(
+                    title: "Transcription error",
+                    message: errorMessage
+                )
             }
 
             content

@@ -49,21 +49,10 @@ struct SummaryView: View {
            
             .cornerRadius(8)
         } else if let errorMessage = summaryErrorMessage {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Image(systemName: "exclamationmark.triangle")
-                        .foregroundColor(.orange)
-                    Text("Summary error")
-                        .font(.headline)
-                }
-
-                Text(errorMessage)
-                    .font(.body)
-                    .foregroundColor(.secondary)
-            }
-            .padding()
-            .background(Color.orange.opacity(0.1))
-            .cornerRadius(8)
+            InlineErrorBanner(
+                title: "Summary error",
+                message: errorMessage
+            )
         } else if let summary = video.transcriptSummary {
             VStack(alignment: .leading, spacing: 12) {
                 

@@ -102,39 +102,16 @@ struct TranslationView: View {
         } else if let errorMessage = translationErrorMessage {
             let parsedError = parseTranslationError(from: errorMessage)
             let isModelSetupRequired = isTranslationModelSetupRequired(parsedError)
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Image(systemName: isModelSetupRequired ? "gearshape.2" : "exclamationmark.triangle")
-                        .foregroundColor(isModelSetupRequired ? .blue : .orange)
-                    Text(isModelSetupRequired ? "Translation setup required" : "Translation error")
-                        .font(.headline)
-                }
-
-                Text(
-                    isModelSetupRequired
+            let bannerActions = errorBannerActions(showSettings: isModelSetupRequired)
+            InlineErrorBanner(
+                title: isModelSetupRequired ? "Translation setup required" : "Translation error",
+                message: isModelSetupRequired
                     ? "Install the required language in System Settings -> General -> Language & Region -> Translation Languages, then return here and click Retry."
-                    : errorMessage
-                )
-                    .font(.body)
-                    .foregroundColor(.primary)
-
-                HStack(spacing: 8) {
-                    if isModelSetupRequired {
-                        Button("Open Settings") {
-                            openTranslationSettings()
-                        }
-                        .buttonStyle(.bordered)
-                    }
-
-                    Button("Retry") {
-                        retryTranslation()
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-            }
-            .padding()
-            .background((isModelSetupRequired ? Color.blue : Color.orange).opacity(0.1))
-            .cornerRadius(8)
+                    : errorMessage,
+                systemImage: isModelSetupRequired ? "gearshape.2" : "exclamationmark.triangle",
+                tint: isModelSetupRequired ? .blue : .orange,
+                actions: bannerActions
+            )
         } else if let chunkIndex {
             syncedTranslationContent(chunkIndex: chunkIndex)
         } else if let translatedText = video.translatedText,
@@ -413,6 +390,15 @@ struct TranslationView: View {
 
     private func retryTranslation() {
         processingQueueManager.enqueueTranslation(for: [video], targetLocale: retryTargetLocale, force: true)
+    }
+
+    private func errorBannerActions(showSettings: Bool) -> [InlineErrorBannerAction] {
+        var actions: [InlineErrorBannerAction] = []
+        if showSettings {
+            actions.append(InlineErrorBannerAction(title: "Open Settings", handler: openTranslationSettings))
+        }
+        actions.append(InlineErrorBannerAction(title: "Retry", isProminent: true, handler: retryTranslation))
+        return actions
     }
 
     private var retryTargetLocale: Locale? {

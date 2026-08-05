@@ -58,20 +58,10 @@ struct FlashcardsView: View {
             }
             .frame(maxWidth: .infinity, minHeight: 320)
         } else if let errorMessage = flashcardsErrorMessage {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Image(systemName: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
-                    Text("Flashcards error")
-                        .font(.headline)
-                }
-                Text(errorMessage)
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-            }
-            .padding()
-            .background(Color.orange.opacity(0.12))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            InlineErrorBanner(
+                title: "Flashcards error",
+                message: errorMessage
+            )
         } else if let deck, !deck.cards.isEmpty {
             FlashcardsDeckContentView(
                 deck: deck,
