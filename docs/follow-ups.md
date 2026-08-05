@@ -46,7 +46,7 @@
       `PangolinTests.swift` (2k). God-class + large-file/type/function-length items.
       Progress: ProjectsView (`77c1a06`), PangolinTests (`f185c24`), DetailView (`fb0ced4`) split.
       Remaining: SpeechTranscriptionService (2261), FolderNavigationStore (1708),
-      ProcessingQueueManager (1505), VideoFileManager (1302).
+      ProcessingQueueManager (1505).
 - [x] **Merge policy (audit M2):** editing viewContext now uses
       `NSMergeByPropertyObjectTrump` (`577720e`) so CloudKit merges can no longer silently
       overwrite unsaved user edits.
