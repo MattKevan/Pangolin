@@ -59,6 +59,7 @@
 		81DB7AB699030A33F4E52764 /* TranscriptionControlsInspectorPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65E3867F55B97D2B31E1842E /* TranscriptionControlsInspectorPane.swift */; };
 		8480F37116C7A5A3E2968430 /* ContentRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 861A4C66A40173589AAB6E62 /* ContentRowView.swift */; };
 		86D0F8FDF9438334D48661DC /* TranslationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FD96B9CC3A8E47CA7E63F3F /* TranslationView.swift */; };
+		8C75003E6482EC04B3996166 /* ProjectCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2085BD292C194BE19428835 /* ProjectCard.swift */; };
 		8C7E17976E3A08DA3836867E /* VideoTableFileDragSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CD804E8C2B6FB3D712F0897 /* VideoTableFileDragSource.swift */; };
 		8CE05D483BC3AAE518A151F8 /* StoragePolicyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89DD7E34D0188A5E58511B76 /* StoragePolicyManager.swift */; };
 		8DCB91E528CB0CB512BD05D9 /* CircularProgressButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 569384A914040FDEA22D9202 /* CircularProgressButton.swift */; };
@@ -95,6 +96,7 @@
 		E0368C18C803DE394FFB41AA /* FlashcardsControlsInspectorPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 891BCBFC27CC37FEBA9674A4 /* FlashcardsControlsInspectorPane.swift */; };
 		E0BE193BFE9526D3AF19B918 /* ProcessingQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = C82F9C173483A73DD7C2D0A9 /* ProcessingQueue.swift */; };
 		E24022C3423E6DAAB5B8BD83 /* AllVideosImportDropModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F9329B526137D7325808278 /* AllVideosImportDropModifier.swift */; };
+		E2465CF14F2CD35EFF827240 /* ProjectGridPolicies.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B4624CAFBC734D7A367EA26 /* ProjectGridPolicies.swift */; };
 		E3BC7975B559D92CD79B62DF /* FloatingVideoPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52B973BCCBE605973B892F4C /* FloatingVideoPane.swift */; };
 		E72D0163211BE06DF347B1D7 /* StorageSettingsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9AF4F7D6AB775BE65B16281 /* StorageSettingsPane.swift */; };
 		EB485127D639337042F4F6CA /* VideoModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0494EEFBA9CEA95212F8DA3 /* VideoModel.swift */; };
@@ -130,6 +132,7 @@
 		02A596FCF8EA79F240A4848F /* FlashcardsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlashcardsView.swift; sourceTree = "<group>"; };
 		091EDCBD5D29E9655B8F22B9 /* MainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainView.swift; sourceTree = "<group>"; };
 		092308F52224A524D8B4AC17 /* TranscriptWordWrapLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptWordWrapLayout.swift; sourceTree = "<group>"; };
+		0B4624CAFBC734D7A367EA26 /* ProjectGridPolicies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectGridPolicies.swift; sourceTree = "<group>"; };
 		0F15031DC46A09DBA22A04B7 /* SubtitleMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubtitleMatcher.swift; sourceTree = "<group>"; };
 		10D905C880B75A0795D8B506 /* InlineErrorBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineErrorBanner.swift; sourceTree = "<group>"; };
 		1932624497E8687E79BAD42F /* VideoPresentationHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPresentationHost.swift; sourceTree = "<group>"; };
@@ -192,6 +195,7 @@
 		AFEA6C8077F01019D192E39B /* InspectorContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorContentView.swift; sourceTree = "<group>"; };
 		B07ADC417DE5AF498358D318 /* ProcessingFixPoliciesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessingFixPoliciesTests.swift; sourceTree = "<group>"; };
 		B1BE5070664320957B635ECC /* VideoInfoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoInfoView.swift; sourceTree = "<group>"; };
+		B2085BD292C194BE19428835 /* ProjectCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectCard.swift; sourceTree = "<group>"; };
 		B2346E0EC9B27AD701DF008D /* ThumbnailGeneratorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailGeneratorTests.swift; sourceTree = "<group>"; };
 		B2F5C0FE5D539426573705B6 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		B48AC61F9B3044E9AF10C8FE /* PangolinTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PangolinTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -311,6 +315,15 @@
 				C3B0CC4C85ABAAEE8DB5B335 /* CloudKit.framework */,
 			);
 			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		6A75FF03A8F029345D75A09C /* Projects */ = {
+			isa = PBXGroup;
+			children = (
+				B2085BD292C194BE19428835 /* ProjectCard.swift */,
+				0B4624CAFBC734D7A367EA26 /* ProjectGridPolicies.swift */,
+			);
+			path = Projects;
 			sourceTree = "<group>";
 		};
 		77102A99AAB646CF0DE4AFA3 /* PangolinUITests */ = {
@@ -496,6 +509,7 @@
 				3B826334966CFA30421D4C10 /* SidebarView.swift */,
 				7B24B035147F0F00E66A73A8 /* VideoPlayerView.swift */,
 				A635AF8C38BB5CCE076F6C46 /* Components */,
+				6A75FF03A8F029345D75A09C /* Projects */,
 				270446D81F7D828713C85280 /* Settings */,
 			);
 			path = Views;
@@ -727,6 +741,8 @@
 				E0BE193BFE9526D3AF19B918 /* ProcessingQueue.swift in Sources */,
 				B3D157785A8450C59CD4C761 /* ProcessingQueueManager.swift in Sources */,
 				AB0D278195A92B0EC871679A /* ProcessingTask.swift in Sources */,
+				8C75003E6482EC04B3996166 /* ProjectCard.swift in Sources */,
+				E2465CF14F2CD35EFF827240 /* ProjectGridPolicies.swift in Sources */,
 				474F2E4930D48C018DB0EF60 /* ProjectVideoGrid.swift in Sources */,
 				F01F76261A130E674800A1D1 /* ProjectsView.swift in Sources */,
 				605B15F28A91BF0AB2B13E7E /* RemoteVideoDownloadService.swift in Sources */,
