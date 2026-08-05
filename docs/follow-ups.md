@@ -6,9 +6,19 @@
 
 ## Priority: High (correctness / reliability)
 
-- [x] **Test isolation (audit Critical #2):** suites `.serialized` (`94a29b0`); teardown into
-      `defer` completed (`2ce237d`, 41 close-defers). Remaining optional: a CI test job with
-      `-parallel-testing-enabled NO` (`.github/workflows/quality-gates.yml` runs no tests today).
+- [x] **Test isolation (audit Critical #2) — partially, with a revert on record:** suites
+      `.serialized` (`94a29b0`). The teardown-into-defer attempt (`2ce237d`) was REVERTED
+      (`da898d4`): the fire-and-forget defer Task ran the close AFTER the synchronous
+      temp-root deletion, so save() hit a deleted SQLite file — a repeating
+      "LIBRARY: Save failed" loop in the test host (18+/run) plus CloudKit recovery churn.
+      The correct non-racy teardown is an awaited wrapper (withLibraryContext { body }) that
+      closes before removing — logged as TODO below. Also fixed: frame-update wait flake
+      (`2494173`, main-actor starvation).
+- [ ] **Awaited teardown wrapper (replaces the reverted defer approach):** wrap library-touching
+      tests in `withLibraryContext { }` so closeCurrentLibrary runs in-body (before temp-root
+      removal) on every path including throws, with no post-test async task. Note: the
+      consolidation test still logs one transient "Save failed" under full-suite load
+      (pre-existing, present with both merge policies — test-host CloudKit mirroring noise).
 - [x] **CI entitlements gate (audit G3):** fixed in `94a29b0` — now checks
       `Pangolin-macOS.entitlements` + `Pangolin-iOS.entitlements` + the legacy file; negative-tested.
 - [x] **UI tests vacuous (audit H6):** closed in `9a3c1a4` — real smoke tests launch the app,
