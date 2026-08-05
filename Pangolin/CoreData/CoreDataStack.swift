@@ -199,9 +199,13 @@ class CoreDataStack {
     }
     
     private func configureViewContext(_ context: NSManagedObjectContext) {
-        // Configure merge policy to handle conflicts properly
+        // This context is the app's editing context (imports, renames, and
+        // state writes land here before save), so the in-memory object must
+        // trump incoming CloudKit merges. Store-trump would silently overwrite
+        // a user's unsaved edit with the server value on the next merge, and
+        // the following save would persist it — silent edit loss.
         context.automaticallyMergesChangesFromParent = true
-        context.mergePolicy = NSMergeByPropertyStoreTrumpMergePolicy
+        context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
 
         // Do not pin the view context to a query generation. A long-lived pinned
         // reader prevents SQLite from truncating its WAL while CloudKit writes.
