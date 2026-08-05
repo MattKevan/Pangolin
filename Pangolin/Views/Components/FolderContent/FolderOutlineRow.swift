@@ -83,52 +83,7 @@ private struct VideoICloudStatusSymbol: View {
     }
 
     private var effectiveSnapshot: VideoCloudTransferSnapshot {
-        if let snapshot {
-            return snapshot
-        }
-
-        if let videoID = video.id,
-           let snapshot = videoFileManager.transferSnapshots[videoID] {
-            return snapshot
-        }
-
-        if let rawState = video.fileAvailabilityState,
-           let status = VideoFileStatus(rawValue: rawState) {
-            let state: VideoCloudTransferState
-            switch status {
-            case .local:
-                state = .downloaded
-            case .downloading:
-                state = .downloading(progress: nil)
-            case .cloudOnly, .missing:
-                state = .inCloudOnly
-            case .error:
-                state = .error(
-                    operation: .download,
-                    message: "Transfer failed",
-                    retryCount: 0,
-                    canRetry: true
-                )
-            }
-
-            return VideoCloudTransferSnapshot(
-                videoID: video.id ?? UUID(),
-                videoTitle: video.title ?? video.fileName ?? "Untitled",
-                state: state,
-                updatedAt: Date()
-            )
-        }
-
-        if let cloudRelativePath = video.cloudRelativePath, !cloudRelativePath.isEmpty {
-            return VideoCloudTransferSnapshot(
-                videoID: video.id ?? UUID(),
-                videoTitle: video.title ?? video.fileName ?? "Untitled",
-                state: .inCloudOnly,
-                updatedAt: Date()
-            )
-        }
-
-        return VideoCloudTransferSnapshot.placeholder(title: video.title ?? video.fileName ?? "Untitled")
+        videoFileManager.effectiveSnapshot(for: video, cached: snapshot)
     }
 
     private var symbolName: String {
@@ -170,11 +125,7 @@ private struct VideoICloudStatusSymbol: View {
     }
 
     private func shouldRefresh(for notification: Notification) -> Bool {
-        guard let videoID = video.id else { return false }
-        guard let changedID = notification.userInfo?["videoID"] as? UUID else {
-            return false
-        }
-        return changedID == videoID
+        VideoFileManager.transferNotification(notification, matches: video.id)
     }
 
     private func refreshSnapshotFromManager() {

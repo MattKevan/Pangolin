@@ -138,3 +138,117 @@ struct ProjectGridFocusPolicyTests {
         #expect(ProjectGridFocusPolicy.nextIndex(from: 2, columnCount: 1, itemCount: 5, direction: .up) == 1)
     }
 }
+
+// MARK: - Transfer snapshot resolution
+//
+// Guards the shared fallback chain that rows use to display cloud transfer
+// status (previously duplicated in VideoResultsTableView and FolderOutlineRow).
+
+struct TransferSnapshotResolutionTests {
+    private func snapshot(state: VideoCloudTransferState, id: UUID = UUID()) -> VideoCloudTransferSnapshot {
+        VideoCloudTransferSnapshot(videoID: id, videoTitle: "Video", state: state, updatedAt: Date())
+    }
+
+    @Test("cached snapshot wins over all other sources")
+    func cachedSnapshotWins() {
+        let cached = snapshot(state: .downloading(progress: 0.5))
+        let result = VideoFileManager.resolvedSnapshot(
+            cached: cached,
+            managerSnapshot: snapshot(state: .downloaded),
+            fileAvailabilityState: VideoFileStatus.error.rawValue,
+            cloudRelativePath: "x.mp4",
+            videoID: UUID(),
+            videoTitle: "Video"
+        )
+        #expect(result == cached)
+    }
+
+    @Test("manager snapshot wins over stored video state")
+    func managerSnapshotWins() {
+        let manager = snapshot(state: .uploading(progress: 0.2))
+        let result = VideoFileManager.resolvedSnapshot(
+            cached: nil,
+            managerSnapshot: manager,
+            fileAvailabilityState: VideoFileStatus.cloudOnly.rawValue,
+            cloudRelativePath: nil,
+            videoID: UUID(),
+            videoTitle: "Video"
+        )
+        #expect(result == manager)
+    }
+
+    @Test("stored file state maps to transfer states")
+    func storedStateMapsToTransferState() {
+        func resolve(_ raw: String) -> VideoCloudTransferState {
+            VideoFileManager.resolvedSnapshot(
+                cached: nil,
+                managerSnapshot: nil,
+                fileAvailabilityState: raw,
+                cloudRelativePath: nil,
+                videoID: UUID(),
+                videoTitle: "Video"
+            ).state
+        }
+        #expect(resolve(VideoFileStatus.local.rawValue) == .downloaded)
+        #expect(resolve(VideoFileStatus.cloudOnly.rawValue) == .inCloudOnly)
+        #expect(resolve(VideoFileStatus.missing.rawValue) == .inCloudOnly)
+        guard case .downloading = resolve(VideoFileStatus.downloading.rawValue) else {
+            Issue.record("downloading state should map to .downloading")
+            return
+        }
+        guard case .error = resolve(VideoFileStatus.error.rawValue) else {
+            Issue.record("error state should map to .error")
+            return
+        }
+    }
+
+    @Test("cloud relative path implies in-cloud-only when no state is stored")
+    func cloudPathImpliesInCloudOnly() {
+        let result = VideoFileManager.resolvedSnapshot(
+            cached: nil,
+            managerSnapshot: nil,
+            fileAvailabilityState: nil,
+            cloudRelativePath: "folder/video.mp4",
+            videoID: UUID(),
+            videoTitle: "Video"
+        )
+        #expect(result.state == .inCloudOnly)
+    }
+
+    @Test("no signal resolves to the placeholder")
+    func emptyResolvesToPlaceholder() {
+        let result = VideoFileManager.resolvedSnapshot(
+            cached: nil,
+            managerSnapshot: nil,
+            fileAvailabilityState: nil,
+            cloudRelativePath: nil,
+            videoID: UUID(),
+            videoTitle: "Video"
+        )
+        #expect(result.videoTitle == "Video")
+        #expect(result.state == .downloaded)
+    }
+}
+
+struct TransferNotificationMatchingTests {
+    @Test("matches the targeted video and rejects others")
+    func matchesTargetedVideoOnly() {
+        let videoID = UUID()
+        let otherID = UUID()
+        let notification = Notification(
+            name: .videoStorageAvailabilityChanged,
+            userInfo: [VideoStorageChangeKey.videoID: videoID]
+        )
+        #expect(VideoFileManager.transferNotification(notification, matches: videoID))
+        #expect(!VideoFileManager.transferNotification(notification, matches: otherID))
+        #expect(!VideoFileManager.transferNotification(notification, matches: nil))
+    }
+
+    @Test("rejects notifications without a valid video id payload")
+    func rejectsMissingPayload() {
+        let bare = Notification(name: .videoStorageAvailabilityChanged, userInfo: nil)
+        let wrongType = Notification(name: .videoStorageAvailabilityChanged, userInfo: [VideoStorageChangeKey.videoID: "not-a-uuid"])
+        #expect(!VideoFileManager.transferNotification(bare, matches: UUID()))
+        #expect(!VideoFileManager.transferNotification(wrongType, matches: UUID()))
+    }
+}

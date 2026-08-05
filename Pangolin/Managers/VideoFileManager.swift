@@ -1010,7 +1010,7 @@ func cancelDownload(for video: Video) {
         NotificationCenter.default.post(
             name: .videoStorageAvailabilityChanged,
             object: nil,
-            userInfo: ["videoID": videoID]
+            userInfo: [VideoStorageChangeKey.videoID: videoID]
         )
     }
 
@@ -1207,6 +1207,93 @@ enum VideoFileError: LocalizedError {
         case .offloadFailed(let reason):
             return "Failed to offload local file: \(reason)"
         }
+    }
+}
+
+/// UserInfo key for `videoStorageAvailabilityChanged` notifications.
+enum VideoStorageChangeKey {
+    static let videoID = "videoID"
+}
+
+extension VideoFileManager {
+    /// Resolves the transfer snapshot a row should display: the view's cached
+    /// snapshot wins, then the live manager snapshot, then the video's stored
+    /// file state, then a cloud-only/placeholder fallback. Pure — no Core Data
+    /// access — so the fallback chain is unit-testable.
+    nonisolated static func resolvedSnapshot(
+        cached: VideoCloudTransferSnapshot?,
+        managerSnapshot: VideoCloudTransferSnapshot?,
+        fileAvailabilityState: String?,
+        cloudRelativePath: String?,
+        videoID: UUID?,
+        videoTitle: String
+    ) -> VideoCloudTransferSnapshot {
+        if let cached {
+            return cached
+        }
+
+        if let managerSnapshot {
+            return managerSnapshot
+        }
+
+        if let rawState = fileAvailabilityState,
+           let status = VideoFileStatus(rawValue: rawState) {
+            let state: VideoCloudTransferState
+            switch status {
+            case .local:
+                state = .downloaded
+            case .downloading:
+                state = .downloading(progress: nil)
+            case .cloudOnly, .missing:
+                state = .inCloudOnly
+            case .error:
+                state = .error(
+                    operation: .download,
+                    message: "Transfer failed",
+                    retryCount: 0,
+                    canRetry: true
+                )
+            }
+
+            return VideoCloudTransferSnapshot(
+                videoID: videoID ?? UUID(),
+                videoTitle: videoTitle,
+                state: state,
+                updatedAt: Date()
+            )
+        }
+
+        if let cloudRelativePath, !cloudRelativePath.isEmpty {
+            return VideoCloudTransferSnapshot(
+                videoID: videoID ?? UUID(),
+                videoTitle: videoTitle,
+                state: .inCloudOnly,
+                updatedAt: Date()
+            )
+        }
+
+        return VideoCloudTransferSnapshot.placeholder(title: videoTitle)
+    }
+
+    /// Whether a `videoStorageAvailabilityChanged` notification targets the
+    /// given video (shared by every row that renders transfer status).
+    nonisolated static func transferNotification(_ notification: Notification, matches videoID: UUID?) -> Bool {
+        guard let videoID else { return false }
+        guard let changedID = notification.userInfo?[VideoStorageChangeKey.videoID] as? UUID else {
+            return false
+        }
+        return changedID == videoID
+    }
+
+    func effectiveSnapshot(for video: Video, cached: VideoCloudTransferSnapshot?) -> VideoCloudTransferSnapshot {
+        Self.resolvedSnapshot(
+            cached: cached,
+            managerSnapshot: video.id.flatMap { transferSnapshots[$0] },
+            fileAvailabilityState: video.fileAvailabilityState,
+            cloudRelativePath: video.cloudRelativePath,
+            videoID: video.id,
+            videoTitle: video.title ?? video.fileName ?? "Untitled"
+        )
     }
 }
 
