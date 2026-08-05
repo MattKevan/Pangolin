@@ -645,6 +645,7 @@ struct DetailView: View {
 
     @ViewBuilder
     private func navigationBar(for selectedVideo: Video) -> some View {
+        let _ = store.contentRevision
         let neighbors = store.videoNeighbors(for: selectedVideo)
         if neighbors.previous != nil || neighbors.next != nil {
             VideoPageNavigationBar(

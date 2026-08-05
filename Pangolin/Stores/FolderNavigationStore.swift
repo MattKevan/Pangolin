@@ -126,6 +126,13 @@ class FolderNavigationStore {
     var hierarchicalContent: [HierarchicalContentItem] = []
     var flatContent: [ContentType] = []
 
+    /// Bumped on every content refresh. Views that derive data through store
+    /// methods (e.g. `projects()`, `projectSections(for:)`, `videoNeighbors(for:)`)
+    /// read this to register an observation dependency — `@Observable` only
+    /// invalidates views for tracked property reads, so method-driven results
+    /// would otherwise go stale after renames, imports, and deletions.
+    private(set) var contentRevision = 0
+
     var currentDestination: LibrarySidebarDestination? {
         selectedSidebarItem
     }
@@ -383,6 +390,7 @@ class FolderNavigationStore {
     
     // MARK: - Content Fetching
     private func refreshContent() {
+        contentRevision &+= 1
         if currentDestination == nil && currentFolderID == nil {
             ensureInitialSelectionIfNeeded()
         }

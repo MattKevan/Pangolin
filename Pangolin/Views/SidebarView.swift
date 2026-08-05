@@ -155,7 +155,8 @@ struct SidebarView: View {
     }
 
     private var sidebarProjects: [SidebarProjectRowModel] {
-        store.projects().map { SidebarProjectRowModel(project: $0) }
+        _ = store.contentRevision
+        return store.projects().map { SidebarProjectRowModel(project: $0) }
     }
 
     @ViewBuilder

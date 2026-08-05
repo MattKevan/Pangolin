@@ -373,7 +373,8 @@ struct ProjectsGridView: View {
     private let projectSelectionAction: ((Folder) -> Void)?
 
     private var projects: [Folder] {
-        store.projects()
+        _ = store.contentRevision
+        return store.projects()
     }
 
     private var usesCompactGrid: Bool {
@@ -554,7 +555,8 @@ struct ProjectDetailView: View {
     }
 
     private var sections: [ProjectSectionSnapshot] {
-        store.projectSections(for: project)
+        _ = store.contentRevision
+        return store.projectSections(for: project)
     }
 
     private var totalVideoCount: Int {

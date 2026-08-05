@@ -284,6 +284,34 @@ struct VideoNavigationSequenceTests {
         }
     }
 
+    @Test("Rename bumps content revision so method-driven views refresh")
+    @MainActor
+    func renameBumpsContentRevision() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Before", in: context, parent: nil, library: library)
+        try context.save()
+
+        let store = FolderNavigationStore(libraryManager: manager)
+        let before = store.contentRevision
+        let projectID = try #require(project.id)
+
+        await store.renameItem(id: projectID, to: "After")
+
+        // The store refreshes through its debounced context-save observer;
+        // wait (bounded) for the revision to advance.
+        var attempts = 0
+        while store.contentRevision == before && attempts < 100 {
+            try? await Task.sleep(for: .milliseconds(10))
+            attempts += 1
+        }
+        #expect(store.contentRevision > before)
+
+        await manager.closeCurrentLibrary()
+    }
+
     @MainActor
     private func makeLibraryContext() async throws -> (LibraryManager, NSManagedObjectContext, URL) {
         let manager = LibraryManager.shared
