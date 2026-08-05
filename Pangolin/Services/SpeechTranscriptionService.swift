@@ -1332,7 +1332,7 @@ class SpeechTranscriptionService: ObservableObject {
                     break
                 }
             } else {
-                try await Task.sleep(nanoseconds: 5_000_000)
+                try await Task.sleep(for: .milliseconds(5))
             }
         }
 
@@ -1901,7 +1901,7 @@ class SpeechTranscriptionService: ObservableObject {
                 return try await task.value
             }
             group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
+                try await Task.sleep(for: .seconds(timeoutSeconds))
                 task.cancel()
                 await analyzer.cancelAndFinishNow()
                 throw TranscriptionError.analysisFailed("Transcription results stalled (timeout).")
@@ -1918,7 +1918,7 @@ class SpeechTranscriptionService: ObservableObject {
                 return try await analyzer.analyzeSequence(from: audioFile)
             }
             group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
+                try await Task.sleep(for: .seconds(timeoutSeconds))
                 await analyzer.cancelAndFinishNow()
                 throw TranscriptionError.analysisFailed("Transcription analysis stalled (timeout).")
             }
@@ -2147,7 +2147,7 @@ class SpeechTranscriptionService: ObservableObject {
                 lastError = error
 
                 if attempt < maxAttempts && isLanguageModelInitializationReuseError(error) {
-                    try? await Task.sleep(nanoseconds: 250_000_000)
+                    try? await Task.sleep(for: .milliseconds(250))
                     continue
                 }
 

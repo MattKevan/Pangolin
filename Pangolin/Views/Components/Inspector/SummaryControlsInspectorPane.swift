@@ -315,7 +315,7 @@ struct SummaryControlsInspectorPane: View {
     private func flashCopiedRendered() {
         didCopyRendered = true
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            try? await Task.sleep(for: .milliseconds(1200))
             didCopyRendered = false
         }
     }
@@ -323,7 +323,7 @@ struct SummaryControlsInspectorPane: View {
     private func flashCopiedMarkdown() {
         didCopyMarkdown = true
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            try? await Task.sleep(for: .milliseconds(1200))
             didCopyMarkdown = false
         }
     }

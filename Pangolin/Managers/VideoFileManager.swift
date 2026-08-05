@@ -225,7 +225,7 @@ class VideoFileManager: ObservableObject {
                     }
                     return
                 }
-                try await Task.sleep(nanoseconds: 1_000_000_000)
+                try await Task.sleep(for: .seconds(1))
             }
             throw VideoFileError.uploadFailed("Timed out waiting for the optimised replacement to upload.")
         } catch {
@@ -619,7 +619,7 @@ func cancelDownload(for video: Video) {
             if downloadProgress[videoID] == nil {
                 setTransferState(.downloading(progress: nil), for: video)
             }
-            try await Task.sleep(nanoseconds: 500_000_000)
+            try await Task.sleep(for: .milliseconds(500))
         }
 
         downloadingVideos.remove(videoID)
@@ -748,7 +748,7 @@ func cancelDownload(for video: Video) {
 
         retryTasks[videoID] = Task { [weak self] in
             guard let self else { return }
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled else { return }
             await self.performAutoRetry(videoID: videoID)
         }
@@ -843,7 +843,7 @@ func cancelDownload(for video: Video) {
                 break
             }
 
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            try? await Task.sleep(for: .seconds(2))
         }
 
         trackingPollTask = nil

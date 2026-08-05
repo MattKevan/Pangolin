@@ -241,7 +241,7 @@ struct ContentRowView: View {
         editedName = content.name
         renamingItemID = content.id
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 100_000_000)
+            try? await Task.sleep(for: .milliseconds(100))
             focusedField = content.id
         }
     }

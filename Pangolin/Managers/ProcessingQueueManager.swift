@@ -1251,7 +1251,7 @@ class ProcessingQueueManager: ObservableObject {
                     }
                 }
 
-                try? await Task.sleep(nanoseconds: 250_000_000)
+                try? await Task.sleep(for: .milliseconds(250))
             }
         }
     }
@@ -1306,8 +1306,7 @@ class ProcessingQueueManager: ObservableObject {
     private func scheduleCloudSyncStatusHide(after delaySeconds: TimeInterval) {
         cloudSyncHideTask?.cancel()
         cloudSyncHideTask = Task { [weak self] in
-            let nanos = UInt64(max(0, delaySeconds) * 1_000_000_000)
-            try? await Task.sleep(nanoseconds: nanos)
+            try? await Task.sleep(for: .seconds(max(0, delaySeconds)))
             await MainActor.run {
                 guard let self else { return }
                 if self.activeCloudSyncEvents.isEmpty {

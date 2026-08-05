@@ -357,7 +357,7 @@ final class StoragePolicyManager: ObservableObject {
 
         deferredPolicyTasks[libraryID] = Task { [weak self] in
             guard let self else { return }
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled else { return }
             guard let library = self.fetchLibrary(withID: libraryID) else { return }
             await self.applyPolicy(for: library)
