@@ -770,83 +770,16 @@ struct DetailView: View {
     }
 
     private var toolbarSearchField: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-
-            TextField("Search in video", text: $searchModel.query)
-                .textFieldStyle(.plain)
-
-            if !searchModel.query.isEmpty {
-                Text(searchModel.matchPositionLabel)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Button {
-                    searchModel.moveToPreviousMatch()
-                } label: {
-                    Image(systemName: "chevron.up")
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    searchModel.moveToNextMatch()
-                } label: {
-                    Image(systemName: "chevron.down")
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    searchModel.reset()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .pangolinGlassRoundedRect(cornerRadius: 16, interactive: true)
-        .frame(minWidth: 260, idealWidth: 320)
+        VideoPageSearchField(searchModel: searchModel)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .pangolinGlassRoundedRect(cornerRadius: 16, interactive: true)
+            .frame(minWidth: 260, idealWidth: 320)
     }
 
     private var inlineSearchField: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-
-            TextField("Search in video", text: $searchModel.query)
-                .textFieldStyle(.plain)
-
-            if !searchModel.query.isEmpty {
-                Text(searchModel.matchPositionLabel)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Button {
-                    searchModel.moveToPreviousMatch()
-                } label: {
-                    Image(systemName: "chevron.up")
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    searchModel.moveToNextMatch()
-                } label: {
-                    Image(systemName: "chevron.down")
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    searchModel.reset()
-                    isSearchVisibleOnPhone = false
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
+        VideoPageSearchField(searchModel: searchModel) {
+            isSearchVisibleOnPhone = false
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -927,6 +860,53 @@ struct DetailView: View {
         } catch {
             Logger.app.error("FAVORITE: Failed to save favorite status from detail toolbar: \(error)")
             video.isFavorite.toggle()
+        }
+    }
+}
+
+/// Shared search field for the video page. The macOS toolbar placement and the
+/// iOS inline placement differ only in surrounding chrome (padding, glass,
+/// frame), which the call sites apply.
+private struct VideoPageSearchField: View {
+    @ObservedObject var searchModel: VideoPageSearchModel
+    var onClear: (() -> Void)? = nil
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+
+            TextField("Search in video", text: $searchModel.query)
+                .textFieldStyle(.plain)
+
+            if !searchModel.query.isEmpty {
+                Text(searchModel.matchPositionLabel)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Button {
+                    searchModel.moveToPreviousMatch()
+                } label: {
+                    Image(systemName: "chevron.up")
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    searchModel.moveToNextMatch()
+                } label: {
+                    Image(systemName: "chevron.down")
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    searchModel.reset()
+                    onClear?()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 }
