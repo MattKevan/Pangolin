@@ -98,6 +98,7 @@
 		E3BC7975B559D92CD79B62DF /* FloatingVideoPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52B973BCCBE605973B892F4C /* FloatingVideoPane.swift */; };
 		E72D0163211BE06DF347B1D7 /* StorageSettingsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9AF4F7D6AB775BE65B16281 /* StorageSettingsPane.swift */; };
 		EB485127D639337042F4F6CA /* VideoModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0494EEFBA9CEA95212F8DA3 /* VideoModel.swift */; };
+		EBE9A321DE2CAD5A709576BE /* Logging.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D0A86A44E001B779063FD0A /* Logging.swift */; };
 		EBFDFC4A9483355B2ABC6FE6 /* SearchPresentationModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9505F39918347E4BA4039BC9 /* SearchPresentationModels.swift */; };
 		F01F76261A130E674800A1D1 /* ProjectsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78B3F445583D16F809991AED /* ProjectsView.swift */; };
 		F1E6D14149478AC6E9DCE405 /* ThumbnailImageCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9C281329ED37A88C6FB0607 /* ThumbnailImageCacheTests.swift */; };
@@ -144,6 +145,7 @@
 		403FC129208DEA29D228541A /* SmartFolderTablePane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartFolderTablePane.swift; sourceTree = "<group>"; };
 		460FB924FE1BD275776D10BA /* SearchEvidenceBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchEvidenceBuilder.swift; sourceTree = "<group>"; };
 		4CD804E8C2B6FB3D712F0897 /* VideoTableFileDragSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoTableFileDragSource.swift; sourceTree = "<group>"; };
+		4D0A86A44E001B779063FD0A /* Logging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logging.swift; sourceTree = "<group>"; };
 		4EAC0F600D0843ED7770572A /* VideoPlayerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerViewModel.swift; sourceTree = "<group>"; };
 		4EB30D7CF0707906EAC655F7 /* ProcessingTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessingTask.swift; sourceTree = "<group>"; };
 		50BC09F91F4360B7125654F7 /* DeletionConfirmationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeletionConfirmationView.swift; sourceTree = "<group>"; };
@@ -423,6 +425,7 @@
 			isa = PBXGroup;
 			children = (
 				BE120B3470BFEBFC9D670F63 /* Color+App.swift */,
+				4D0A86A44E001B779063FD0A /* Logging.swift */,
 				86B611BB84647CA843D18BC3 /* NotificationNames.swift */,
 			);
 			path = Utilities;
@@ -713,6 +716,7 @@
 				29449FC602ECDFACC844F590 /* InspectorContentView.swift in Sources */,
 				D0944E97463372EE959C8CBF /* LibraryContentProvider.swift in Sources */,
 				78C9E2382B4F3539FDB2C9C8 /* LibraryManager.swift in Sources */,
+				EBE9A321DE2CAD5A709576BE /* Logging.swift in Sources */,
 				403357116333CC46322D2FF1 /* MacProjectVideoCollectionView.swift in Sources */,
 				12669B6FB29CE3545D87D7D1 /* MainView.swift in Sources */,
 				6E2995B427F3129F0B67DCD5 /* NotificationNames.swift in Sources */,
