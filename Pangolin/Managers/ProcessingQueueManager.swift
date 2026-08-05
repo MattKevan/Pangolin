@@ -5,6 +5,17 @@ import Foundation
 import CoreData
 import Combine
 
+/// Resolves which library a queued import task may write into. Only the currently
+/// open library is a valid target, so tasks queued for a different (now closed)
+/// library fail instead of importing their files into the wrong store.
+enum ImportLibraryResolution {
+    static func resolve(taskLibraryID: UUID?, currentLibraryID: UUID?) -> UUID? {
+        guard let currentLibraryID else { return nil }
+        guard let taskLibraryID else { return currentLibraryID }
+        return taskLibraryID == currentLibraryID ? taskLibraryID : nil
+    }
+}
+
 @MainActor
 class ProcessingQueueManager: ObservableObject {
     private struct TaskFailure: LocalizedError {
@@ -768,42 +779,24 @@ class ProcessingQueueManager: ObservableObject {
     }
 
     private func executeImport(_ task: ProcessingTask) async throws {
-        guard let library = LibraryManager.shared.currentLibrary,
-              let context = LibraryManager.shared.viewContext else {
-            throw FileSystemError.invalidLibraryPath
+        let currentLibrary = LibraryManager.shared.currentLibrary
+        guard let libraryID = ImportLibraryResolution.resolve(
+            taskLibraryID: task.libraryID,
+            currentLibraryID: currentLibrary?.id
+        ),
+        let library = library(withID: libraryID) ?? currentLibrary,
+        let context = LibraryManager.shared.viewContext else {
+            throw FileSystemError.importFailed(
+                "The library this import was queued for is no longer open. Reopen it and try again."
+            )
         }
         if library.id == nil {
-            library.id = UUID()
+            library.id = libraryID
         }
 
-        let fileURL: URL
-        var bookmarkAccessing = false
-
-        #if os(macOS)
-        if let bookmark = task.sourceBookmark {
-            var isStale = false
-            if let resolved = try? URL(resolvingBookmarkData: bookmark, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale) {
-                bookmarkAccessing = resolved.startAccessingSecurityScopedResource()
-                fileURL = resolved
-                print("📎 QUEUE: Resolved bookmark, accessing=\(bookmarkAccessing) for \(fileURL.lastPathComponent)")
-            } else if let sourcePath = task.sourceURLPath {
-                print("⚠️ QUEUE: Bookmark resolution failed, falling back to plain path")
-                fileURL = URL(fileURLWithPath: sourcePath)
-            } else {
-                throw FileSystemError.importFailed("Missing source path.")
-            }
-        } else if let sourcePath = task.sourceURLPath {
-            print("⚠️ QUEUE: No bookmark, using plain path")
-            fileURL = URL(fileURLWithPath: sourcePath)
-        } else {
-            throw FileSystemError.importFailed("Missing source path.")
-        }
-        #else
-        guard let sourcePath = task.sourceURLPath else {
-            throw FileSystemError.importFailed("Missing source path.")
-        }
-        fileURL = URL(fileURLWithPath: sourcePath)
-        #endif
+        let resolvedSource = try resolveImportSourceURL(for: task)
+        let fileURL = resolvedSource.url
+        var bookmarkAccessing = resolvedSource.isAccessingBookmark
 
         #if os(macOS)
         defer {
@@ -812,7 +805,7 @@ class ProcessingQueueManager: ObservableObject {
             }
         }
         #endif
-        let folderMap = importFolderMaps[library.id ?? UUID()] ?? [:]
+        let folderMap = importFolderMaps[libraryID] ?? [:]
 
         let optimizationPreset = library.uploadOptimizationPreset
         task.statusMessage = optimizationPreset.isEnabled
@@ -878,6 +871,36 @@ class ProcessingQueueManager: ObservableObject {
         refreshStats()
     }
 
+    /// Resolves the source URL for an import task, starting a security-scoped
+    /// bookmark access when one is available (macOS only).
+    private func resolveImportSourceURL(for task: ProcessingTask) throws -> (url: URL, isAccessingBookmark: Bool) {
+        #if os(macOS)
+        if let bookmark = task.sourceBookmark {
+            var isStale = false
+            if let resolved = try? URL(resolvingBookmarkData: bookmark, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale) {
+                let accessing = resolved.startAccessingSecurityScopedResource()
+                print("📎 QUEUE: Resolved bookmark, accessing=\(accessing) for \(resolved.lastPathComponent)")
+                return (resolved, accessing)
+            } else if let sourcePath = task.sourceURLPath {
+                print("⚠️ QUEUE: Bookmark resolution failed, falling back to plain path")
+                return (URL(fileURLWithPath: sourcePath), false)
+            } else {
+                throw FileSystemError.importFailed("Missing source path.")
+            }
+        } else if let sourcePath = task.sourceURLPath {
+            print("⚠️ QUEUE: No bookmark, using plain path")
+            return (URL(fileURLWithPath: sourcePath), false)
+        } else {
+            throw FileSystemError.importFailed("Missing source path.")
+        }
+        #else
+        guard let sourcePath = task.sourceURLPath else {
+            throw FileSystemError.importFailed("Missing source path.")
+        }
+        return (URL(fileURLWithPath: sourcePath), false)
+        #endif
+    }
+
     private func executeEnsureLocalAvailability(_ task: ProcessingTask) async throws {
         guard let video = fetchVideo(for: task) else {
             throw FileSystemError.fileNotFound
@@ -887,8 +910,14 @@ class ProcessingQueueManager: ObservableObject {
         let progressMonitorTask = makeEnsureLocalAvailabilityProgressMonitor(task: task, videoID: video.id)
         defer { progressMonitorTask?.cancel() }
 
-        _ = try await videoFileManager.ensureLocalAvailability(for: video)
-        task.updateProgress(1.0, message: "Available locally")
+        do {
+            _ = try await videoFileManager.ensureLocalAvailability(for: video)
+            task.updateProgress(1.0, message: "Available locally")
+        } catch VideoFileError.downloadCancelled {
+            // The user cancelled the download; finish the task as completed so it
+            // doesn't surface as a failure in the task indicator.
+            task.updateProgress(1.0, message: "Download cancelled")
+        }
     }
 
     private func executeThumbnail(_ task: ProcessingTask) async throws {

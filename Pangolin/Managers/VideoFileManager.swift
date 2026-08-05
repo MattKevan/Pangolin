@@ -19,6 +19,27 @@ enum LocalCopyOffloadResult: Sendable, Equatable {
     case alreadyCloudOnly
 }
 
+/// Pure session-token logic for iCloud downloads: each download attempt begins a
+/// new generation, and cancelling bumps the stored generation so any in-flight
+/// polling loop is orphaned and stops on its next tick.
+enum VideoDownloadSessionPolicy {
+    static func begin(storedGeneration: UInt?) -> UInt {
+        (storedGeneration ?? 0) + 1
+    }
+
+    static func isCurrent(generation: UInt, storedGeneration: UInt?) -> Bool {
+        storedGeneration == generation
+    }
+
+    static func invalidate(_ storedGeneration: UInt?) -> UInt {
+        (storedGeneration ?? 0) + 1
+    }
+
+    static func complete(generation: UInt, storedGeneration: UInt?) -> UInt? {
+        isCurrent(generation: generation, storedGeneration: storedGeneration) ? nil : storedGeneration
+    }
+}
+
 @MainActor
 class VideoFileManager: ObservableObject {
     static let shared = VideoFileManager()
@@ -26,6 +47,11 @@ class VideoFileManager: ObservableObject {
     @Published var downloadingVideos: Set<UUID> = []
     @Published var downloadProgress: [UUID: Double] = [:]
     @Published private(set) var transferSnapshots: [UUID: VideoCloudTransferSnapshot] = [:]
+
+    /// Monotonic per-video generation counter that lets `cancelDownload(for:)`
+    /// invalidate any in-flight polling loop so it stops instead of re-publishing
+    /// progress or timing out after the user cancelled.
+    private var downloadGenerations: [UUID: UInt] = [:]
 
     private let fileManager = FileManager.default
     let cloudContainerIdentifier = PangolinCloudContainer.identifier
@@ -303,13 +329,7 @@ class VideoFileManager: ObservableObject {
         return snapshot
     }
 
-    func refreshTransferStates(for videos: [Video]) async {
-        for video in videos {
-            _ = await refreshTransferState(for: video)
-        }
-    }
-
-    func beginTracking(video: Video) {
+func beginTracking(video: Video) {
         guard let videoID = video.id else { return }
         trackedVideoObjectIDs[videoID] = video.objectID
         ensureTrackingPollTask()
@@ -451,22 +471,15 @@ class VideoFileManager: ObservableObject {
         return await Self.isUbiquitousFileUploaded(at: url)
     }
 
-    func downloadAllVideos(in library: Library) async {
-        guard let context = library.managedObjectContext else { return }
-        let request = Video.fetchRequest()
-        request.predicate = NSPredicate(format: "library == %@", library)
-        let videos = (try? context.fetch(request)) ?? []
-
-        for video in videos {
-            _ = try? await ensureLocalAvailability(for: video, downloadIfNeeded: true)
-        }
-    }
-
-    func cancelDownload(for video: Video) {
+func cancelDownload(for video: Video) {
         guard let videoID = video.id else { return }
         downloadingVideos.remove(videoID)
         downloadProgress.removeValue(forKey: videoID)
-
+        // Invalidate any in-flight polling loop so it exits on its next tick
+        // instead of re-publishing progress and flipping back to .downloading.
+        downloadGenerations[videoID] = VideoDownloadSessionPolicy.invalidate(
+            downloadGenerations[videoID]
+        )
         transferFailures.removeValue(forKey: videoID)
         setTransferState(.inCloudOnly, for: video)
     }
@@ -528,42 +541,17 @@ class VideoFileManager: ObservableObject {
                 throw VideoFileError.downloadFailed(error.localizedDescription)
             }
 
-            let timeout: TimeInterval = 300
-            let start = Date()
+            let downloadGeneration = VideoDownloadSessionPolicy.begin(
+                storedGeneration: downloadGenerations[videoID]
+            )
+            downloadGenerations[videoID] = downloadGeneration
 
-            while Date().timeIntervalSince(start) < timeout {
-                let refreshedMetadata = ubiquityMetadata(for: url)
-                if let refreshedMetadata {
-                    if let percentDownloaded = refreshedMetadata.percentDownloaded {
-                        let normalizedProgress = clampProgress(percentDownloaded) ?? 0.0
-                        downloadProgress[videoID] = normalizedProgress
-                        setTransferState(.downloading(progress: normalizedProgress), for: video)
-                    }
-
-                    let isDownloaded = refreshedMetadata.downloadingStatus == .current || refreshedMetadata.downloadingStatus == .downloaded
-                    if isDownloaded {
-                        downloadingVideos.remove(videoID)
-                        downloadProgress.removeValue(forKey: videoID)
-                        clearFailure(for: videoID)
-                        video.fileAvailabilityState = VideoFileStatus.local.rawValue
-                        video.lastFileSyncDate = Date()
-                        setTransferState(.downloaded, for: video)
-                        return url
-                    }
-                }
-
-                if downloadProgress[videoID] == nil {
-                    setTransferState(.downloading(progress: nil), for: video)
-                }
-                try await Task.sleep(nanoseconds: 500_000_000)
-            }
-
-            downloadingVideos.remove(videoID)
-            downloadProgress.removeValue(forKey: videoID)
-            video.fileAvailabilityState = VideoFileStatus.error.rawValue
-            let error = VideoFileError.downloadFailed("Timed out waiting for iCloud file download.")
-            markTransferFailure(for: video, operation: .download, message: error.localizedDescription)
-            throw error
+            return try await pollForDownloadCompletion(
+                for: video,
+                url: url,
+                videoID: videoID,
+                generation: downloadGeneration
+            )
         }
 
         if fileManager.fileExists(atPath: url.path) {
@@ -576,6 +564,72 @@ class VideoFileManager: ObservableObject {
         }
 
         let error = VideoFileError.fileNotFound(url)
+        markTransferFailure(for: video, operation: .download, message: error.localizedDescription)
+        throw error
+    }
+
+    /// Polls iCloud for download completion, honoring both an explicit user
+    /// cancellation (via a session-generation bump in `cancelDownload(for:)`) and
+    /// task cancellation. A cancelled session exits immediately instead of
+    /// re-publishing progress or timing out.
+    private func pollForDownloadCompletion(
+        for video: Video,
+        url: URL,
+        videoID: UUID,
+        generation: UInt
+    ) async throws -> URL {
+        let timeout: TimeInterval = 300
+        let start = Date()
+
+        while Date().timeIntervalSince(start) < timeout {
+            guard VideoDownloadSessionPolicy.isCurrent(
+                generation: generation,
+                storedGeneration: downloadGenerations[videoID]
+            ) else {
+                downloadingVideos.remove(videoID)
+                downloadProgress.removeValue(forKey: videoID)
+                throw VideoFileError.downloadCancelled(url)
+            }
+            try Task.checkCancellation()
+
+            let refreshedMetadata = ubiquityMetadata(for: url)
+            if let refreshedMetadata {
+                if let percentDownloaded = refreshedMetadata.percentDownloaded {
+                    let normalizedProgress = clampProgress(percentDownloaded) ?? 0.0
+                    downloadProgress[videoID] = normalizedProgress
+                    setTransferState(.downloading(progress: normalizedProgress), for: video)
+                }
+
+                let isDownloaded = refreshedMetadata.downloadingStatus == .current || refreshedMetadata.downloadingStatus == .downloaded
+                if isDownloaded {
+                    downloadingVideos.remove(videoID)
+                    downloadProgress.removeValue(forKey: videoID)
+                    downloadGenerations[videoID] = VideoDownloadSessionPolicy.complete(
+                        generation: generation,
+                        storedGeneration: downloadGenerations[videoID]
+                    )
+                    clearFailure(for: videoID)
+                    video.fileAvailabilityState = VideoFileStatus.local.rawValue
+                    video.lastFileSyncDate = Date()
+                    setTransferState(.downloaded, for: video)
+                    return url
+                }
+            }
+
+            if downloadProgress[videoID] == nil {
+                setTransferState(.downloading(progress: nil), for: video)
+            }
+            try await Task.sleep(nanoseconds: 500_000_000)
+        }
+
+        downloadingVideos.remove(videoID)
+        downloadProgress.removeValue(forKey: videoID)
+        downloadGenerations[videoID] = VideoDownloadSessionPolicy.complete(
+            generation: generation,
+            storedGeneration: downloadGenerations[videoID]
+        )
+        video.fileAvailabilityState = VideoFileStatus.error.rawValue
+        let error = VideoFileError.downloadFailed("Timed out waiting for iCloud file download.")
         markTransferFailure(for: video, operation: .download, message: error.localizedDescription)
         throw error
     }
@@ -1129,6 +1183,7 @@ enum VideoFileError: LocalizedError {
     case cloudContainerUnavailable
     case fileNotFound(URL)
     case fileNotDownloaded(URL)
+    case downloadCancelled(URL)
     case uploadFailed(String)
     case downloadFailed(String)
     case offloadFailed(String)
@@ -1143,6 +1198,8 @@ enum VideoFileError: LocalizedError {
             return "Video file not found at \(url.lastPathComponent)"
         case .fileNotDownloaded(let url):
             return "Video file \(url.lastPathComponent) is in iCloud but not downloaded"
+        case .downloadCancelled(let url):
+            return "Video download was cancelled."
         case .uploadFailed(let reason):
             return "Failed to upload to iCloud: \(reason)"
         case .downloadFailed(let reason):

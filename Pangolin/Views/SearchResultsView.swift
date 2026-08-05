@@ -38,15 +38,12 @@ struct SearchResultsView: View {
             } else {
                 ZStack {
                     VStack(spacing: 0) {
-                        
-
                         SearchResultsTableView(
                             rows: searchManager.presentedResults,
                             selectedItems: $selectedItems,
                             searchManager: searchManager,
                             folderStore: folderStore,
-                            isSearching: searchManager.isSearching,
-                            onSelectCitation: handleCitationSelection
+                            isSearching: searchManager.isSearching
                         )
                     }
 
@@ -80,11 +77,6 @@ struct SearchResultsView: View {
 
     private var shouldShowMinimumCharactersHint: Bool {
         !trimmedQuery.isEmpty && trimmedQuery.count < 2 && !searchManager.isSearching
-    }
-
-    private func handleCitationSelection(_ citation: SearchCitation) {
-        guard let row = searchManager.presentedResults.first(where: { $0.id == citation.videoID }) else { return }
-        folderStore.openFromSearchCitation(row.video, seekTo: citation.timestampStart, source: citation.source)
     }
 }
 
@@ -139,107 +131,12 @@ private struct NoResultsStateView: View {
     }
 }
 
-private struct SearchAnswerPanel: View {
-    let model: SearchAnswerPanelModel
-    let query: String
-    let searchManager: SearchManager
-    let onSelectCitation: (SearchCitation) -> Void
-
-    var body: some View {
-            VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Search Summary")
-                        .font(.headline)
-                    Text("Based on \(model.scopeLabel) results")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                Spacer()
-                Image(systemName: "sparkles.rectangle.stack")
-                    .foregroundColor(.accentColor)
-            }
-
-            Text(model.summaryText)
-                .font(.subheadline)
-
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(model.citations) { citation in
-                    Button {
-                        onSelectCitation(citation)
-                    } label: {
-                        SearchCitationRowView(
-                            citation: citation,
-                            query: query,
-                            searchManager: searchManager
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-        .padding(12)
-        .pangolinGlassRoundedRect(cornerRadius: 18)
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(Color.secondary.opacity(0.15), lineWidth: 1)
-        )
-    }
-}
-
-private struct SearchCitationRowView: View {
-    let citation: SearchCitation
-    let query: String
-    let searchManager: SearchManager
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
-                Text(citation.videoTitle)
-                    .font(.caption.weight(.semibold))
-                    .lineLimit(1)
-
-                Text("·")
-                    .foregroundColor(.secondary)
-
-                Text(citationSourceLabel)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                if let timeLabel = formattedTimeRange(start: citation.timestampStart, end: citation.timestampEnd) {
-                    Text("· \(timeLabel)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                Spacer(minLength: 0)
-            }
-
-            Text(searchManager.highlightedText(for: citation.snippet, query: query))
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-        }
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
-    }
-
-    private var citationSourceLabel: String {
-        if citation.source == .translation, let languageCode = citation.languageCode {
-            return "Translation (\(languageCode.uppercased()))"
-        }
-        return citation.source.displayName
-    }
-}
-
 private struct SearchResultsTableView: View {
     let rows: [SearchResultRowModel]
     @Binding var selectedItems: Set<UUID>
     @ObservedObject var searchManager: SearchManager
     let folderStore: FolderNavigationStore
     let isSearching: Bool
-    let onSelectCitation: (SearchCitation) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -260,8 +157,7 @@ private struct SearchResultsTableView: View {
                     SearchResultSnippetCell(
                         row: row,
                         query: searchManager.searchText,
-                        searchManager: searchManager,
-                        onSelectCitation: onSelectCitation
+                        searchManager: searchManager
                     )
                 }
                 .width(min: 480, ideal: 800)
@@ -287,18 +183,6 @@ private struct SearchResultsTableView: View {
             folderStore.revealVideoLocation(selectedRow.video)
         } else {
             folderStore.openVideoDetailWithoutLocation(selectedRow.video)
-        }
-    }
-
-    private func toggleFavorite(_ video: Video) {
-        guard let context = video.managedObjectContext else { return }
-        context.perform {
-            video.isFavorite.toggle()
-            do {
-                try context.save()
-            } catch {
-                print("Error toggling favorite from search results: \(error)")
-            }
         }
     }
 }
@@ -393,50 +277,14 @@ private struct SearchResultSnippetCell: View {
     let row: SearchResultRowModel
     let query: String
     let searchManager: SearchManager
-    let onSelectCitation: (SearchCitation) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(searchManager.highlightedText(for: row.snippet, query: query))
                 .lineLimit(3)
-
-            
-
-            
         }
         .padding(.vertical, 2)
     }
-
-    private var bestSourceLabel: String {
-        if row.bestSource == .translation,
-           let languageCode = row.citations.first(where: { $0.source == .translation })?.languageCode {
-            return "Translation (\(languageCode.uppercased()))"
-        }
-        return row.bestSource.displayName
-    }
-}
-
-private func formattedTimeRange(start: TimeInterval?, end: TimeInterval?) -> String? {
-    guard let start else { return nil }
-    let startLabel = formattedTimestamp(start)
-    guard let end else { return startLabel }
-    let normalizedEnd = max(end, start)
-    if abs(normalizedEnd - start) < 0.25 {
-        return startLabel
-    }
-    return "\(startLabel)-\(formattedTimestamp(normalizedEnd))"
-}
-
-private func formattedTimestamp(_ seconds: TimeInterval) -> String {
-    let total = max(0, Int(seconds.rounded()))
-    let hours = total / 3600
-    let minutes = (total % 3600) / 60
-    let secs = total % 60
-
-    if hours > 0 {
-        return String(format: "%d:%02d:%02d", hours, minutes, secs)
-    }
-    return String(format: "%02d:%02d", minutes, secs)
 }
 
 #Preview {

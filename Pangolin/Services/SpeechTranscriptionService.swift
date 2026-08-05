@@ -90,6 +90,25 @@ struct TranslationOutput: Sendable {
     let timedTranslation: TimedTranslation
 }
 
+/// The AI-powered flows a video page can run. Only one may be active at a time.
+enum TranscriptionFlowKind: Equatable, Sendable {
+    case transcription
+    case translation
+    case summarization
+    case flashcards
+}
+
+/// Pure decision logic enforcing the single-active-flow guarantee.
+enum TranscriptionFlowClaimPolicy {
+    static func canClaim(activeFlow: TranscriptionFlowKind?) -> Bool {
+        activeFlow == nil
+    }
+
+    static func release(activeFlow: TranscriptionFlowKind?, for kind: TranscriptionFlowKind) -> TranscriptionFlowKind? {
+        activeFlow == kind ? nil : activeFlow
+    }
+}
+
 class SpeechTranscriptionService: ObservableObject {
     @Published var isTranscribing = false
     @Published var isSummarizing = false
@@ -98,7 +117,7 @@ class SpeechTranscriptionService: ObservableObject {
     @Published var errorMessage: String?
     
     private var speechAnalyzer: SpeechAnalyzer?
-    private var translationSession: TranslationSession?
+    private var activeFlow: TranscriptionFlowKind?
     
     private let minAnalysisTimeoutSeconds: TimeInterval = 60
     private let analysisTimeoutMultiplier: Double = 3.0
@@ -115,11 +134,9 @@ class SpeechTranscriptionService: ObservableObject {
     func transcribeVideo(_ video: Video, libraryManager: LibraryManager, preferredLocale: Locale? = nil) async {
         let videoTitle = video.title ?? "Unknown"
         print("🟢 Started transcribeVideo for \(videoTitle)")
-        // Avoid publishing during the same view update cycle that triggered the call.
-        await Task.yield()
-        guard !(await isTranscribingOnMain()) else { return }
-        
-        await setTranscribingState(isTranscribing: true, isSummarizing: false)
+        // Claim the flow atomically so transcribe/translate/summarize/flashcards
+        // can never run concurrently and clobber each other's state.
+        guard await claimFlow(.transcription) else { return }
         await setErrorMessage(nil)
         await setProgress(0.0)
         await setStatus("Starting transcription...")
@@ -221,8 +238,7 @@ class SpeechTranscriptionService: ObservableObject {
             print("🚨 Transcription error: \(error)")
         }
         
-        await setTranscribingState(isTranscribing: false, isSummarizing: false)
-        
+        await releaseFlow(.transcription)
     }
 
     func translateVideo(_ video: Video, libraryManager: LibraryManager, targetLanguage: Locale.Language? = nil) async {
@@ -237,13 +253,11 @@ class SpeechTranscriptionService: ObservableObject {
             return (persistedVideo.title ?? "Unknown", persistedVideo.transcriptText, persistedVideo.transcriptLanguage)
         }
         print("🟢 Started translateVideo for \(initialState.title)")
-        // Avoid publishing during the same view update cycle that triggered the call.
-        await Task.yield()
-        guard !(await isTranscribingOnMain()),
-              let transcriptText = initialState.transcript,
+        guard let transcriptText = initialState.transcript,
               !transcriptText.isEmpty else { return }
-        
-        await setTranscribingState(isTranscribing: true, isSummarizing: false)
+        // Claim the flow atomically so transcribe/translate/summarize/flashcards
+        // can never run concurrently and clobber each other's state.
+        guard await claimFlow(.translation) else { return }
         await setErrorMessage(nil)
         await setProgress(0.0)
         await setStatus("Starting translation...")
@@ -317,7 +331,7 @@ class SpeechTranscriptionService: ObservableObject {
             print("🚨 Translation error: \(error)")
         }
         
-        await setTranscribingState(isTranscribing: false, isSummarizing: false)
+        await releaseFlow(.translation)
     }
 
     // MARK: - Summarization
@@ -334,10 +348,6 @@ class SpeechTranscriptionService: ObservableObject {
             return (persistedVideo.title ?? "Unknown", persistedVideo.translatedText, persistedVideo.transcriptText)
         }
         print("🟢 Started summarizeVideo for \(initialState.title)")
-        // Avoid publishing during the same view update cycle that triggered the call.
-        await Task.yield()
-        guard !(await isTranscribingOnMain()) else { return }
-        
         // Use translated text if available, otherwise use original transcript
         let textToSummarize: String
         if let translatedText = initialState.translated, !translatedText.isEmpty {
@@ -348,8 +358,9 @@ class SpeechTranscriptionService: ObservableObject {
             await setErrorMessage("No transcript available to summarize.")
             return
         }
-        
-        await setTranscribingState(isTranscribing: true, isSummarizing: true)
+        // Claim the flow atomically so transcribe/translate/summarize/flashcards
+        // can never run concurrently and clobber each other's state.
+        guard await claimFlow(.summarization) else { return }
         await setErrorMessage(nil)
         await setProgress(0.0)
         await setStatus("Preparing Apple Intelligence...")
@@ -425,7 +436,7 @@ class SpeechTranscriptionService: ObservableObject {
             print("🚨 Summarization error: \(error)")
         }
         
-        await setTranscribingState(isTranscribing: false, isSummarizing: false)
+        await releaseFlow(.summarization)
     }
 
     // MARK: - Flashcards
@@ -453,11 +464,9 @@ class SpeechTranscriptionService: ObservableObject {
             )
         }
         print("🟢 Started generateFlashcards for \(initialState.title)")
-
-        await Task.yield()
-        guard !(await isTranscribingOnMain()) else { return }
-
-        await setTranscribingState(isTranscribing: true, isSummarizing: false)
+        // Claim the flow atomically so transcribe/translate/summarize/flashcards
+        // can never run concurrently and clobber each other's state.
+        guard await claimFlow(.flashcards) else { return }
         await setErrorMessage(nil)
         await setProgress(0.0)
         await setStatus("Preparing flashcards...")
@@ -540,7 +549,7 @@ class SpeechTranscriptionService: ObservableObject {
             print("🚨 Flashcards error: \(error)")
         }
 
-        await setTranscribingState(isTranscribing: false, isSummarizing: false)
+        await releaseFlow(.flashcards)
     }
 
     private struct TranslationComputationResult {
@@ -683,9 +692,6 @@ class SpeechTranscriptionService: ObservableObject {
     ) async throws -> [TimedTranslationChunk] {
         await setStatus("Checking translation models...")
         let session = TranslationSession(installedSource: sourceLanguage, target: targetLanguage)
-        await MainActor.run {
-            self.translationSession = session
-        }
 
         do {
             try await session.prepareTranslation()
@@ -1056,11 +1062,6 @@ class SpeechTranscriptionService: ObservableObject {
         """
     }
 
-    private func extractJSONObjectString(from text: String) -> String? {
-        let objects = extractAllJSONObjectStrings(from: text)
-        return objects.first
-    }
-
     private func decodeFlashcardModelResponse(from responseText: String) throws -> FlashcardModelResponse {
         let decoder = JSONDecoder()
         let candidates = flashcardJSONCandidates(from: responseText)
@@ -1190,29 +1191,13 @@ class SpeechTranscriptionService: ObservableObject {
         }
     }
     
-    // Returns true if all required assets for the transcriber are already installed.
-    private func isModelInstalled(for locale: Locale) async -> Bool {
-        let key = localeKey(locale)
-        if preparedLocalesLock.withLock({ preparedLocales.contains(key) }) { return true }
-        do {
-            let t = transcriber(for: locale)
-            // If nil, nothing to install — model is present
-            let request = try await AssetInventory.assetInstallationRequest(supporting: [t])
-            return request == nil
-        } catch {
-            // If the check itself fails, be conservative and report not installed,
-            // the caller may attempt a download (which can also fail with a clear error).
-            return false
-        }
-    }
-    
     // Ensure required assets are installed; download only if needed.
     private func prepareModelIfNeeded(for locale: Locale) async throws {
         let key = localeKey(locale)
         if preparedLocalesLock.withLock({ preparedLocales.contains(key) }) { return }
-        let t = transcriber(for: locale)
+        let recognitionTranscriber = transcriber(for: locale)
         do {
-            if let request = try await AssetInventory.assetInstallationRequest(supporting: [t]) {
+            if let request = try await AssetInventory.assetInstallationRequest(supporting: [recognitionTranscriber]) {
                 // Something missing — download and install
                 try await request.downloadAndInstall()
             }
@@ -1455,8 +1440,8 @@ class SpeechTranscriptionService: ObservableObject {
 
             let status = converter.convert(to: outBuffer, error: &error, withInputFrom: inputBlock)
 
-            if let e = error {
-                throw TranscriptionError.analysisFailed(e.localizedDescription)
+            if let conversionError = error {
+                throw TranscriptionError.analysisFailed(conversionError.localizedDescription)
             }
 
             if outBuffer.frameLength > 0 {
@@ -1491,11 +1476,11 @@ class SpeechTranscriptionService: ObservableObject {
         return destURL
     }
 
-    private func formatsMatch(_ a: AVAudioFormat, _ b: AVAudioFormat) -> Bool {
-        return a.sampleRate == b.sampleRate &&
-            a.channelCount == b.channelCount &&
-            a.commonFormat == b.commonFormat &&
-            a.isInterleaved == b.isInterleaved
+    private func formatsMatch(_ lhs: AVAudioFormat, _ rhs: AVAudioFormat) -> Bool {
+        return lhs.sampleRate == rhs.sampleRate &&
+            lhs.channelCount == rhs.channelCount &&
+            lhs.commonFormat == rhs.commonFormat &&
+            lhs.isInterleaved == rhs.isInterleaved
     }
 
     private struct LanguageProbeResult {
@@ -1572,7 +1557,10 @@ class SpeechTranscriptionService: ObservableObject {
             .max(by: { $0.score < $1.score }),
            let supportedLocale = bestSupported.supportedDetectedLocale,
            bestSupported.confidence >= confidenceThreshold {
-            print("🧠 DETECTED: Chose \(supportedLocale.identifier) via probe \(bestSupported.probeLocale.identifier) (confidence: \(bestSupported.confidence), textLen: \(bestSupported.transcriptLength))")
+            print(
+                "🧠 DETECTED: Chose \(supportedLocale.identifier) via probe \(bestSupported.probeLocale.identifier) "
+                + "(confidence: \(bestSupported.confidence), textLen: \(bestSupported.transcriptLength))"
+            )
             return supportedLocale
         }
 
@@ -2016,15 +2004,15 @@ class SpeechTranscriptionService: ObservableObject {
                 var buffer = ""
                 var bufferTokens = 0
                 for sentence in sentences {
-                    let t = estimateTokens(for: sentence)
-                    if bufferTokens + t > targetTokens {
+                    let tokens = estimateTokens(for: sentence)
+                    if bufferTokens + tokens > targetTokens {
                         if !buffer.isEmpty {
                             chunks.append(buffer.trimmingCharacters(in: .whitespacesAndNewlines))
                             buffer = ""
                             bufferTokens = 0
                         }
                     }
-                    if t > hardLimit {
+                    if tokens > hardLimit {
                         // Hard split long sentence
                         let mid = sentence.index(sentence.startIndex, offsetBy: sentence.count / 2)
                         let s1 = String(sentence[..<mid])
@@ -2043,7 +2031,7 @@ class SpeechTranscriptionService: ObservableObject {
                         }
                     } else {
                         buffer += sentence + " "
-                        bufferTokens += t
+                        bufferTokens += tokens
                     }
                 }
                 if !buffer.isEmpty {
@@ -2063,13 +2051,13 @@ class SpeechTranscriptionService: ObservableObject {
         
         // Safety pass: split any chunk above hardLimit
         var safe: [String] = []
-        for c in chunks {
-            if estimateTokens(for: c) > hardLimit {
-                let mid = c.index(c.startIndex, offsetBy: c.count / 2)
-                safe.append(String(c[..<mid]))
-                safe.append(String(c[mid...]))
+        for chunk in chunks {
+            if estimateTokens(for: chunk) > hardLimit {
+                let mid = chunk.index(chunk.startIndex, offsetBy: chunk.count / 2)
+                safe.append(String(chunk[..<mid]))
+                safe.append(String(chunk[mid...]))
             } else {
-                safe.append(c)
+                safe.append(chunk)
             }
         }
         return safe
@@ -2080,8 +2068,8 @@ class SpeechTranscriptionService: ObservableObject {
         tokenizer.string = text
         var sentences: [String] = []
         tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
-            let s = String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !s.isEmpty { sentences.append(s) }
+            let sentence = String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !sentence.isEmpty { sentences.append(sentence) }
             return true
         }
         return sentences
@@ -2193,10 +2181,27 @@ class SpeechTranscriptionService: ObservableObject {
 
     // MARK: - Main-thread UI helpers
 
-    private func setTranscribingState(isTranscribing: Bool, isSummarizing: Bool) async {
+    /// Atomically claims the single active flow. Returns false (and leaves state
+    /// untouched) when another flow is already running.
+    private func claimFlow(_ kind: TranscriptionFlowKind) async -> Bool {
         await MainActor.run {
-            self.isTranscribing = isTranscribing
-            self.isSummarizing = isSummarizing
+            guard TranscriptionFlowClaimPolicy.canClaim(activeFlow: activeFlow) else { return false }
+            activeFlow = kind
+            isTranscribing = true
+            isSummarizing = kind == .summarization
+            return true
+        }
+    }
+
+    /// Releases the flow claim only if this kind still owns it, so a stale
+    /// release can never clear a newer flow's state.
+    private func releaseFlow(_ kind: TranscriptionFlowKind) async {
+        await MainActor.run {
+            activeFlow = TranscriptionFlowClaimPolicy.release(activeFlow: activeFlow, for: kind)
+            if activeFlow == nil {
+                isTranscribing = false
+                isSummarizing = false
+            }
         }
     }
 
@@ -2240,10 +2245,6 @@ class SpeechTranscriptionService: ObservableObject {
 
         let fallback = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         return fallback.isEmpty ? "An unknown error occurred." : fallback
-    }
-
-    private func isTranscribingOnMain() async -> Bool {
-        await MainActor.run { isTranscribing }
     }
 
     private func getProgressOnMain() async -> Double {

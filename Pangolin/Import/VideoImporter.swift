@@ -13,95 +13,17 @@ import CoreData
 
 @MainActor
 class VideoImporter: ObservableObject {
-    @Published var isImporting = false
-    @Published var currentFile = ""
-    @Published var progress: Double = 0
-    @Published var totalFiles = 0
-    @Published var processedFiles = 0
-    @Published var errors: [ImportError] = []
-    @Published var importedVideos: [Video] = []
     @Published var skippedFolders: [String] = []
     
     private let fileSystemManager = FileSystemManager.shared
     private let videoFileManager = VideoFileManager.shared
     private let subtitleMatcher = SubtitleMatcher()
     
-    struct ImportError: Identifiable {
-        let id = UUID()
-        let fileName: String
-        let error: Error
-    }
-
     struct ImportPlan {
         let videoFiles: [URL]
         let createdFolders: [String: Folder]
     }
     
-    func importFiles(_ urls: [URL], to library: Library, context: NSManagedObjectContext) async {
-        await MainActor.run {
-            isImporting = true
-            errors = []
-            importedVideos = []
-            progress = 0
-        }
-        
-        let plan = await prepareImportPlan(from: urls, library: library, context: context)
-        let createdFolders = plan.createdFolders
-        let videoFiles = plan.videoFiles
-        await MainActor.run {
-            totalFiles = videoFiles.count
-        }
-        
-        // Import each file  
-        print("🎬 IMPORT: Starting import of \(videoFiles.count) video files")
-        print("📚 IMPORT: Library settings - copyFilesOnImport: \(library.copyFilesOnImport), autoMatchSubtitles: \(library.autoMatchSubtitles)")
-        for (index, fileURL) in videoFiles.enumerated() {
-            await MainActor.run {
-                currentFile = fileURL.lastPathComponent
-                processedFiles = index
-                progress = Double(index) / Double(videoFiles.count)
-            }
-            
-            print("📹 IMPORT: Processing file \(index + 1)/\(videoFiles.count): \(fileURL.lastPathComponent)")
-            
-            do {
-                let video = try await importSingleFile(fileURL, library: library, context: context, createdFolders: createdFolders)
-                await MainActor.run {
-                    importedVideos.append(video)
-                }
-                
-            } catch {
-                print("❌ IMPORT: Failed to import video \(fileURL.lastPathComponent): \(error)")
-                await MainActor.run {
-                    errors.append(ImportError(
-                        fileName: fileURL.lastPathComponent,
-                        error: error
-                    ))
-                }
-            }
-        }
-        
-        // Save context
-        do {
-            try context.save()
-        } catch {
-            await MainActor.run {
-                errors.append(ImportError(
-                    fileName: "Core Data",
-                    error: error
-                ))
-            }
-        }
-        
-        await MainActor.run {
-            isImporting = false
-            progress = 1.0
-            processedFiles = totalFiles
-        }
-
-        StoragePolicyManager.shared.scheduleAutomaticPolicyApply(for: library)
-    }
-
     func prepareImportPlan(
         from urls: [URL],
         library: Library,
@@ -186,11 +108,10 @@ class VideoImporter: ObservableObject {
             do {
                 try await videoFileManager.uploadImportedVideoToCloud(localURL: localStagingURL, for: video)
             } catch {
-                videoFileManager.markTransferFailure(
-                    for: video,
-                    operation: .upload,
-                    message: error.localizedDescription
-                )
+                // Roll back the imported record: persisting a Video whose staging
+                // file is gone would leave an orphaned, unplayable library entry.
+                context.delete(video)
+                try? FileManager.default.removeItem(at: localStagingURL)
                 throw error
             }
             ProcessingQueueManager.shared.enqueueThumbnails(for: [video])
@@ -200,36 +121,7 @@ class VideoImporter: ObservableObject {
     }
     
     func resetImportState() {
-        errors.removeAll()
-        importedVideos.removeAll()
         skippedFolders.removeAll()
-        progress = 0
-        totalFiles = 0
-        processedFiles = 0
-        currentFile = ""
-    }
-    
-    func gatherVideoFiles(from urls: [URL]) -> [URL] {
-        var videoFiles: [URL] = []
-        
-        for url in urls {
-            var isDirectory: ObjCBool = false
-            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) {
-                if isDirectory.boolValue {
-                    print("📁 IMPORT: Gathering videos from directory: \(url.lastPathComponent)")
-                    // Recursively find video files in directory
-                    let foundFiles = findVideoFiles(in: url)
-                    print("📹 IMPORT: Found \(foundFiles.count) video files in \(url.lastPathComponent)")
-                    videoFiles.append(contentsOf: foundFiles)
-                } else if isVideoFile(url) {
-                    print("📹 IMPORT: Direct video file: \(url.lastPathComponent)")
-                    videoFiles.append(url)
-                }
-            }
-        }
-        
-        print("📊 IMPORT: Total video files gathered: \(videoFiles.count)")
-        return videoFiles
     }
     
     func findVideoFiles(in directory: URL) -> [URL] {
@@ -570,8 +462,12 @@ class VideoImporter: ObservableObject {
         for (folderPath, folder) in createdFolders {
             let folderURL = URL(fileURLWithPath: folderPath)
             
-            // Check if this folder path matches the video's directory exactly or is a parent
-            if videoDirectory.path.hasPrefix(folderURL.path) {
+            // Match the video's directory exactly, or a real path ancestor of it.
+            // A bare `hasPrefix` would also match sibling directories (e.g. "Folder"
+            // matching "Folder2"), which silently misassigns imported videos.
+            let isExactMatch = videoDirectory.path == folderURL.path
+            let isDescendant = videoDirectory.path.hasPrefix(folderURL.path + "/")
+            if isExactMatch || isDescendant {
                 // Prefer the longest matching path (most specific folder)
                 if folderPath.count > bestMatchPath.count {
                     bestMatch = folder

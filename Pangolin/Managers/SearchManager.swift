@@ -331,21 +331,4 @@ class SearchManager: ObservableObject {
         
         return attributedString
     }
-    
-    // Get context snippet for transcript/summary matches
-    func getContextSnippet(for text: String, query: String, contextLength: Int = 50) -> String {
-        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let range = text.range(of: query, options: [.caseInsensitive]) else {
-            return String(text.prefix(contextLength * 2))
-        }
-        
-        let startIndex = max(text.startIndex, text.index(range.lowerBound, offsetBy: -contextLength, limitedBy: text.startIndex) ?? text.startIndex)
-        let endIndex = min(text.endIndex, text.index(range.upperBound, offsetBy: contextLength, limitedBy: text.endIndex) ?? text.endIndex)
-        
-        let snippet = String(text[startIndex..<endIndex])
-        let prefix = startIndex > text.startIndex ? "..." : ""
-        let suffix = endIndex < text.endIndex ? "..." : ""
-        
-        return prefix + snippet + suffix
-    }
 }

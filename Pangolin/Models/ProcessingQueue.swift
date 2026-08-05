@@ -52,12 +52,6 @@ class ProcessingQueue: ObservableObject {
         }
     }
     
-    func addTasks(_ newTasks: [ProcessingTask]) {
-        for task in newTasks {
-            addTask(task)
-        }
-    }
-    
     func removeTask(_ task: ProcessingTask) {
         if let index = tasks.firstIndex(where: { $0.id == task.id }) {
             let removedTask = tasks[index]
@@ -203,43 +197,6 @@ class ProcessingQueue: ObservableObject {
         processingTaskIDs.remove(task.id)
         updateTaskDependencies()
     }
-    
-    // MARK: - Bulk Operations
-    
-    func createTasksForVideo(_ videoID: UUID, types: [ProcessingTaskType]) -> [ProcessingTask] {
-        let newTasks = types.map { ProcessingTask(videoID: videoID, type: $0) }
-        addTasks(newTasks)
-        return newTasks
-    }
-    
-    func createTasksForVideos(_ videoIDs: [UUID], types: [ProcessingTaskType]) -> [ProcessingTask] {
-        var allTasks: [ProcessingTask] = []
-        for videoID in videoIDs {
-            let tasks = createTasksForVideo(videoID, types: types)
-            allTasks.append(contentsOf: tasks)
-        }
-        return allTasks
-    }
-    
-    // MARK: - Persistence Support
-    
-    func getTasksData() -> Data? {
-        try? JSONEncoder().encode(tasks)
-    }
-    
-    func loadTasksData(_ data: Data) {
-        if let loadedTasks = try? JSONDecoder().decode([ProcessingTask].self, from: data) {
-            tasks = loadedTasks
-            
-            // Reset any tasks that were processing when the app was closed
-            for task in tasks where task.status == .processing {
-                task.reset()
-            }
-            
-            processingTaskIDs.removeAll()
-            updateTaskDependencies()
-        }
-    }
 }
 
 // MARK: - Queue Extensions
@@ -255,19 +212,5 @@ extension ProcessingQueue {
     
     func hasTask(for videoID: UUID, type: ProcessingTaskType) -> Bool {
         taskForVideo(videoID, type: type) != nil
-    }
-    
-    func getTasksByStatus(_ status: ProcessingTaskStatus) -> [ProcessingTask] {
-        tasks.filter { $0.status == status }
-    }
-    
-    func getTasksSortedByPriority() -> [ProcessingTask] {
-        tasks.sorted { first, second in
-            // Prioritize by status first, then by creation date
-            if first.status != second.status {
-                return first.status.rawValue < second.status.rawValue
-            }
-            return first.createdAt < second.createdAt
-        }
     }
 }

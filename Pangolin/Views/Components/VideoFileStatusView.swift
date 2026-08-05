@@ -194,45 +194,6 @@ struct VideoFileStatusView: View {
     }
 }
 
-// MARK: - Video Row with Status
-
-struct VideoRowWithStatusView: View {
-    let video: Video
-    @EnvironmentObject var videoFileManager: VideoFileManager
-
-    var body: some View {
-        HStack {
-            SyncedThumbnailImage(video: video, contentMode: .fill) {
-                Rectangle()
-                    .fill(.tertiary)
-                    .overlay {
-                        Image(systemName: "video")
-                            .foregroundColor(.secondary)
-                    }
-            }
-            .frame(width: 60, height: 34)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(video.title ?? "Unknown")
-                    .font(.body)
-                    .lineLimit(1)
-
-                HStack {
-                    Text(video.formattedDuration)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    Spacer()
-
-                    VideoFileStatusView(video: video)
-                }
-            }
-        }
-        .environmentObject(videoFileManager)
-    }
-}
-
 #Preview {
     Text("VideoFileStatusView Preview")
 }

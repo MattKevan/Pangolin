@@ -386,22 +386,8 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
         startedAt = nil
         completedAt = nil
     }
-    
-    var estimatedDuration: TimeInterval {
-        switch type {
-        case .downloadRemoteVideo: return 60.0
-        case .importVideo: return 20.0
-        case .generateThumbnail: return 5.0
-        case .transcribe: return 30.0 // Depends on video length
-        case .translate: return 10.0
-        case .summarize: return 15.0
-        case .generateFlashcards: return 15.0
-        case .ensureLocalAvailability: return 20.0 // Depends on file size and network speed
-        case .fileOperation: return 10.0
-        }
-    }
-    
-    var displayTitle: String {
+
+var displayTitle: String {
         if let itemName, !itemName.isEmpty {
             return "\(type.displayName): \(itemName)"
         }

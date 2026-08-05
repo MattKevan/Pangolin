@@ -2,10 +2,6 @@ import SwiftUI
 
 enum ActivityPopoverPolicy {
     static let maximumContentHeight: CGFloat = 360
-
-    static func visibleItems<Element>(_ items: [Element]) -> [Element] {
-        items
-    }
 }
 
 struct ProcessingPopoverView: View {
@@ -61,7 +57,7 @@ struct ProcessingPopoverView: View {
 
                         if !activeTasks.isEmpty {
                             VStack(alignment: .leading, spacing: 8) {
-                                ForEach(ActivityPopoverPolicy.visibleItems(activeTasks), id: \.id) { task in
+                                ForEach(activeTasks, id: \.id) { task in
                                     CompactTaskRowView(task: task)
                                 }
                             }
@@ -77,7 +73,7 @@ struct ProcessingPopoverView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
 
-                                ForEach(ActivityPopoverPolicy.visibleItems(activeTransfers)) { transfer in
+                                ForEach(activeTransfers) { transfer in
                                     ActiveTransferRow(transfer: transfer)
                                 }
                             }
@@ -93,7 +89,7 @@ struct ProcessingPopoverView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
 
-                                ForEach(ActivityPopoverPolicy.visibleItems(transferIssues)) { issue in
+                                ForEach(transferIssues) { issue in
                                     TransferIssueRow(
                                         issue: issue,
                                         onRetry: {
@@ -116,7 +112,7 @@ struct ProcessingPopoverView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
 
-                                ForEach(ActivityPopoverPolicy.visibleItems(failedTasks), id: \.id) { task in
+                                ForEach(failedTasks, id: \.id) { task in
                                     CompactTaskRowView(task: task)
                                 }
                             }
@@ -235,25 +231,12 @@ private struct ActiveTransferRow: View {
 private struct CloudSyncStatusRow: View {
     let status: ProcessingQueueManager.CloudSyncQueueStatus
 
-    private var tintColor: Color {
-        switch status.phase {
-        case .syncing:
-            return .blue
-        case .completed:
-            return .green
-        case .failed:
-            return .orange
-        }
-    }
-
     private var titleText: String {
         status.phase == .syncing ? "iCloud sync" : "iCloud sync status"
     }
 
     var body: some View {
         HStack(spacing: 8) {
-            
-
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
                     Text(titleText)
@@ -317,8 +300,6 @@ struct CompactTaskRowView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            
-
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
                     Text(primaryTitleText)
@@ -451,57 +432,6 @@ struct CompactTaskRowView: View {
         return itemName
     }
 
-    private var taskTypeColor: Color {
-        switch task.type {
-        case .downloadRemoteVideo: return .indigo
-        case .importVideo: return .orange
-        case .generateThumbnail: return .pink
-        case .transcribe: return .blue
-        case .translate: return .green
-        case .summarize: return .purple
-        case .generateFlashcards: return .mint
-        case .ensureLocalAvailability: return .cyan
-        case .fileOperation: return .gray
-        }
-    }
-
-    private var statusColor: Color {
-        switch task.status {
-        case .completed: return .green
-        case .failed, .cancelled: return .red
-        case .processing: return .blue
-        case .paused: return .yellow
-        case .pending, .waitingForDependencies: return .orange
-        }
-    }
-}
-
-// MARK: - Stat Pill
-
-struct StatPill: View {
-    let title: String
-    let count: Int
-    let color: Color
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(color)
-                .frame(width: 6, height: 6)
-
-            Text("\(count)")
-                .font(.caption)
-                .fontWeight(.medium)
-
-            Text(title)
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(Color.secondary.opacity(0.1))
-        .cornerRadius(8)
-    }
 }
 
 #Preview {

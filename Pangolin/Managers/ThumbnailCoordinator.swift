@@ -763,7 +763,7 @@ final class ThumbnailCoordinator {
         switch videoError {
         case .cloudContainerUnavailable, .downloadFailed:
             return true
-        case .invalidVideoPath, .fileNotFound, .fileNotDownloaded, .uploadFailed, .offloadFailed:
+        case .invalidVideoPath, .fileNotFound, .fileNotDownloaded, .downloadCancelled, .uploadFailed, .offloadFailed:
             return false
         }
     }

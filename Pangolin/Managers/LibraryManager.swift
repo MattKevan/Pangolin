@@ -257,42 +257,8 @@ class LibraryManager: ObservableObject {
     }
 
     /// Fetches or creates a top-level folder in the current library.
-    func ensureTopLevelFolder(named name: String) async -> Folder? {
-        guard let context = viewContext,
-              let library = currentLibrary else {
-            return nil
-        }
 
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else { return nil }
-
-        let request = Folder.fetchRequest()
-        request.fetchLimit = 1
-        request.predicate = NSPredicate(format: "library == %@ AND name == %@", library, trimmedName)
-
-        if let existing = try? context.fetch(request).first {
-            return existing
-        }
-
-        guard let folderEntityDescription = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Folder"] else {
-            return nil
-        }
-
-        let folder = Folder(entity: folderEntityDescription, insertInto: context)
-        folder.id = UUID()
-        folder.name = trimmedName
-        folder.projectTitle = trimmedName
-        folder.projectProvider = nil
-        folder.isTopLevel = true
-        folder.dateCreated = Date()
-        folder.dateModified = Date()
-        folder.library = library
-
-        await save()
-        return folder
-    }
-    
-    /// Create a new library at the specified URL
+/// Create a new library at the specified URL
     func createLibrary(at url: URL, name: String) async throws -> Library {
         thumbnailReconciliationTask?.cancel()
         thumbnailReconciliationTask = nil
@@ -560,12 +526,8 @@ class LibraryManager: ObservableObject {
         print("🆕 LIBRARY: Creating new library at \(libraryURL.path)")
         return try await createLibrary(at: libraryURL, name: name)
     }
-    
-    private func openExistingLibrary(at libraryURL: URL) async throws -> Library {
-        return try await openLibrary(at: libraryURL)
-    }
-    
-    // MARK: - Library Directories
+
+// MARK: - Library Directories
     
     private func createLibraryDirectories(at url: URL) throws {
         let subdirectories = [
