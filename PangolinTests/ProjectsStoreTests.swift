@@ -9,6 +9,9 @@ import AppKit
 #endif
 @testable import Pangolin
 
+// Shares LibraryManager.shared with other suites; serialize to avoid racing
+// the singleton's library lifecycle (open/close) across parallel tests.
+@Suite(.serialized)
 struct ProjectsStoreTests {
     @Test("Video metadata save policy trims titles and rejects blank input")
     func videoMetadataEditPolicyReturnsValidTitle() {

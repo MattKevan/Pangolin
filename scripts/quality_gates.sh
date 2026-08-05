@@ -4,12 +4,21 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-ENTITLEMENTS_FILE="Pangolin/Pangolin.entitlements"
+# The signing files are the per-platform entitlements; Pangolin.entitlements is
+# excluded from the target and never signed, so checking only it would let a
+# forbidden entitlement slip into a real build.
+ENTITLEMENTS_FILES=(
+  "Pangolin/Pangolin-macOS.entitlements"
+  "Pangolin/Pangolin-iOS.entitlements"
+  "Pangolin/Pangolin.entitlements"
+)
 
-if rg -n "com\.apple\.security\.temporary-exception\.files\.absolute-path\.read-write" "$ENTITLEMENTS_FILE" >/dev/null; then
-  echo "error: forbidden entitlement present in $ENTITLEMENTS_FILE"
-  exit 1
-fi
+for ENTITLEMENTS_FILE in "${ENTITLEMENTS_FILES[@]}"; do
+  if rg -n "com\.apple\.security\.temporary-exception\.files\.absolute-path\.read-write" "$ENTITLEMENTS_FILE" >/dev/null; then
+    echo "error: forbidden entitlement present in $ENTITLEMENTS_FILE"
+    exit 1
+  fi
+done
 
 if rg -n "\bas!\b" Pangolin --glob '*.swift' >/dev/null; then
   echo "error: force cast (as!) detected in Pangolin sources"

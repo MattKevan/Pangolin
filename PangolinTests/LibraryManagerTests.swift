@@ -3,6 +3,9 @@ import CoreData
 import Testing
 @testable import Pangolin
 
+// Drives LibraryManager.shared; serialize to avoid racing the singleton's
+// library lifecycle across parallel tests.
+@Suite(.serialized)
 struct LibraryManagerTests {
     @Test("Cloud-imported libraries replace an empty bootstrap library")
     @MainActor

@@ -2,6 +2,9 @@ import Foundation
 import Testing
 @testable import Pangolin
 
+// Touches LibraryManager.shared for timed-artifact fixtures; serialize to
+// avoid racing the singleton's library lifecycle across parallel tests.
+@Suite(.serialized)
 struct TimedTranscriptTests {
     @Test("TimedTranscript Codable roundtrip")
     func timedTranscriptCodableRoundtrip() throws {
