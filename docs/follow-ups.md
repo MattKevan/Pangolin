@@ -20,14 +20,14 @@
 
 ## Priority: Medium (modernization / platform-native)
 
-- [ ] **`os.Logger` sweep:** replace 203 `print()` call sites with structured logging
-      (subsystems/categories). Several are print-only error paths where failures are
-      invisible (e.g. `SpeechTranscriptionService` disk-persist failures ~209/308/416).
+- [x] **`os.Logger` sweep:** done in `a216af3` — all 193 `print()` calls replaced with
+      per-subsystem `Logger`s (`Utilities/Logging.swift`); error/warning/info levels from
+      the diagnostic prefix; print-only error paths now visible in Console.app.
 - [ ] **Shared-component extraction (audit §3) — remaining:** error banner done (`426a1f8`,
-      `InlineErrorBanner`); status/task colors were deduped by the dead-code pass. Still open:
-      ~47-line cloud-status resolver duplicated (VideoResultsTableView vs FolderOutlineRow) +
-      magic `"videoID"` userInfo key in 4 observers; toolbar search field duplicated
-      (DetailView macOS vs iOS).
+      `InlineErrorBanner`); cloud-status resolver deduped in `73c0e7f` (shared
+      `VideoFileManager.resolvedSnapshot` + `transferNotification`, key constant).
+      Status/task colors were deduped by the dead-code pass. Still open: toolbar search field
+      duplicated (DetailView macOS vs iOS).
 - [ ] **Structural decomposition (flagged in pi-lens, pre-existing):**
       `SpeechTranscriptionService` (2.2k lines — split into audio-prep/recognition/translation/
       summarization/flashcards), `FolderNavigationStore` (1.7k), `ProcessingQueueManager` (1.5k),
