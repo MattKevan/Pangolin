@@ -6,14 +6,14 @@
 
 ## Priority: High (correctness / reliability)
 
-- [ ] **Test isolation (audit Critical #2) — remaining:** suites now `.serialized` (`94a29b0`);
-      still open: move `closeCurrentLibrary()` teardown into `defer`/`setUp` (44 calls, zero in
-      defer), and consider a CI test job with `-parallel-testing-enabled NO`
-      (`.github/workflows/quality-gates.yml` runs no tests today).
+- [x] **Test isolation (audit Critical #2):** suites `.serialized` (`94a29b0`); teardown into
+      `defer` completed (`2ce237d`, 41 close-defers). Remaining optional: a CI test job with
+      `-parallel-testing-enabled NO` (`.github/workflows/quality-gates.yml` runs no tests today).
 - [x] **CI entitlements gate (audit G3):** fixed in `94a29b0` — now checks
       `Pangolin-macOS.entitlements` + `Pangolin-iOS.entitlements` + the legacy file; negative-tested.
-- [ ] **UI tests are vacuous (audit H6):** `PangolinUITests` never call `app.launch()`;
-      `testLaunchPerformance` measures an empty body. Zero end-to-end coverage.
+- [x] **UI tests vacuous (audit H6):** closed in `9a3c1a4` — real smoke tests launch the app,
+      assert the library sidebar renders, measure real launch performance, and confirm
+      `.runningForeground`. 4/4 pass locally.
 - [x] **Rename affordance (user-reported):** double-click on the project title to rename added
       in `ea56e4b` (macOS-gated). **Pending runtime verification** that the double-click
       gesture arbitrates against single-click open. Context-menu rename refreshed correctly
