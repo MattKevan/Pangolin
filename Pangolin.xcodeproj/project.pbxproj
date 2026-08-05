@@ -40,6 +40,7 @@
 		403357116333CC46322D2FF1 /* MacProjectVideoCollectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 964CAC32DE5B726E4A914EEB /* MacProjectVideoCollectionView.swift */; };
 		4533CB65CBE866864FF3BED1 /* VideoPlayerWithPosterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AB79366C9C180F9583DB911 /* VideoPlayerWithPosterView.swift */; };
 		45A2508BC3053408F3C51029 /* FolderTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 310B404B1B230FF1B09DD729 /* FolderTransfer.swift */; };
+		46237ED21822039047789928 /* ProcessingQueueManager+Enqueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5DB27920A4CA5874C960F09 /* ProcessingQueueManager+Enqueue.swift */; };
 		474F2E4930D48C018DB0EF60 /* ProjectVideoGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = C94555EDCBAF7CE2C94C371A /* ProjectVideoGrid.swift */; };
 		479BB67D62B6E74B8241F339 /* SpeechTranscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A086969CAA09848469601A /* SpeechTranscriptionService.swift */; };
 		4AB94E061F34B472BC2CBBA8 /* RemediationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2FEE876C0C2B4C24C1D791C /* RemediationTests.swift */; };
@@ -103,6 +104,7 @@
 		D531CD4F6C49E7142208E230 /* CoreDataStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96E65EE14F17FAD0C4A95166 /* CoreDataStack.swift */; };
 		DAA121BE6C8606DA5EBEB81B /* VideoPagePreferencesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E05050F542E21D05DF70622A /* VideoPagePreferencesTests.swift */; };
 		DAAEE9EFA58DAD96ED8712D7 /* SyncedThumbnailImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFE9A63BE6B9C1D30E21858E /* SyncedThumbnailImage.swift */; };
+		DCE6F6BA478E9270BAA28819 /* ProcessingQueueManager+Execution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97F9AA59802CDD61494F2BE8 /* ProcessingQueueManager+Execution.swift */; };
 		DE3E09AF392352200A7C168A /* VideoNavigationSequenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFC0CBAA98FE82676CD1C334 /* VideoNavigationSequenceTests.swift */; };
 		E0368C18C803DE394FFB41AA /* FlashcardsControlsInspectorPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 891BCBFC27CC37FEBA9674A4 /* FlashcardsControlsInspectorPane.swift */; };
 		E0BE193BFE9526D3AF19B918 /* ProcessingQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = C82F9C173483A73DD7C2D0A9 /* ProcessingQueue.swift */; };
@@ -203,6 +205,7 @@
 		9663BA7F7A5EF31D400BDE02 /* MiscPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiscPolicyTests.swift; sourceTree = "<group>"; };
 		96E65EE14F17FAD0C4A95166 /* CoreDataStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreDataStack.swift; sourceTree = "<group>"; };
 		97BCAF698EB3460169543E9B /* ThumbnailModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailModelTests.swift; sourceTree = "<group>"; };
+		97F9AA59802CDD61494F2BE8 /* ProcessingQueueManager+Execution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ProcessingQueueManager+Execution.swift"; sourceTree = "<group>"; };
 		99ACA89AE7A7E00054087363 /* VideoFileManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFileManager.swift; sourceTree = "<group>"; };
 		9C959C2624799003EBCD37F8 /* ThumbnailCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailCoordinatorTests.swift; sourceTree = "<group>"; };
 		9F9329B526137D7325808278 /* AllVideosImportDropModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AllVideosImportDropModifier.swift; sourceTree = "<group>"; };
@@ -211,6 +214,7 @@
 		A1F7E5B320E344CA36F6F355 /* FloatingVideoStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingVideoStateTests.swift; sourceTree = "<group>"; };
 		A2B462502461FBB4B0FDF9B6 /* FolderNavigationStore+Content.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FolderNavigationStore+Content.swift"; sourceTree = "<group>"; };
 		A2FEE876C0C2B4C24C1D791C /* RemediationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemediationTests.swift; sourceTree = "<group>"; };
+		A5DB27920A4CA5874C960F09 /* ProcessingQueueManager+Enqueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ProcessingQueueManager+Enqueue.swift"; sourceTree = "<group>"; };
 		AC33176EA111CFE584E008C7 /* SummaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryView.swift; sourceTree = "<group>"; };
 		AE0F3204636BE512D5DE1195 /* Pangolin.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = Pangolin.xcdatamodel; sourceTree = "<group>"; };
 		AED33C7E1B0F16EC012EFE88 /* PangolinTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PangolinTests.swift; sourceTree = "<group>"; };
@@ -423,6 +427,8 @@
 				E81BE753E04BED233142777A /* LibraryContentProvider.swift */,
 				8796FDF9EC95EE40753861E0 /* LibraryManager.swift */,
 				B6FC785A62810E36F1519BF8 /* ProcessingQueueManager.swift */,
+				A5DB27920A4CA5874C960F09 /* ProcessingQueueManager+Enqueue.swift */,
+				97F9AA59802CDD61494F2BE8 /* ProcessingQueueManager+Execution.swift */,
 				460FB924FE1BD275776D10BA /* SearchEvidenceBuilder.swift */,
 				75E24246155926F87F9ACD93 /* SearchManager.swift */,
 				89DD7E34D0188A5E58511B76 /* StoragePolicyManager.swift */,
@@ -798,6 +804,8 @@
 				009A57343301D60C04BF279A /* ProcessingControlsInspectorView.swift in Sources */,
 				00B3CFCDA690133D196A8EF0 /* ProcessingPopoverView.swift in Sources */,
 				E0BE193BFE9526D3AF19B918 /* ProcessingQueue.swift in Sources */,
+				46237ED21822039047789928 /* ProcessingQueueManager+Enqueue.swift in Sources */,
+				DCE6F6BA478E9270BAA28819 /* ProcessingQueueManager+Execution.swift in Sources */,
 				B3D157785A8450C59CD4C761 /* ProcessingQueueManager.swift in Sources */,
 				AB0D278195A92B0EC871679A /* ProcessingTask.swift in Sources */,
 				8C75003E6482EC04B3996166 /* ProjectCard.swift in Sources */,
