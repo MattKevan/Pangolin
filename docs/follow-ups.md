@@ -6,18 +6,12 @@
 
 ## Priority: High (correctness / reliability)
 
-- [ ] **Test isolation (audit Critical #2):** `ProjectsStoreTests`, `LibraryManagerTests`,
-      `TimedTranscriptTests` share `LibraryManager.shared` and are NOT `.serialized`;
-      **44 `closeCurrentLibrary()` calls exist with zero in `defer`** — a mid-test throw
-      leaves the singleton holding an open library whose backing store was deleted.
-      Partially done: marked `.serialized` (see commit log); remaining: move teardown into
-      `defer`/`setUp`, and consider a CI test job with `-parallel-testing-enabled NO`.
-      Files: `PangolinTests/ProjectsStoreTests.swift`, `PangolinTests/LibraryManagerTests.swift`,
-      `PangolinTests/TimedTranscriptTests.swift`, `.github/workflows/quality-gates.yml` (no test job today).
-- [ ] **CI gate checks the wrong entitlements file (audit G3):** `scripts/quality_gates.sh`
-      validates `Pangolin/Pangolin.entitlements` — which is excluded from the target and never
-      signed. The real signing files are `Pangolin-macOS.entitlements` / `Pangolin-iOS.entitlements`.
-      The forbidden `temporary-exception` entitlement could be added to the real file and CI would pass.
+- [ ] **Test isolation (audit Critical #2) — remaining:** suites now `.serialized` (`94a29b0`);
+      still open: move `closeCurrentLibrary()` teardown into `defer`/`setUp` (44 calls, zero in
+      defer), and consider a CI test job with `-parallel-testing-enabled NO`
+      (`.github/workflows/quality-gates.yml` runs no tests today).
+- [x] **CI entitlements gate (audit G3):** fixed in `94a29b0` — now checks
+      `Pangolin-macOS.entitlements` + `Pangolin-iOS.entitlements` + the legacy file; negative-tested.
 - [ ] **UI tests are vacuous (audit H6):** `PangolinUITests` never call `app.launch()`;
       `testLaunchPerformance` measures an empty body. Zero end-to-end coverage.
 - [ ] **Rename affordance (user-reported):** add Finder-style slow double-click on the project
@@ -29,11 +23,11 @@
 - [ ] **`os.Logger` sweep:** replace 203 `print()` call sites with structured logging
       (subsystems/categories). Several are print-only error paths where failures are
       invisible (e.g. `SpeechTranscriptionService` disk-persist failures ~209/308/416).
-- [ ] **Shared-component extraction (audit §3):** error banner hand-rolled 4×
-      (FlashcardsView, TranscriptionView, TranslationView, SummaryView); status/task color
-      switches duplicated (BulkProcessingView vs ProcessingPopoverView); ~47-line cloud-status
-      resolver duplicated (VideoResultsTableView vs FolderOutlineRow) + magic `"videoID"`
-      userInfo key in 4 observers; toolbar search field duplicated (DetailView macOS vs iOS).
+- [ ] **Shared-component extraction (audit §3) — remaining:** error banner done (`426a1f8`,
+      `InlineErrorBanner`); status/task colors were deduped by the dead-code pass. Still open:
+      ~47-line cloud-status resolver duplicated (VideoResultsTableView vs FolderOutlineRow) +
+      magic `"videoID"` userInfo key in 4 observers; toolbar search field duplicated
+      (DetailView macOS vs iOS).
 - [ ] **Structural decomposition (flagged in pi-lens, pre-existing):**
       `SpeechTranscriptionService` (2.2k lines — split into audio-prep/recognition/translation/
       summarization/flashcards), `FolderNavigationStore` (1.7k), `ProcessingQueueManager` (1.5k),
