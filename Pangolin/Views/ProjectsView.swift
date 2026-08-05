@@ -1218,6 +1218,13 @@ private struct ProjectCard: View {
                 .font(.subheadline)
                 .foregroundStyle(.primary)
                 .lineLimit(2)
+                #if os(macOS)
+                // Finder-style rename affordance: slow double-click on the title.
+                // Single clicks still bubble to the card's open action.
+                .onTapGesture(count: 2) {
+                    onRename()
+                }
+                #endif
         }
     }
 
