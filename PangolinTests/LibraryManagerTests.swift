@@ -11,7 +11,6 @@ struct LibraryManagerTests {
     @MainActor
     func cloudImportedLibraryReplacesEmptyBootstrapLibrary() async throws {
         let manager = LibraryManager.shared
-        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
         let fileManager = FileManager.default
         let tempRoot = fileManager.temporaryDirectory.appendingPathComponent("PangolinCloudRestore-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: tempRoot, withIntermediateDirectories: true)
@@ -62,13 +61,13 @@ struct LibraryManagerTests {
         #expect(libraries.count == 1)
         #expect(restoredProject.library?.objectID == cloudLibrary.objectID)
 
+        await manager.closeCurrentLibrary()
     }
 
     @Test("Open library consolidates duplicate library records")
     @MainActor
     func openLibraryConsolidatesDuplicateLibraryRecords() async throws {
         let manager = LibraryManager.shared
-        defer { Task { @MainActor in await manager.closeCurrentLibrary() } }
         let fileManager = FileManager.default
         let tempRoot = fileManager.temporaryDirectory.appendingPathComponent("PangolinLibraryMerge-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: tempRoot, withIntermediateDirectories: true)
@@ -143,5 +142,6 @@ struct LibraryManagerTests {
         let names = Set(folders.compactMap(\.name))
         #expect(names == Set(["Mac Folder", "Phone Folder"]))
 
+        await manager.closeCurrentLibrary()
     }
 }
