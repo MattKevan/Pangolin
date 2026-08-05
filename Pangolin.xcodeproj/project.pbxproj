@@ -24,6 +24,7 @@
 		1921EE75648C8527AD2F6A3C /* TimedTranscript.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBA2EF5EFABCACED3FB79E96 /* TimedTranscript.swift */; };
 		1B457B76BC0E9C27E556C133 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2F5C0FE5D539426573705B6 /* SettingsView.swift */; };
 		1E0E482CA81652A0A511D1E0 /* VideoFloatingLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8810110CC9BD359D3FF1DCFB /* VideoFloatingLayout.swift */; };
+		236CF7051F3221CA39FB0793 /* VideoFileManager+Types.swift in Sources */ = {isa = PBXBuildFile; fileRef = 357E115B500DDFBAA919653C /* VideoFileManager+Types.swift */; };
 		2642C2AB4A75B2C54714CF46 /* LibraryManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3931E8CB587EE4B4123B831E /* LibraryManagerTests.swift */; };
 		26DB1FB0B8894A44A3C506C8 /* VideoPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B24B035147F0F00E66A73A8 /* VideoPlayerView.swift */; };
 		28D3B511B522B4B7B2D4B7A6 /* InlineErrorBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D905C880B75A0795D8B506 /* InlineErrorBanner.swift */; };
@@ -151,6 +152,7 @@
 		33232B10DCFE883C5127E91F /* TimedTranslationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimedTranslationTests.swift; sourceTree = "<group>"; };
 		33D1FFB47DD09AA360FB045A /* RemoteVideoDownloadService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteVideoDownloadService.swift; sourceTree = "<group>"; };
 		346FC9F3477015577CC63631 /* ProjectsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectsStoreTests.swift; sourceTree = "<group>"; };
+		357E115B500DDFBAA919653C /* VideoFileManager+Types.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VideoFileManager+Types.swift"; sourceTree = "<group>"; };
 		368387BBC11C59679055085E /* VideoFloatingLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFloatingLayoutTests.swift; sourceTree = "<group>"; };
 		3931E8CB587EE4B4123B831E /* LibraryManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryManagerTests.swift; sourceTree = "<group>"; };
 		3B826334966CFA30421D4C10 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
@@ -420,6 +422,7 @@
 				89DD7E34D0188A5E58511B76 /* StoragePolicyManager.swift */,
 				B77B9C9A5137B55B46BAC248 /* ThumbnailCoordinator.swift */,
 				99ACA89AE7A7E00054087363 /* VideoFileManager.swift */,
+				357E115B500DDFBAA919653C /* VideoFileManager+Types.swift */,
 				591DAA7E1F4BC8D002CFE788 /* VideoLibraryOptimizationManager.swift */,
 			);
 			path = Managers;
@@ -814,6 +817,7 @@
 				A8BD0147D2629F298FCCA376 /* TranscriptionView.swift in Sources */,
 				B15AAFFD0179CA028C380A88 /* TranslationControlsInspectorPane.swift in Sources */,
 				86D0F8FDF9438334D48661DC /* TranslationView.swift in Sources */,
+				236CF7051F3221CA39FB0793 /* VideoFileManager+Types.swift in Sources */,
 				C977B7ACA46D1D13E964AA87 /* VideoFileManager.swift in Sources */,
 				10B58336F14A243217C8E30D /* VideoFileStatusView.swift in Sources */,
 				1E0E482CA81652A0A511D1E0 /* VideoFloatingLayout.swift in Sources */,
