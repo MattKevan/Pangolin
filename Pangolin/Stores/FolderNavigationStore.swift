@@ -1,3 +1,4 @@
+import os
 //
 //  FolderNavigationStore.swift
 //  Pangolin
@@ -415,7 +416,7 @@ class FolderNavigationStore {
         
         // 🔍 SELECTION PRESERVATION: Capture current selection before refresh
         let preservedSelectionID = selectedVideo?.id
-        print("🔄 STORE: Refreshing content, preserving selection: \(preservedSelectionID?.uuidString ?? "none")")
+        Logger.navigation.info("STORE: Refreshing content, preserving selection: \(preservedSelectionID?.uuidString ?? "none")")
         
         var newHierarchicalContent: [HierarchicalContentItem] = []
         var newFlatContent: [ContentType] = []
@@ -451,29 +452,29 @@ class FolderNavigationStore {
                 } else {
                     selectedVideo = matchedVideo
                 }
-                print("✅ STORE: Preserved smart-collection selection \(preservedID.uuidString)")
+                Logger.navigation.info("STORE: Preserved smart-collection selection \(preservedID.uuidString)")
             } else if selectedVideo != nil {
-                print("❌ STORE: Clearing selection not present in smart collection")
+                Logger.navigation.error("STORE: Clearing selection not present in smart collection")
                 selectedVideo = nil
             }
         } else if let preservedID = preservedSelectionID {
             let stillExists = containsVideo(withID: preservedID, in: newHierarchicalContent)
             
             if stillExists {
-                print("✅ STORE: Preserved selection \(preservedID.uuidString) still exists, keeping it")
+                Logger.navigation.info("STORE: Preserved selection \(preservedID.uuidString) still exists, keeping it")
                 // Keep the current selectedVideo - don't change it
                 return
             } else {
-                print("❌ STORE: Preserved selection \(preservedID.uuidString) no longer exists")
+                Logger.navigation.error("STORE: Preserved selection \(preservedID.uuidString) no longer exists")
                 selectedVideo = nil
             }
         }
         
         // Only select first video if we have no current selection
         if selectedVideo == nil {
-            print("🎯 STORE: No selection, leaving empty")
+            Logger.navigation.info("STORE: No selection, leaving empty")
         } else {
-            print("🎯 STORE: Keeping existing selection: \(selectedVideo?.title ?? "unknown")")
+            Logger.navigation.info("STORE: Keeping existing selection: \(self.selectedVideo?.title ?? "unknown")")
         }
     }
 
@@ -504,7 +505,7 @@ class FolderNavigationStore {
             .publisher(for: .NSManagedObjectContextDidSave, object: context)
             .debounce(for: .milliseconds(50), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
-                print("🧠 STORE: Context saved, refreshing content.")
+                Logger.navigation.info("STORE: Context saved, refreshing content.")
 
                 if let stack = self?.libraryManager.currentCoreDataStack {
                     stack.refreshViewContextIfNeeded()
@@ -1130,33 +1131,33 @@ class FolderNavigationStore {
     // MARK: - Folder Management
     @discardableResult
     func createFolder(name: String, in parentFolderID: UUID? = nil) async -> UUID? {
-        print("📁 STORE: createFolder called with name '\(name)' and parentID: \(parentFolderID?.uuidString ?? "nil")")
+        Logger.navigation.info("STORE: createFolder called with name '\(name)' and parentID: \(parentFolderID?.uuidString ?? "nil")")
         
         guard let context = libraryManager.viewContext else {
-            print("📁 STORE: No view context available")
+            Logger.navigation.info("STORE: No view context available")
             errorMessage = "Could not create folder - no context"
             return nil
         }
         
         guard let library = libraryManager.currentLibrary else {
-            print("📁 STORE: No current library available")
+            Logger.navigation.info("STORE: No current library available")
             errorMessage = "Could not create folder - no library"
             return nil
         }
         
         guard let folderEntityDescription = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Folder"] else {
-            print("📁 STORE: Could not get Folder entity description")
+            Logger.navigation.info("STORE: Could not get Folder entity description")
             errorMessage = "Could not create folder - no entity"
             return nil
         }
         
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { 
-            print("📁 STORE: Empty trimmed name")
+            Logger.navigation.info("STORE: Empty trimmed name")
             return nil
         }
         
-        print("📁 STORE: Creating folder with library: \(library.name ?? "Unknown")")
+        Logger.navigation.info("STORE: Creating folder with library: \(library.name ?? "Unknown")")
         
         let folder = Folder(entity: folderEntityDescription, insertInto: context)
         folder.id = UUID()
@@ -1168,7 +1169,7 @@ class FolderNavigationStore {
         folder.dateModified = Date()
         folder.library = library
         
-        print("📁 STORE: Created folder object with ID: \(folder.id?.uuidString ?? "nil"), name: '\(folder.name ?? "nil")'")
+        Logger.navigation.info("STORE: Created folder object with ID: \(folder.id?.uuidString ?? "nil"), name: '\(folder.name ?? "nil")'")
         
         if let parentFolderID = parentFolderID {
             let parentRequest = Folder.fetchRequest()
@@ -1181,9 +1182,9 @@ class FolderNavigationStore {
                         folder.isTopLevel = false
                         folder.projectTitle = nil
                         folder.projectProvider = nil
-                        print("📁 STORE: Set parent folder to: \(parentFolder.name ?? "nil")")
+                        Logger.navigation.info("STORE: Set parent folder to: \(parentFolder.name ?? "nil")")
                     } else {
-                        print("📁 STORE: Parent is a smart folder, creating as top-level instead")
+                        Logger.navigation.info("STORE: Parent is a smart folder, creating as top-level instead")
                         folder.isTopLevel = true
                         folder.projectTitle = trimmedName
                     }
@@ -1195,9 +1196,9 @@ class FolderNavigationStore {
             }
         }
         
-        print("📁 STORE: Saving context...")
+        Logger.navigation.info("STORE: Saving context...")
         await libraryManager.save()
-        print("📁 STORE: Context saved successfully")
+        Logger.navigation.info("STORE: Context saved successfully")
         return folder.id
     }
     
@@ -1546,7 +1547,7 @@ class FolderNavigationStore {
             // Save changes
             if context.hasChanges {
                 try context.save()
-                print("🗑️ DELETION: Successfully deleted \(itemIDs.count) items")
+                Logger.navigation.info("DELETION: Successfully deleted \(itemIDs.count) items")
                 
                 // Update selected video if it was deleted
                 let deletedVideoIDs = Set(videosDeletedFromLibrary.compactMap(\.id))
@@ -1590,9 +1591,9 @@ class FolderNavigationStore {
             if let videoURL = video.fileURL {
                 do {
                     try FileManager.default.removeItem(at: videoURL)
-                    print("🗑️ DELETION: Deleted video file: \(videoURL.lastPathComponent)")
+                    Logger.navigation.info("DELETION: Deleted video file: \(videoURL.lastPathComponent)")
                 } catch {
-                    print("⚠️ DELETION: Failed to delete video file \(videoURL.lastPathComponent): \(error)")
+                    Logger.navigation.warning("DELETION: Failed to delete video file \(videoURL.lastPathComponent): \(error)")
                 }
             }
             
@@ -1602,9 +1603,9 @@ class FolderNavigationStore {
                     if let subtitleURL = subtitle.fileURL {
                         do {
                             try FileManager.default.removeItem(at: subtitleURL)
-                            print("🗑️ DELETION: Deleted subtitle: \(subtitleURL.lastPathComponent)")
+                            Logger.navigation.info("DELETION: Deleted subtitle: \(subtitleURL.lastPathComponent)")
                         } catch {
-                            print("⚠️ DELETION: Failed to delete subtitle \(subtitleURL.lastPathComponent): \(error)")
+                            Logger.navigation.warning("DELETION: Failed to delete subtitle \(subtitleURL.lastPathComponent): \(error)")
                         }
                     }
                 }
@@ -1615,10 +1616,10 @@ class FolderNavigationStore {
                 do {
                     if FileManager.default.fileExists(atPath: transcriptURL.path) {
                         try FileManager.default.removeItem(at: transcriptURL)
-                        print("🗑️ DELETION: Deleted transcript: \(transcriptURL.lastPathComponent)")
+                        Logger.navigation.info("DELETION: Deleted transcript: \(transcriptURL.lastPathComponent)")
                     }
                 } catch {
-                    print("⚠️ DELETION: Failed to delete transcript \(transcriptURL.lastPathComponent): \(error)")
+                    Logger.navigation.warning("DELETION: Failed to delete transcript \(transcriptURL.lastPathComponent): \(error)")
                 }
             }
 
@@ -1626,10 +1627,10 @@ class FolderNavigationStore {
                 do {
                     if FileManager.default.fileExists(atPath: timedTranscriptURL.path) {
                         try FileManager.default.removeItem(at: timedTranscriptURL)
-                        print("🗑️ DELETION: Deleted timed transcript: \(timedTranscriptURL.lastPathComponent)")
+                        Logger.navigation.info("DELETION: Deleted timed transcript: \(timedTranscriptURL.lastPathComponent)")
                     }
                 } catch {
-                    print("⚠️ DELETION: Failed to delete timed transcript \(timedTranscriptURL.lastPathComponent): \(error)")
+                    Logger.navigation.warning("DELETION: Failed to delete timed transcript \(timedTranscriptURL.lastPathComponent): \(error)")
                 }
             }
 
@@ -1637,10 +1638,10 @@ class FolderNavigationStore {
                 do {
                     if FileManager.default.fileExists(atPath: summaryURL.path) {
                         try FileManager.default.removeItem(at: summaryURL)
-                        print("🗑️ DELETION: Deleted summary: \(summaryURL.lastPathComponent)")
+                        Logger.navigation.info("DELETION: Deleted summary: \(summaryURL.lastPathComponent)")
                     }
                 } catch {
-                    print("⚠️ DELETION: Failed to delete summary \(summaryURL.lastPathComponent): \(error)")
+                    Logger.navigation.warning("DELETION: Failed to delete summary \(summaryURL.lastPathComponent): \(error)")
                 }
             }
 
@@ -1648,10 +1649,10 @@ class FolderNavigationStore {
                 do {
                     if FileManager.default.fileExists(atPath: flashcardsURL.path) {
                         try FileManager.default.removeItem(at: flashcardsURL)
-                        print("🗑️ DELETION: Deleted flashcards: \(flashcardsURL.lastPathComponent)")
+                        Logger.navigation.info("DELETION: Deleted flashcards: \(flashcardsURL.lastPathComponent)")
                     }
                 } catch {
-                    print("⚠️ DELETION: Failed to delete flashcards \(flashcardsURL.lastPathComponent): \(error)")
+                    Logger.navigation.warning("DELETION: Failed to delete flashcards \(flashcardsURL.lastPathComponent): \(error)")
                 }
             }
 
@@ -1659,10 +1660,10 @@ class FolderNavigationStore {
                 do {
                     if FileManager.default.fileExists(atPath: translationURL.path) {
                         try FileManager.default.removeItem(at: translationURL)
-                        print("🗑️ DELETION: Deleted translation: \(translationURL.lastPathComponent)")
+                        Logger.navigation.info("DELETION: Deleted translation: \(translationURL.lastPathComponent)")
                     }
                 } catch {
-                    print("⚠️ DELETION: Failed to delete translation \(translationURL.lastPathComponent): \(error)")
+                    Logger.navigation.warning("DELETION: Failed to delete translation \(translationURL.lastPathComponent): \(error)")
                 }
             }
         }
@@ -1698,7 +1699,7 @@ class FolderNavigationStore {
             let updatedContents = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
             if updatedContents.isEmpty {
                 try FileManager.default.removeItem(at: url)
-                print("🗑️ DELETION: Cleaned up empty directory: \(url.lastPathComponent)")
+                Logger.navigation.info("DELETION: Cleaned up empty directory: \(url.lastPathComponent)")
             }
         } catch {
             // Directory doesn't exist or can't be read - that's fine

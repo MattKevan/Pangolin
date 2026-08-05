@@ -1,3 +1,4 @@
+import os
 // CoreData/CoreDataStack.swift
 import Foundation
 import CoreData
@@ -24,12 +25,12 @@ class CoreDataStack {
         let key = libraryURL.path
 
         if let existing = instanceQueue.sync(execute: { instances[key] }) {
-            print("✅ STACK: Reusing existing CoreDataStack for \(key)")
+            Logger.coredata.info("STACK: Reusing existing CoreDataStack for \(key)")
             try await existing.loadPersistentContainerIfNeeded()
             return existing
         }
 
-        print("🆕 STACK: Creating new CoreDataStack for \(key)")
+        Logger.coredata.info("STACK: Creating new CoreDataStack for \(key)")
         let stack = CoreDataStack(libraryURL: libraryURL)
         try await stack.loadPersistentContainerIfNeeded()
 
@@ -52,7 +53,7 @@ class CoreDataStack {
             instances.removeValue(forKey: key)
         }
         if let stack {
-            print("🗑️ STACK: Releasing CoreDataStack for \(key)")
+            Logger.coredata.info("STACK: Releasing CoreDataStack for \(key)")
             stack.cleanup()
         }
     }
@@ -71,11 +72,11 @@ class CoreDataStack {
     // MARK: - Initialization
     private init(libraryURL: URL) {
         self.libraryURL = libraryURL
-        print("🏗️ STACK: Initialized CoreDataStack for \(libraryURL.path)")
+        Logger.coredata.info("STACK: Initialized CoreDataStack for \(libraryURL.path)")
     }
     
     deinit {
-        print("♻️ STACK: CoreDataStack deallocated")
+        Logger.coredata.info("STACK: CoreDataStack deallocated")
         cleanup()
     }
     
@@ -92,13 +93,13 @@ class CoreDataStack {
     }
 
     private func createPersistentContainer() async throws -> NSPersistentCloudKitContainer {
-        print("🏗️ STACK: Creating NSPersistentCloudKitContainer...")
+        Logger.coredata.info("STACK: Creating NSPersistentCloudKitContainer...")
 
         let container = NSPersistentCloudKitContainer(name: modelName)
         
         // Set up database file location
         let storeURL = libraryURL.appendingPathComponent("Library.sqlite")
-        print("📍 STACK: Database location: \(storeURL.path)")
+        Logger.coredata.info("STACK: Database location: \(storeURL.path)")
         
         let storeDescription = createStoreDescription(for: storeURL)
         container.persistentStoreDescriptions = [storeDescription]
@@ -106,11 +107,11 @@ class CoreDataStack {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             container.loadPersistentStores { (storeDescription, error) in
                 if let error = error as NSError? {
-                    print("❌ STACK: Core Data load error: \(error), \(error.userInfo)")
+                    Logger.coredata.error("STACK: Core Data load error: \(error), \(error.userInfo)")
                     
                     // Handle database corruption with proper recovery
                     if error.code == 11 || error.domain == NSSQLiteErrorDomain && error.code == 11 {
-                        print("🔧 STACK: Database corruption detected - attempting recovery...")
+                        Logger.coredata.warning("STACK: Database corruption detected - attempting recovery...")
                         do {
                             guard let storeURL = storeDescription.url else {
                                 continuation.resume(throwing: CoreDataStackError.persistentStoreURLMissing)
@@ -118,14 +119,14 @@ class CoreDataStack {
                             }
                             try CoreDataStack.handleDatabaseCorruptionStatic(storeURL: storeURL)
                         } catch {
-                            print("❌ STACK: Recovery failed: \(error)")
+                            Logger.coredata.error("STACK: Recovery failed: \(error)")
                             continuation.resume(throwing: error)
                             return
                         }
                     }
                     continuation.resume(throwing: CoreDataStackError.loadPersistentStoreFailed(error))
                 } else {
-                    print("✅ STACK: Persistent store loaded successfully")
+                    Logger.coredata.info("STACK: Persistent store loaded successfully")
                     continuation.resume()
                 }
             }
@@ -136,7 +137,7 @@ class CoreDataStack {
 
         registerCloudEventObserver(for: container)
 
-        print("✅ STACK: Core Data container configured for CloudKit sync")
+        Logger.coredata.info("STACK: Core Data container configured for CloudKit sync")
         
         return container
     }
@@ -169,7 +170,7 @@ class CoreDataStack {
         // Additional options for better stability
         storeDescription.setOption(10000 as NSNumber, forKey: "busy_timeout")
 
-        print("📦 STACK: Core Data store configured with WAL mode + CloudKit container \(cloudContainerIdentifier)")
+        Logger.coredata.info("STACK: Core Data store configured with WAL mode + CloudKit container \(self.cloudContainerIdentifier)")
         return storeDescription
     }
 
@@ -190,9 +191,9 @@ class CoreDataStack {
             }
 
             if let error = event.error {
-                print("☁️ STACK: CloudKit event \(event.type) failed: \(error.localizedDescription)")
+                Logger.coredata.info("STACK: CloudKit event \(String(describing: event.type)) failed: \(error.localizedDescription)")
             } else {
-                print("☁️ STACK: CloudKit event \(event.type) completed")
+                Logger.coredata.info("STACK: CloudKit event \(String(describing: event.type)) completed")
             }
         }
     }
@@ -204,7 +205,7 @@ class CoreDataStack {
 
         // Do not pin the view context to a query generation. A long-lived pinned
         // reader prevents SQLite from truncating its WAL while CloudKit writes.
-        print("✅ STACK: View context configured for automatic merging")
+        Logger.coredata.info("STACK: View context configured for automatic merging")
     }
 
     // MARK: - Query Generation Management
@@ -223,17 +224,17 @@ class CoreDataStack {
         }
         
         guard context.hasChanges else {
-            print("ℹ️ STACK: No changes to save")
+            Logger.coredata.info("STACK: No changes to save")
             return
         }
         
-        print("💾 STACK: Saving context with \(context.insertedObjects.count) insertions, \(context.updatedObjects.count) updates, \(context.deletedObjects.count) deletions")
+        Logger.coredata.info("STACK: Saving context with \(context.insertedObjects.count) insertions, \(context.updatedObjects.count) updates, \(context.deletedObjects.count) deletions")
         
         do {
             try context.save()
-            print("✅ STACK: Context saved successfully")
+            Logger.coredata.info("STACK: Context saved successfully")
         } catch {
-            print("❌ STACK: Save failed: \(error)")
+            Logger.coredata.error("STACK: Save failed: \(error)")
             context.rollback()
             throw error
         }
@@ -261,14 +262,14 @@ class CoreDataStack {
     
     // MARK: - Database Recovery
     private static func handleDatabaseCorruptionStatic(storeURL: URL) throws {
-        print("🔧 STACK: Attempting database corruption recovery...")
+        Logger.coredata.warning("STACK: Attempting database corruption recovery...")
         
         let fileManager = FileManager.default
         let backupURL = storeURL.appendingPathExtension("corrupted-\(Int(Date().timeIntervalSince1970))")
         
         if fileManager.fileExists(atPath: storeURL.path) {
             try fileManager.moveItem(at: storeURL, to: backupURL)
-            print("✅ STACK: Corrupted database backed up to \(backupURL.lastPathComponent)")
+            Logger.coredata.info("STACK: Corrupted database backed up to \(backupURL.lastPathComponent)")
         }
         
         // Remove WAL and SHM files
@@ -281,12 +282,12 @@ class CoreDataStack {
             }
         }
         
-        print("✅ STACK: Database recovery prepared - new database will be created on next load")
+        Logger.coredata.info("STACK: Database recovery prepared - new database will be created on next load")
     }
     
     // MARK: - Cleanup
     private func cleanup() {
-        print("🧹 STACK: Cleaning up CoreDataStack...")
+        Logger.coredata.info("STACK: Cleaning up CoreDataStack...")
 
         if let cloudEventObserver {
             NotificationCenter.default.removeObserver(cloudEventObserver)
@@ -298,7 +299,7 @@ class CoreDataStack {
             _persistentContainer = nil
         }
 
-        print("✅ STACK: CoreDataStack cleanup complete")
+        Logger.coredata.info("STACK: CoreDataStack cleanup complete")
     }
 }
 

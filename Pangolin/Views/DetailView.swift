@@ -1,3 +1,4 @@
+import os
 import SwiftUI
 
 enum VideoDetailLayout {
@@ -924,7 +925,7 @@ struct DetailView: View {
         do {
             try context.save()
         } catch {
-            print("❌ FAVORITE: Failed to save favorite status from detail toolbar: \(error)")
+            Logger.app.error("FAVORITE: Failed to save favorite status from detail toolbar: \(error)")
             video.isFavorite.toggle()
         }
     }

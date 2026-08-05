@@ -1,3 +1,4 @@
+import os
 import Foundation
 import Speech
 import AVFoundation
@@ -133,7 +134,7 @@ class SpeechTranscriptionService: ObservableObject {
 
     func transcribeVideo(_ video: Video, libraryManager: LibraryManager, preferredLocale: Locale? = nil) async {
         let videoTitle = video.title ?? "Unknown"
-        print("🟢 Started transcribeVideo for \(videoTitle)")
+        Logger.transcription.info("Started transcribeVideo for \(videoTitle)")
         // Claim the flow atomically so transcribe/translate/summarize/flashcards
         // can never run concurrently and clobber each other's state.
         guard await claimFlow(.transcription) else { return }
@@ -149,9 +150,9 @@ class SpeechTranscriptionService: ObservableObject {
             let videoURL: URL
             do {
                 videoURL = try await resolvedVideoURL(for: video)
-                print("🎬 Transcription: Got accessible video URL: \(videoURL)")
+                Logger.transcription.info("Transcription: Got accessible video URL: \(videoURL)")
             } catch {
-                print("🚨 Transcription: Failed to get accessible video URL: \(error)")
+                Logger.transcription.error("Transcription: Failed to get accessible video URL: \(error)")
                 throw TranscriptionError.videoFileNotFound
             }
             
@@ -168,7 +169,7 @@ class SpeechTranscriptionService: ObservableObject {
                 } else {
                     throw TranscriptionError.languageNotSupported(preferredLocale)
                 }
-                print("🧭 Using preferred locale: \(usedLocale.identifier)")
+                Logger.transcription.info("Using preferred locale: \(usedLocale.identifier)")
                 await setProgress(0.2)
             } else {
                 await setStatus("Extracting audio sample...")
@@ -179,7 +180,7 @@ class SpeechTranscriptionService: ObservableObject {
                 
                 await setStatus("Detecting language...")
                 usedLocale = try await detectLanguage(from: sampleAudioURL)
-                print("🧠 DETECTED: Language locale is \(usedLocale.identifier)")
+                Logger.transcription.info("DETECTED: Language locale is \(usedLocale.identifier)")
                 await setProgress(0.3)
             }
             
@@ -223,7 +224,7 @@ class SpeechTranscriptionService: ObservableObject {
                     }
                 }
             } catch {
-                print("⚠️ Failed to write transcript to disk: \(error)")
+                Logger.transcription.warning("Failed to write transcript to disk: \(error)")
             }
             
             // Automatic translation enqueueing is handled by ProcessingQueueManager
@@ -235,7 +236,7 @@ class SpeechTranscriptionService: ObservableObject {
             await setStatus("Transcription complete!")
         } catch {
             await setErrorMessage(userVisibleMessage(for: error))
-            print("🚨 Transcription error: \(error)")
+            Logger.transcription.error("Transcription error: \(error)")
         }
         
         await releaseFlow(.transcription)
@@ -252,7 +253,7 @@ class SpeechTranscriptionService: ObservableObject {
             }
             return (persistedVideo.title ?? "Unknown", persistedVideo.transcriptText, persistedVideo.transcriptLanguage)
         }
-        print("🟢 Started translateVideo for \(initialState.title)")
+        Logger.transcription.info("Started translateVideo for \(initialState.title)")
         guard let transcriptText = initialState.transcript,
               !transcriptText.isEmpty else { return }
         // Claim the flow atomically so transcribe/translate/summarize/flashcards
@@ -319,7 +320,7 @@ class SpeechTranscriptionService: ObservableObject {
                     }
                 }
             } catch {
-                print("⚠️ Failed to write translation to disk: \(error)")
+                Logger.transcription.warning("Failed to write translation to disk: \(error)")
             }
             
             await libraryManager.save()
@@ -328,7 +329,7 @@ class SpeechTranscriptionService: ObservableObject {
             await setStatus("Translation complete!")
         } catch {
             await setErrorMessage(userVisibleMessage(for: error))
-            print("🚨 Translation error: \(error)")
+            Logger.transcription.error("Translation error: \(error)")
         }
         
         await releaseFlow(.translation)
@@ -347,7 +348,7 @@ class SpeechTranscriptionService: ObservableObject {
             }
             return (persistedVideo.title ?? "Unknown", persistedVideo.translatedText, persistedVideo.transcriptText)
         }
-        print("🟢 Started summarizeVideo for \(initialState.title)")
+        Logger.transcription.info("Started summarizeVideo for \(initialState.title)")
         // Use translated text if available, otherwise use original transcript
         let textToSummarize: String
         if let translatedText = initialState.translated, !translatedText.isEmpty {
@@ -424,7 +425,7 @@ class SpeechTranscriptionService: ObservableObject {
                     }
                 }
             } catch {
-                print("⚠️ Failed to write summary to disk: \(error)")
+                Logger.transcription.warning("Failed to write summary to disk: \(error)")
             }
             
             await libraryManager.save()
@@ -433,7 +434,7 @@ class SpeechTranscriptionService: ObservableObject {
             await setStatus("Summary complete!")
         } catch {
             await setErrorMessage(userVisibleMessage(for: error))
-            print("🚨 Summarization error: \(error)")
+            Logger.transcription.error("Summarization error: \(error)")
         }
         
         await releaseFlow(.summarization)
@@ -463,7 +464,7 @@ class SpeechTranscriptionService: ObservableObject {
                 persistedVideo.translatedLanguage
             )
         }
-        print("🟢 Started generateFlashcards for \(initialState.title)")
+        Logger.transcription.info("Started generateFlashcards for \(initialState.title)")
         // Claim the flow atomically so transcribe/translate/summarize/flashcards
         // can never run concurrently and clobber each other's state.
         guard await claimFlow(.flashcards) else { return }
@@ -546,7 +547,7 @@ class SpeechTranscriptionService: ObservableObject {
             await setStatus("Flashcards complete!")
         } catch {
             await setErrorMessage(userVisibleMessage(for: error))
-            print("🚨 Flashcards error: \(error)")
+            Logger.transcription.error("Flashcards error: \(error)")
         }
 
         await releaseFlow(.flashcards)
@@ -1212,15 +1213,15 @@ class SpeechTranscriptionService: ObservableObject {
 
     private func requestSpeechRecognitionPermission() async throws {
         let status = SFSpeechRecognizer.authorizationStatus()
-        print("🎙️ Transcription: Speech auth status before request = \(speechAuthorizationStatusLabel(status))")
+        Logger.transcription.info("Transcription: Speech auth status before request = \(self.speechAuthorizationStatusLabel(status))")
 
         if status == .authorized {
-            print("✅ Transcription: Speech recognition already authorized")
+            Logger.transcription.info("Transcription: Speech recognition already authorized")
             return
         }
 
         if status == .denied || status == .restricted {
-            print("🚫 Transcription: Speech recognition blocked (\(speechAuthorizationStatusLabel(status)))")
+            Logger.transcription.info("Transcription: Speech recognition blocked (\(self.speechAuthorizationStatusLabel(status)))")
             throw TranscriptionError.permissionDenied
         }
 
@@ -1229,14 +1230,14 @@ class SpeechTranscriptionService: ObservableObject {
                 continuation.resume(returning: newStatus)
             }
         }
-        print("🎙️ Transcription: Speech auth callback status = \(speechAuthorizationStatusLabel(newStatus))")
+        Logger.transcription.info("Transcription: Speech auth callback status = \(self.speechAuthorizationStatusLabel(newStatus))")
 
         guard newStatus == .authorized else {
-            print("🚫 Transcription: Speech recognition not authorized after request (\(speechAuthorizationStatusLabel(newStatus)))")
+            Logger.transcription.info("Transcription: Speech recognition not authorized after request (\(self.speechAuthorizationStatusLabel(newStatus)))")
             throw TranscriptionError.permissionDenied
         }
 
-        print("✅ Transcription: Speech recognition authorized after request")
+        Logger.transcription.info("Transcription: Speech recognition authorized after request")
     }
 
     private func speechAuthorizationStatusLabel(_ status: SFSpeechRecognizerAuthorizationStatus) -> String {
@@ -1557,9 +1558,8 @@ class SpeechTranscriptionService: ObservableObject {
             .max(by: { $0.score < $1.score }),
            let supportedLocale = bestSupported.supportedDetectedLocale,
            bestSupported.confidence >= confidenceThreshold {
-            print(
-                "🧠 DETECTED: Chose \(supportedLocale.identifier) via probe \(bestSupported.probeLocale.identifier) "
-                + "(confidence: \(bestSupported.confidence), textLen: \(bestSupported.transcriptLength))"
+            Logger.transcription.info(
+                "DETECTED: Chose \(supportedLocale.identifier) via probe \(bestSupported.probeLocale.identifier) (confidence: \(bestSupported.confidence), textLen: \(bestSupported.transcriptLength))"
             )
             return supportedLocale
         }
@@ -1641,17 +1641,17 @@ class SpeechTranscriptionService: ObservableObject {
 
         // Diagnostics: log source format and size
         if let sourceFile = try? AVAudioFile(forReading: audioURLToTranscribe) {
-            print("🧪 Source audio format: \(sourceFile.processingFormat)")
+            Logger.transcription.info("Source audio format: \(sourceFile.processingFormat)")
         }
         if let attrs = try? FileManager.default.attributesOfItem(atPath: audioURLToTranscribe.path),
            let size = attrs[FileAttributeKey.size] as? NSNumber {
-            print("🧪 Source audio size (bytes): \(size)")
+            Logger.transcription.info("Source audio size (bytes): \(size)")
         }
         let formatTranscriber = transcriber(for: locale)
         guard let targetFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [formatTranscriber]) else {
             throw TranscriptionError.analysisFailed("No compatible audio format available for the speech analyzer.")
         }
-        print("🧪 Analyzer target format: \(targetFormat)")
+        Logger.transcription.info("Analyzer target format: \(targetFormat)")
 
         // Convert to analyzer's preferred format (typically PCM). If decoding fails for the
         // intermediate source file, fall back to using the source format directly.
@@ -1659,15 +1659,15 @@ class SpeechTranscriptionService: ObservableObject {
         var convertedPCMURL: URL?
         let preferAssetPipeline = getShouldPreferAssetPipelineTranscode()
         if preferAssetPipeline {
-            print("🧪 Using preferred asset-pipeline transcode path")
+            Logger.transcription.info("Using preferred asset-pipeline transcode path")
             do {
                 let pcmURL = try await transcodeAudioWithAssetPipeline(from: audioURLToTranscribe, to: targetFormat)
                 convertedPCMURL = pcmURL
                 workingAudioURL = pcmURL
                 let recoveredFile = try AVAudioFile(forReading: pcmURL)
-                print("🧪 Asset-pipeline transcode format: \(recoveredFile.processingFormat)")
+                Logger.transcription.info("Asset-pipeline transcode format: \(recoveredFile.processingFormat)")
             } catch {
-                print("⚠️ Preferred asset-pipeline transcode failed; retrying direct converter path...")
+                Logger.transcription.warning("Preferred asset-pipeline transcode failed; retrying direct converter path...")
                 let pcmURL = try convertAudio(audioURLToTranscribe, to: targetFormat)
                 convertedPCMURL = pcmURL
                 workingAudioURL = pcmURL
@@ -1679,17 +1679,17 @@ class SpeechTranscriptionService: ObservableObject {
                 workingAudioURL = pcmURL
                 if let attrs = try? FileManager.default.attributesOfItem(atPath: pcmURL.path),
                    let size = attrs[FileAttributeKey.size] as? NSNumber {
-                    print("🧪 Converted PCM size (bytes): \(size)")
+                    Logger.transcription.info("Converted PCM size (bytes): \(size)")
                 }
             } catch let conversionError as TranscriptionError {
                 switch conversionError {
                 case .analysisFailed(let reason) where reason.contains("Audio conversion source read failed"):
-                    print("⚠️ Conversion decode failed; attempting asset-pipeline transcode fallback...")
+                    Logger.transcription.warning("Conversion decode failed; attempting asset-pipeline transcode fallback...")
                     let recoveredPCMURL = try await transcodeAudioWithAssetPipeline(from: audioURLToTranscribe, to: targetFormat)
                     convertedPCMURL = recoveredPCMURL
                     workingAudioURL = recoveredPCMURL
                     let recoveredFile = try AVAudioFile(forReading: recoveredPCMURL)
-                    print("⚠️ Asset-pipeline fallback succeeded: \(recoveredFile.processingFormat)")
+                    Logger.transcription.warning("Asset-pipeline fallback succeeded: \(recoveredFile.processingFormat)")
                     setShouldPreferAssetPipelineTranscode(true)
                 default:
                     throw conversionError
@@ -1719,7 +1719,7 @@ class SpeechTranscriptionService: ObservableObject {
             let audioFile = try AVAudioFile(forReading: workingAudioURL)
             let transcriber = transcriber(for: locale)
             let audioFormat = audioFile.processingFormat
-            print("🧪 Analyzer input format for attempt \(attempt + 1): \(audioFormat)")
+            Logger.transcription.info("Analyzer input format for attempt \(attempt + 1): \(audioFormat)")
 
             let analyzer = SpeechAnalyzer(modules: [transcriber])
             await MainActor.run {
@@ -1729,7 +1729,7 @@ class SpeechTranscriptionService: ObservableObject {
             await setStatus("Preparing speech analyzer...")
             let prepareStart = Date()
             try await analyzer.prepareToAnalyze(in: audioFormat)
-            print("⏱️ prepareToAnalyze: \(Date().timeIntervalSince(prepareStart))s")
+            Logger.transcription.info("prepareToAnalyze: \(Date().timeIntervalSince(prepareStart))s")
 
             let resultsTask = Task { () -> TranscriptionOutput in
                 try await collectFinalResults(from: transcriber, videoID: videoID, locale: locale)
@@ -1739,7 +1739,7 @@ class SpeechTranscriptionService: ObservableObject {
                 await setStatus("Analyzing audio (\(Int(analysisTimeout))s timeout cap)...")
                 let analyzeStart = Date()
                 let lastSampleTime = try await analyzeSequenceWithTimeout(analyzer: analyzer, audioFile: audioFile, timeoutSeconds: analysisTimeout)
-                print("⏱️ analyzeSequence: \(Date().timeIntervalSince(analyzeStart))s")
+                Logger.transcription.info("analyzeSequence: \(Date().timeIntervalSince(analyzeStart))s")
 
                 let finalizeStart = Date()
                 if let lastSampleTime {
@@ -1747,11 +1747,11 @@ class SpeechTranscriptionService: ObservableObject {
                 } else {
                     await analyzer.cancelAndFinishNow()
                 }
-                print("⏱️ finalizeAndFinish: \(Date().timeIntervalSince(finalizeStart))s")
+                Logger.transcription.info("finalizeAndFinish: \(Date().timeIntervalSince(finalizeStart))s")
 
                 let resultsStart = Date()
                 let output = try await awaitResultsWithTimeout(resultsTask, timeoutSeconds: max(30, analysisTimeout / 2), analyzer: analyzer)
-                print("⏱️ resultsTask completion: \(Date().timeIntervalSince(resultsStart))s")
+                Logger.transcription.info("resultsTask completion: \(Date().timeIntervalSince(resultsStart))s")
 
                 if !containsRecognizableSpeech(output.plainText) {
                     throw TranscriptionError.noSpeechDetected
@@ -1766,7 +1766,7 @@ class SpeechTranscriptionService: ObservableObject {
                 _ = try? await resultsTask.value
                 await analyzer.cancelAndFinishNow()
                 if attempt == 0 {
-                    print("⚠️ Transcription attempt \(attempt + 1) failed: \(error). Retrying once...")
+                    Logger.transcription.warning("Transcription attempt \(attempt + 1) failed: \(error). Retrying once...")
                     continue
                 }
                 let desc = String(describing: error)

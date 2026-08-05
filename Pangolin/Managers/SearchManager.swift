@@ -1,3 +1,4 @@
+import os
 //
 //  SearchManager.swift
 //  Pangolin
@@ -187,7 +188,7 @@ class SearchManager: ObservableObject {
             if let requestID, requestID != searchRequestID {
                 return
             }
-            print("Search error: \(error)")
+            Logger.search.info("Search error: \(error)")
             searchResults = []
             presentedResults = []
             answerPanel = nil

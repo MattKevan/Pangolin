@@ -1,3 +1,4 @@
+import os
 //
 //  VideoPlayerViewModel.swift
 //  Pangolin
@@ -145,7 +146,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             return dir
         } catch {
-            print("⚠️ Failed to create subtitles cache directory: \(error)")
+            Logger.player.warning("Failed to create subtitles cache directory: \(error)")
             return nil
         }
     }()
@@ -225,12 +226,12 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
                         autoPlay: shouldAutoPlay
                     )
                     if isCurrentOperation(token) {
-                        print("⚠️ Failed to build composed player item: \(error)")
+                        Logger.player.warning("Failed to build composed player item: \(error)")
                     }
                 }
             } catch {
                 if isCurrentOperation(token) {
-                    print("🚨 Failed to resolve playable video URL: \(error)")
+                    Logger.player.error("Failed to resolve playable video URL: \(error)")
                 }
             }
         }
@@ -366,7 +367,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
                 guard isCurrentOperation(token, expectedPlayer: activePlayer) else { return }
             } catch {
                 guard isCurrentOperation(token, expectedPlayer: activePlayer) else { return }
-                print("⚠️ Failed to rebuild player item with subtitle: \(error)")
+                Logger.player.warning("Failed to rebuild player item with subtitle: \(error)")
                 item = AVPlayerItem(url: url)
             }
 
@@ -575,7 +576,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
                 }
             }
         } catch {
-            print("⚠️ Failed to build base composition: \(error).")
+            Logger.player.warning("Failed to build base composition: \(error).")
             return AVPlayerItem(url: videoURL)
         }
         
@@ -587,10 +588,10 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
                 let compDuration = try await composition.load(.duration)
                 try compText.insertTimeRange(CMTimeRange(start: .zero, duration: compDuration), of: textTrack, at: .zero)
             } else {
-                print("⚠️ Legible asset has no text tracks")
+                Logger.player.warning("Legible asset has no text tracks")
             }
         } catch {
-            print("⚠️ No .text tracks in legible asset: \(error)")
+            Logger.player.warning("No .text tracks in legible asset: \(error)")
         }
         
         return AVPlayerItem(asset: composition)
@@ -612,7 +613,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
                     let vttText = convertSRTtoVTT(srtText)
                     try vttText.data(using: .utf8)?.write(to: vttURL, options: .atomic)
                 } catch {
-                    print("⚠️ Failed converting SRT to VTT: \(error)")
+                    Logger.player.warning("Failed converting SRT to VTT: \(error)")
                     return nil
                 }
             }

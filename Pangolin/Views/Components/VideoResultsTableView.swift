@@ -1,3 +1,4 @@
+import os
 import SwiftUI
 import CoreData
 import CoreTransferable
@@ -267,7 +268,7 @@ struct VideoResultsTableView: View {
             do {
                 try context.save()
             } catch {
-                print("Error toggling favorite: \(error)")
+                Logger.app.info("Error toggling favorite: \(error)")
             }
         }
     }

@@ -1,3 +1,4 @@
+import os
 //
 //  FileSystemManager.swift
 //  Pangolin
@@ -74,14 +75,14 @@ final class FileSystemManager: @unchecked Sendable {
         destinationURL = try uniqueURL(for: destinationURL)
         
         // Diagnostic logging
-        print("📁 FS: sourceURL: \(sourceURL.path)")
-        print("📁 FS: destinationURL: \(destinationURL.path)")
-        print("📁 FS: destDir exists: \(fileManager.fileExists(atPath: videosDir.path))")
+        Logger.files.info("FS: sourceURL: \(sourceURL.path)")
+        Logger.files.info("FS: destinationURL: \(destinationURL.path)")
+        Logger.files.info("FS: destDir exists: \(self.fileManager.fileExists(atPath: videosDir.path))")
         if let attrs = try? fileManager.attributesOfItem(atPath: videosDir.path) {
-            print("📁 FS: destDir permissions: \(attrs[.posixPermissions] ?? "unknown")")
+            Logger.files.info("FS: destDir permissions: \(String(describing: attrs[.posixPermissions] ?? "unknown"))")
         }
-        print("📁 FS: source exists: \(fileManager.fileExists(atPath: sourceURL.path))")
-        print("📁 FS: source isReadable: \(fileManager.isReadableFile(atPath: sourceURL.path))")
+        Logger.files.info("FS: source exists: \(self.fileManager.fileExists(atPath: sourceURL.path))")
+        Logger.files.info("FS: source isReadable: \(self.fileManager.isReadableFile(atPath: sourceURL.path))")
         
         // Copy or move file
         if copyFile {
@@ -89,8 +90,8 @@ final class FileSystemManager: @unchecked Sendable {
                 try fileManager.copyItem(at: sourceURL, to: destinationURL)
             } catch {
                 let nsError = error as NSError
-                print("❌ FS: copyItem failed — domain: \(nsError.domain), code: \(nsError.code)")
-                print("❌ FS: underlying error: \(nsError.userInfo[NSUnderlyingErrorKey] ?? "none")")
+                Logger.files.error("FS: copyItem failed — domain: \(nsError.domain), code: \(nsError.code)")
+                Logger.files.error("FS: underlying error: \(String(describing: nsError.userInfo[NSUnderlyingErrorKey] ?? "none"))")
                 throw error
             }
         } else {
@@ -157,7 +158,7 @@ final class FileSystemManager: @unchecked Sendable {
                     importedVideos.append(video)
                 } catch {
                     // Log error but continue importing other files
-                    print("Failed to import \(fileURL): \(error)")
+                    Logger.files.info("Failed to import \(fileURL): \(error)")
                 }
             }
         }
@@ -190,7 +191,7 @@ final class FileSystemManager: @unchecked Sendable {
                 }
             }
         } catch {
-            print("Error finding subtitles: \(error)")
+            Logger.files.info("Error finding subtitles: \(error)")
         }
         
         return subtitles

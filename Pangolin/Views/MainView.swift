@@ -1,3 +1,4 @@
+import os
 // Views/MainView.swift
 
 import SwiftUI
@@ -588,7 +589,7 @@ struct MainView: View {
                 await processingQueueManager.enqueueImport(urls: urls, library: library, context: context)
             }
         case .failure(let error):
-            print("Error importing files: \(error)")
+            Logger.app.info("Error importing files: \(error)")
         }
     }
 

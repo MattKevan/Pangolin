@@ -1,3 +1,4 @@
+import os
 import Foundation
 
 enum ProcessingTaskType: String, CaseIterable, Codable {
@@ -415,10 +416,10 @@ var displayTitle: String {
             if accessing { url.stopAccessingSecurityScopedResource() }
         }
         guard let data = try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil) else {
-            print("⚠️ TASK: Failed to create security-scoped bookmark for \(url.path)")
+            Logger.queue.warning("TASK: Failed to create security-scoped bookmark for \(url.path)")
             return nil
         }
-        print("✅ TASK: Security-scoped bookmark created for \(url.lastPathComponent)")
+        Logger.queue.info("TASK: Security-scoped bookmark created for \(url.lastPathComponent)")
         return data
     }
     #endif

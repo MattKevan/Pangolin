@@ -1,3 +1,4 @@
+import os
 //
 //  SubtitleMatcher.swift
 //  Pangolin
@@ -63,7 +64,7 @@ class SubtitleMatcher {
                 }
             }
         } catch {
-            print("Error finding subtitles: \(error)")
+            Logger.importProcess.info("Error finding subtitles: \(error)")
         }
         
         return subtitles

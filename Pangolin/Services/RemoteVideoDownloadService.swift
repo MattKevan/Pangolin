@@ -1,3 +1,4 @@
+import os
 import Foundation
 #if os(macOS)
 import Darwin
@@ -89,7 +90,7 @@ final class RemoteVideoDownloadService {
 
         let downloader = try resolveDownloaderCommand()
         let ffmpegURL = resolveFFmpeg()
-        print("🌐 DOWNLOAD: Using downloader command \(downloader.displayName)")
+        Logger.download.info("DOWNLOAD: Using downloader command \(downloader.displayName)")
 
         let output = try await runProcess(
             executableURL: downloader.executableURL,
@@ -250,7 +251,7 @@ final class RemoteVideoDownloadService {
                 try fileManager.removeItem(at: parent)
             }
         } catch {
-            print("⚠️ REMOTE DOWNLOAD: Failed cleaning staging artifacts for \(fileURL.path): \(error)")
+            Logger.download.warning("REMOTE DOWNLOAD: Failed cleaning staging artifacts for \(fileURL.path): \(error)")
         }
     }
 

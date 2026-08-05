@@ -1,3 +1,4 @@
+import os
 import Foundation
 import CoreData
 
@@ -46,7 +47,7 @@ final class VideoLibraryOptimizationManager: ObservableObject {
                 video.fileSize = optimizedSize
                 try video.managedObjectContext?.save()
             } catch {
-                print("⚠️ OPTIMIZE: Failed \(video.title ?? video.fileName ?? "video"): \(error.localizedDescription)")
+                Logger.files.warning("OPTIMIZE: Failed \(video.title ?? video.fileName ?? "video"): \(error.localizedDescription)")
             }
         }
 

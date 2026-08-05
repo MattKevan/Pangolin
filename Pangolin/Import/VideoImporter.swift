@@ -1,3 +1,4 @@
+import os
 //
 //  VideoImporter.swift
 //  Pangolin
@@ -67,7 +68,7 @@ class VideoImporter: ObservableObject {
         if let originalSourceURL {
             video.sourcePath = ImportDuplicatePolicy.canonicalSourcePath(originalSourceURL)
         }
-        print("✅ IMPORT: Successfully imported video: \(video.title ?? "Unknown")")
+        Logger.importProcess.info("IMPORT: Successfully imported video: \(video.title ?? "Unknown")")
         
         assignVideoToFolder(video: video, originalPath: fileURL, createdFolders: createdFolders)
         
@@ -76,7 +77,7 @@ class VideoImporter: ObservableObject {
                 for: fileURL,
                 in: fileURL.deletingLastPathComponent()
             )
-            print("📄 IMPORT: Found \(subtitles.count) subtitle files for \(fileURL.lastPathComponent)")
+            Logger.importProcess.info("IMPORT: Found \(subtitles.count) subtitle files for \(fileURL.lastPathComponent)")
             
             for subtitleURL in subtitles {
                 do {
@@ -86,9 +87,9 @@ class VideoImporter: ObservableObject {
                         to: library,
                         context: context
                     )
-                    print("✅ IMPORT: Successfully imported subtitle: \(subtitle.fileName ?? "Unknown")")
+                    Logger.importProcess.info("IMPORT: Successfully imported subtitle: \(subtitle.fileName ?? "Unknown")")
                 } catch {
-                    print("❌ IMPORT: Failed to import subtitle \(subtitleURL.lastPathComponent): \(error)")
+                    Logger.importProcess.error("IMPORT: Failed to import subtitle \(subtitleURL.lastPathComponent): \(error)")
                 }
             }
         }
@@ -103,7 +104,7 @@ class VideoImporter: ObservableObject {
                     sourceURL: localStagingURL
                 )
             } catch {
-                print("⚠️ IMPORT: Thumbnail generation deferred for \(video.title ?? video.fileName ?? "Unknown"): \(error.localizedDescription)")
+                Logger.importProcess.warning("IMPORT: Thumbnail generation deferred for \(video.title ?? video.fileName ?? "Unknown"): \(error.localizedDescription)")
             }
             do {
                 try await videoFileManager.uploadImportedVideoToCloud(localURL: localStagingURL, for: video)
@@ -154,7 +155,7 @@ class VideoImporter: ObservableObject {
                 }
             }
         } catch {
-            print("⚠️ IMPORT: Could not access directory \(directory.lastPathComponent): \(error)")
+            Logger.importProcess.warning("IMPORT: Could not access directory \(directory.lastPathComponent): \(error)")
         }
         
         return videoFiles
@@ -320,12 +321,12 @@ class VideoImporter: ObservableObject {
         } catch {
             let nsError = error as NSError
             if nsError.domain == NSCocoaErrorDomain && nsError.code == 257 {
-                print("⚠️ IMPORT: Permission denied for folder '\(folderName)' - may need individual selection")
+                Logger.importProcess.warning("IMPORT: Permission denied for folder '\(folderName)' - may need individual selection")
                 Task { @MainActor in
                     skippedFolders.append(folderName)
                 }
             } else {
-                print("⚠️ IMPORT: Error reading folder '\(folderName)': \(error)")
+                Logger.importProcess.warning("IMPORT: Error reading folder '\(folderName)': \(error)")
             }
         }
         
@@ -356,7 +357,7 @@ class VideoImporter: ObservableObject {
         }
         
         guard let folderEntityDescription = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Folder"] else {
-            print("Could not find Folder entity description")
+            Logger.importProcess.info("Could not find Folder entity description")
             return nil
         }
         
@@ -479,9 +480,9 @@ class VideoImporter: ObservableObject {
         // Assign to the most specific matching folder
         if let bestMatch = bestMatch {
             video.folder = bestMatch
-            print("📁 IMPORT: Assigned video '\(video.fileName ?? "Unknown")' to folder '\(bestMatch.name ?? "Unknown")'")
+            Logger.importProcess.info("IMPORT: Assigned video '\(video.fileName ?? "Unknown")' to folder '\(bestMatch.name ?? "Unknown")'")
         } else {
-            print("⚠️ IMPORT: No matching folder found for video '\(video.fileName ?? "Unknown")' at path: \(videoDirectory.path)")
+            Logger.importProcess.warning("IMPORT: No matching folder found for video '\(video.fileName ?? "Unknown")' at path: \(videoDirectory.path)")
         }
     }
 }

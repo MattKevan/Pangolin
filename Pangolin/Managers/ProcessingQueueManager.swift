@@ -1,3 +1,4 @@
+import os
 // ProcessingQueueManager.swift
 // Unified processing queue manager
 
@@ -264,7 +265,7 @@ class ProcessingQueueManager: ObservableObject {
             do {
                 try context.save()
             } catch {
-                print("⚠️ QUEUE: Failed to save pending folder changes before enqueueing import tasks: \(error)")
+                Logger.queue.warning("QUEUE: Failed to save pending folder changes before enqueueing import tasks: \(error)")
             }
         }
 
@@ -279,7 +280,7 @@ class ProcessingQueueManager: ObservableObject {
         }
 
         if plan.videoFiles.isEmpty {
-            print("⚠️ QUEUE: No importable video files discovered in dropped items.")
+            Logger.queue.warning("QUEUE: No importable video files discovered in dropped items.")
         }
         refreshStats()
         startProcessingIfNeeded()
@@ -289,7 +290,7 @@ class ProcessingQueueManager: ObservableObject {
         guard let provider = RemoteVideoProvider.detect(from: url) else {
             throw TaskFailure(message: RemoteVideoDownloadError.unsupportedProvider.localizedDescription)
         }
-        print("🌐 QUEUE: enqueueRemoteImport requested for \(url.absoluteString)")
+        Logger.queue.info("QUEUE: enqueueRemoteImport requested for \(url.absoluteString)")
 
         if library.id == nil {
             library.id = UUID()
@@ -298,7 +299,7 @@ class ProcessingQueueManager: ObservableObject {
         if let existing = queue.first(where: { $0.type == .downloadRemoteVideo && $0.remoteURLString == url.absoluteString }) {
             switch existing.status {
             case .failed, .cancelled, .completed:
-                print("🌐 QUEUE: Removing previous \(existing.status.rawValue) remote download task for same URL")
+                Logger.queue.info("QUEUE: Removing previous \(existing.status.rawValue) remote download task for same URL")
                 processingQueue.removeTask(existing)
             case .pending, .waitingForDependencies, .processing, .paused:
                 throw TaskFailure(message: "This URL is already in the download queue.")
@@ -314,7 +315,7 @@ class ProcessingQueueManager: ObservableObject {
             followUpTypes: [.transcribe]
         )
         processingQueue.addTask(task)
-        print("🌐 QUEUE: Added remote download task \(task.id.uuidString) for \(url.absoluteString)")
+        Logger.queue.info("QUEUE: Added remote download task \(task.id.uuidString) for \(url.absoluteString)")
         refreshStats()
 
         if context.hasChanges {
@@ -692,7 +693,7 @@ class ProcessingQueueManager: ObservableObject {
     private func execute(_ task: ProcessingTask) async {
         processingQueue.markTaskAsProcessing(task)
         refreshStats()
-        print("⚙️ QUEUE: Starting task \(task.type.rawValue) [\(task.id.uuidString)] - \(task.itemName ?? "Unnamed")")
+        Logger.queue.info("QUEUE: Starting task \(task.type.rawValue) [\(task.id.uuidString)] - \(task.itemName ?? "Unnamed")")
 
         if shouldSkip(task) {
             task.markAsCompleted()
@@ -728,10 +729,10 @@ class ProcessingQueueManager: ObservableObject {
             }
         } catch {
             if task.status != .cancelled {
-                print("💥 QUEUE: Task failed \(task.type.rawValue) [\(task.id.uuidString)] - \(error.localizedDescription)")
+                Logger.queue.error("QUEUE: Task failed \(task.type.rawValue) [\(task.id.uuidString)] - \(error.localizedDescription)")
                 task.markAsFailed(error: error.localizedDescription)
             } else {
-                print("⏹️ QUEUE: Task cancelled \(task.type.rawValue) [\(task.id.uuidString)]")
+                Logger.queue.info("QUEUE: Task cancelled \(task.type.rawValue) [\(task.id.uuidString)]")
             }
         }
 
@@ -752,7 +753,7 @@ class ProcessingQueueManager: ObservableObject {
 
         task.statusMessage = "Preparing download..."
         task.updateProgress(0.02, message: "Probing remote video...")
-        print("🌐 DOWNLOAD: Probing URL \(remoteURL.absoluteString)")
+        Logger.queue.info("DOWNLOAD: Probing URL \(remoteURL.absoluteString)")
 
         let result = try await remoteDownloadService.downloadVideo(from: remoteURL) { [weak task] update in
             guard let task else { return }
@@ -774,7 +775,7 @@ class ProcessingQueueManager: ObservableObject {
             remoteVideoIdentifier: result.videoIdentifier
         )
         processingQueue.addTask(importTask)
-        print("🌐 DOWNLOAD: Completed to staging file \(result.localFileURL.path)")
+        Logger.queue.info("DOWNLOAD: Completed to staging file \(result.localFileURL.path)")
         refreshStats()
     }
 
@@ -879,16 +880,16 @@ class ProcessingQueueManager: ObservableObject {
             var isStale = false
             if let resolved = try? URL(resolvingBookmarkData: bookmark, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale) {
                 let accessing = resolved.startAccessingSecurityScopedResource()
-                print("📎 QUEUE: Resolved bookmark, accessing=\(accessing) for \(resolved.lastPathComponent)")
+                Logger.queue.info("QUEUE: Resolved bookmark, accessing=\(accessing) for \(resolved.lastPathComponent)")
                 return (resolved, accessing)
             } else if let sourcePath = task.sourceURLPath {
-                print("⚠️ QUEUE: Bookmark resolution failed, falling back to plain path")
+                Logger.queue.warning("QUEUE: Bookmark resolution failed, falling back to plain path")
                 return (URL(fileURLWithPath: sourcePath), false)
             } else {
                 throw FileSystemError.importFailed("Missing source path.")
             }
         } else if let sourcePath = task.sourceURLPath {
-            print("⚠️ QUEUE: No bookmark, using plain path")
+            Logger.queue.warning("QUEUE: No bookmark, using plain path")
             return (URL(fileURLWithPath: sourcePath), false)
         } else {
             throw FileSystemError.importFailed("Missing source path.")
@@ -1427,10 +1428,10 @@ class ProcessingQueueManager: ObservableObject {
             if let folder = try context.fetch(request).first, !folder.isSmartFolder {
                 video.folder = folder
             } else {
-                print("⚠️ QUEUE: Destination folder missing or invalid; importing without folder assignment")
+                Logger.queue.warning("QUEUE: Destination folder missing or invalid; importing without folder assignment")
             }
         } catch {
-            print("⚠️ QUEUE: Failed to assign imported video to folder: \(error)")
+            Logger.queue.warning("QUEUE: Failed to assign imported video to folder: \(error)")
         }
     }
 

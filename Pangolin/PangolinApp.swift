@@ -1,3 +1,4 @@
+import os
 // PangolinApp.swift
 
 import SwiftUI
@@ -116,7 +117,7 @@ struct PangolinApp: App {
                 let library = try await libraryManager.smartStartup()
                 await StoragePolicyManager.shared.scheduleAutomaticPolicyApply(for: library)
             } catch {
-                print("❌ APP: Startup failed: \(error)")
+                Logger.app.error("APP: Startup failed: \(error)")
                 libraryManager.error = error as? LibraryError
             }
         }
@@ -132,11 +133,11 @@ struct PangolinApp: App {
         Task {
             do {
                 libraryManager.error = nil
-                print("🔧 APP: Starting database reset...")
+                Logger.app.warning("APP: Starting database reset...")
                 _ = try await libraryManager.resetCorruptedDatabase()
-                print("✅ APP: Database reset successful")
+                Logger.app.info("APP: Database reset successful")
             } catch {
-                print("❌ APP: Database reset failed: \(error)")
+                Logger.app.error("APP: Database reset failed: \(error)")
                 libraryManager.error = error as? LibraryError
             }
         }

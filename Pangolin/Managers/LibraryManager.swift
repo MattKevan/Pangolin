@@ -1,3 +1,4 @@
+import os
 //
 //  LibraryManager.swift
 //  Pangolin
@@ -108,7 +109,7 @@ class LibraryManager: ObservableObject {
 
         let duplicates = libraries.filter { $0.objectID != canonical.objectID }
         if !duplicates.isEmpty {
-            print("🔧 LIBRARY: Consolidating \(duplicates.count + 1) library records into one canonical library")
+            Logger.library.warning("LIBRARY: Consolidating \(duplicates.count + 1) library records into one canonical library")
         }
 
         for duplicate in duplicates {
@@ -220,39 +221,36 @@ class LibraryManager: ObservableObject {
     // MARK: - Public Methods
     
     func save() async {
-        print("💽 LIBRARY: save() called")
+        Logger.library.info("LIBRARY: save() called")
         
         guard let context = self.viewContext else {
-            print("❌ LIBRARY: No viewContext available")
+            Logger.library.error("LIBRARY: No viewContext available")
             return
         }
         
-        print(
-            "📊 LIBRARY: Context changes — " +
-            "inserted: \(context.insertedObjects.count), " +
-            "updated: \(context.updatedObjects.count), " +
-            "deleted: \(context.deletedObjects.count)"
+        Logger.library.info(
+            "LIBRARY: Context changes — inserted: \(context.insertedObjects.count), updated: \(context.updatedObjects.count), deleted: \(context.deletedObjects.count)"
         )
         
         guard context.hasChanges else {
-            print("ℹ️ LIBRARY: No changes to save")
+            Logger.library.info("LIBRARY: No changes to save")
             return
         }
         
         do {
-            print("💾 LIBRARY: Attempting context.save()...")
+            Logger.library.info("LIBRARY: Attempting context.save()...")
             try context.save()
-            print("✅ LIBRARY: Save successful!")
+            Logger.library.info("LIBRARY: Save successful!")
             
-            print("🔄 LIBRARY: Verifying save by checking context state...")
-            print("📊 LIBRARY: After save - hasChanges: \(context.hasChanges)")
-            print("📊 LIBRARY: After save - updatedObjects count: \(context.updatedObjects.count)")
+            Logger.library.info("LIBRARY: Verifying save by checking context state...")
+            Logger.library.info("LIBRARY: After save - hasChanges: \(context.hasChanges)")
+            Logger.library.info("LIBRARY: After save - updatedObjects count: \(context.updatedObjects.count)")
             
         } catch {
-            print("💥 LIBRARY: Save failed: \(error.localizedDescription)")
+            Logger.library.error("LIBRARY: Save failed: \(error.localizedDescription)")
             self.error = .saveFailed(error)
             context.rollback()
-            print("🔄 LIBRARY: Context rolled back")
+            Logger.library.info("LIBRARY: Context rolled back")
         }
     }
 
@@ -262,9 +260,9 @@ class LibraryManager: ObservableObject {
     func createLibrary(at url: URL, name: String) async throws -> Library {
         thumbnailReconciliationTask?.cancel()
         thumbnailReconciliationTask = nil
-        print("📝 CREATE_LIBRARY: Starting createLibrary...")
-        print("📝 CREATE_LIBRARY: URL: \(url.path)")
-        print("📝 CREATE_LIBRARY: Library name: \(name)")
+        Logger.library.info("CREATE_LIBRARY: Starting createLibrary...")
+        Logger.library.info("CREATE_LIBRARY: URL: \(url.path)")
+        Logger.library.info("CREATE_LIBRARY: Library name: \(name)")
 
         isLoading = true
         loadingProgress = 0
@@ -275,7 +273,7 @@ class LibraryManager: ObservableObject {
         }
 
         if hasDatabase(at: url) {
-            print("❌ CREATE_LIBRARY: Library already exists at path")
+            Logger.library.error("CREATE_LIBRARY: Library already exists at path")
             throw LibraryError.libraryAlreadyExists(url)
         }
         
@@ -296,26 +294,26 @@ class LibraryManager: ObservableObject {
         }
         
         guard let model = context.persistentStoreCoordinator?.managedObjectModel else {
-            print("ERROR: No managed object model found")
+            Logger.library.info("ERROR: No managed object model found")
             throw LibraryError.corruptedDatabase
         }
         
-        print("Available entities: \(model.entitiesByName.keys)")
+        Logger.library.info("Available entities: \(model.entitiesByName.keys)")
         
         guard let entityDescription = model.entitiesByName["Library"] else {
-            print("ERROR: Library entity not found in model")
+            Logger.library.info("ERROR: Library entity not found in model")
             throw LibraryError.corruptedDatabase
         }
         
-        print("Creating library entity with description: \(entityDescription)")
+        Logger.library.info("Creating library entity with description: \(entityDescription)")
         let library = Library(entity: entityDescription, insertInto: context)
         
         guard library.entity == entityDescription else {
-            print("ERROR: Library entity creation failed")
+            Logger.library.info("ERROR: Library entity creation failed")
             throw LibraryError.corruptedDatabase
         }
         
-        print("Library entity created successfully, setting properties...")
+        Logger.library.info("Library entity created successfully, setting properties...")
         
         library.id = UUID()
         library.name = name
@@ -324,7 +322,7 @@ class LibraryManager: ObservableObject {
         library.lastOpenedDate = Date()
         library.version = currentVersion
         
-        print("Basic properties set, setting default settings...")
+        Logger.library.info("Basic properties set, setting default settings...")
         
         library.copyFilesOnImport = true
         library.organizeByDate = true
@@ -335,7 +333,7 @@ class LibraryManager: ObservableObject {
         library.videoStorageType = defaultVideoStorageType
         library.maxLocalVideoCacheBytes = defaultMaxLocalVideoCacheBytes
         
-        print("All properties set successfully")
+        Logger.library.info("All properties set successfully")
         
         loadingProgress = 0.8
         
@@ -346,8 +344,8 @@ class LibraryManager: ObservableObject {
         self.currentLibrary = library
         self.isLibraryOpen = true
         
-        print("Library created successfully: \(library.name ?? "Untitled")")
-        print("Library open state: \(self.isLibraryOpen)")
+        Logger.library.info("Library created successfully: \(library.name ?? "Untitled")")
+        Logger.library.info("Library open state: \(self.isLibraryOpen)")
         
         addToRecentLibraries(library)
         saveLastOpenedLibrary(url)
@@ -420,7 +418,7 @@ class LibraryManager: ObservableObject {
         try migrateTextArtifactsToPreferredLocation(for: library, legacyLibraryURL: previousLibraryURL)
         library.lastOpenedDate = Date()
         if library.libraryPath != url.path {
-            print("🔧 LIBRARY: Updating stored libraryPath from \(library.libraryPath ?? "nil") to \(url.path)")
+            Logger.library.warning("LIBRARY: Updating stored libraryPath from \(library.libraryPath ?? "nil") to \(url.path)")
             library.libraryPath = url.path
         }
         try context.save()
@@ -507,13 +505,13 @@ class LibraryManager: ObservableObject {
     
     /// Smart startup — opens existing library or creates a fresh one
     func smartStartup() async throws -> Library {
-        print("🚀 LIBRARY: Starting smart startup...")
+        Logger.library.info("LIBRARY: Starting smart startup...")
         let libraryURL = try libraryBaseURL()
-        print("📍 LIBRARY: Library URL: \(libraryURL.path)")
-        print("📍 LIBRARY: Has database: \(hasDatabase(at: libraryURL))")
+        Logger.library.info("LIBRARY: Library URL: \(libraryURL.path)")
+        Logger.library.info("LIBRARY: Has database: \(self.hasDatabase(at: libraryURL))")
 
         if !hasDatabase(at: libraryURL) {
-            print("🆕 LIBRARY: No existing library — creating fresh")
+            Logger.library.info("LIBRARY: No existing library — creating fresh")
             return try await createNewUserLibrary(at: libraryURL, name: "Pangolin Library")
         }
 
@@ -523,7 +521,7 @@ class LibraryManager: ObservableObject {
     // MARK: - Smart Startup Support
     
     private func createNewUserLibrary(at libraryURL: URL, name: String) async throws -> Library {
-        print("🆕 LIBRARY: Creating new library at \(libraryURL.path)")
+        Logger.library.info("LIBRARY: Creating new library at \(libraryURL.path)")
         return try await createLibrary(at: libraryURL, name: name)
     }
 
@@ -547,7 +545,7 @@ class LibraryManager: ObservableObject {
     // MARK: - Database Recovery
     
     func resetCorruptedDatabase() async throws -> Library {
-        print("🔧 LIBRARY: Resetting corrupted database...")
+        Logger.library.warning("LIBRARY: Resetting corrupted database...")
         let libraryURL = try libraryBaseURL()
 
         if let sourceID = coreDataStack?.cloudEventSourceID {
@@ -566,17 +564,17 @@ class LibraryManager: ObservableObject {
             if fileManager.fileExists(atPath: fileURL.path) {
                 do {
                     try fileManager.removeItem(at: fileURL)
-                    print("🗑️ LIBRARY: Removed \(fileURL.lastPathComponent)")
+                    Logger.library.info("LIBRARY: Removed \(fileURL.lastPathComponent)")
                 } catch {
-                    print("⚠️ LIBRARY: Failed to remove \(fileURL.lastPathComponent): \(error)")
+                    Logger.library.warning("LIBRARY: Failed to remove \(fileURL.lastPathComponent): \(error)")
                 }
             }
         }
         
-        print("🆕 LIBRARY: Creating fresh library...")
+        Logger.library.info("LIBRARY: Creating fresh library...")
         let newLibrary = try await createLibrary(at: libraryURL, name: "Pangolin Library")
         
-        print("✅ LIBRARY: Fresh library created successfully")
+        Logger.library.info("LIBRARY: Fresh library created successfully")
         return newLibrary
     }
     
@@ -830,7 +828,7 @@ extension LibraryManager {
             try fileManager.createDirectory(at: preferredURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try fileManager.copyItem(at: sourceURL, to: preferredURL)
         } catch {
-            print("⚠️ LIBRARY: Failed to migrate artifact \(sourceURL.lastPathComponent) to shared storage: \(error)")
+            Logger.library.warning("LIBRARY: Failed to migrate artifact \(sourceURL.lastPathComponent) to shared storage: \(error)")
         }
     }
 
