@@ -14,9 +14,10 @@
       `Pangolin-macOS.entitlements` + `Pangolin-iOS.entitlements` + the legacy file; negative-tested.
 - [ ] **UI tests are vacuous (audit H6):** `PangolinUITests` never call `app.launch()`;
       `testLaunchPerformance` measures an empty body. Zero end-to-end coverage.
-- [ ] **Rename affordance (user-reported):** add Finder-style slow double-click on the project
-      title to rename (macOS-gated, ~15 lines on the title area in `ProjectCard`).
-      Context-menu rename works and now refreshes correctly (fixed in `e5ec72b`).
+- [x] **Rename affordance (user-reported):** double-click on the project title to rename added
+      in `ea56e4b` (macOS-gated). **Pending runtime verification** that the double-click
+      gesture arbitrates against single-click open. Context-menu rename refreshed correctly
+      since `e5ec72b`.
 
 ## Priority: Medium (modernization / platform-native)
 
@@ -33,15 +34,14 @@
       summarization/flashcards), `FolderNavigationStore` (1.7k), `ProcessingQueueManager` (1.5k),
       `VideoFileManager` (1.2k), `ProjectsView` (1.5k), `DetailView` (1.4k),
       `PangolinTests.swift` (2k). God-class + large-file/type/function-length items.
-- [ ] **`NSMergeByPropertyStoreTrump` on the editing viewContext (audit M2):** CloudKit merges
-      silently overwrite in-flight user edits. Evaluate switching the editing context to
-      `NSMergeByPropertyObjectTrump`.
+- [x] **Merge policy (audit M2):** editing viewContext now uses
+      `NSMergeByPropertyObjectTrump` (`577720e`) so CloudKit merges can no longer silently
+      overwrite unsaved user edits.
 - [ ] **Singleton → environment composition (audit M9):** 10 `static let shared` singletons with
       init-time cross-references (`LibraryManager.shared` touches `VideoFileManager.shared`).
       Inject from a composition root; `VideoFileStatusView` re-injecting the singleton via
       `.environmentObject` is the smell to eliminate first.
-- [ ] **Deprecated `Task.sleep(nanoseconds:)`** at VideoFileManager:202/558,
-      StoragePolicyManager:365, ProcessingQueueManager:1224 → `Task.sleep(for:)`.
+- [x] **Deprecated `Task.sleep(nanoseconds:)`:** all 14 sites → `Task.sleep(for:)` (`fad31f6`).
 
 ## Priority: Low / polish
 
