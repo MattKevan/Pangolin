@@ -24,9 +24,13 @@ private final class ManualVideoPresentationTransitionSleeper {
     }
 
     func waitForPendingCount(_ expectedCount: Int) async {
+        // Sleep rather than spin: a pure Task.yield loop on the main actor can
+        // starve the animation task that registers the continuation, and under
+        // parallel suite load 100 yields can elapse before it runs. 5ms x 100
+        // gives a bounded 500ms budget of real time.
         for _ in 0..<100 {
             guard pendingCount < expectedCount else { return }
-            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(5))
         }
     }
 }
