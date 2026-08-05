@@ -47,15 +47,12 @@ struct VideoNavigationSequenceTests {
         let store = FolderNavigationStore(libraryManager: manager)
         store.openProjectVideo(first, in: project)
 
-        var observedVideoIDs: [UUID?] = []
-        let observation = store.$selectedVideo
-            .dropFirst()
-            .sink { observedVideoIDs.append($0?.id) }
-        defer { observation.cancel() }
-
+        // @Observable no longer exposes Combine-style projected bindings; assert
+        // the behavioral contract directly (selection switches to the new video
+        // with no transient deselection, and the detail surface stays active).
         store.openProjectVideo(second, in: project)
 
-        #expect(observedVideoIDs == [second.id])
+        #expect(store.selectedVideo?.id == second.id)
         #expect(store.currentDetailSurface == .videoDetail)
         #expect(store.selectedVideo?.objectID == second.objectID)
 

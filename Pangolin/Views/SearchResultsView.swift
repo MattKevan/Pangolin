@@ -16,7 +16,7 @@ enum SearchVideoSelectionResetPolicy {
 
 struct SearchResultsView: View {
     @EnvironmentObject private var searchManager: SearchManager
-    @EnvironmentObject private var folderStore: FolderNavigationStore
+    @Environment(FolderNavigationStore.self) private var folderStore
     @State private var selectedItems = Set<UUID>()
 
     private var trimmedQuery: String {
@@ -290,6 +290,6 @@ private struct SearchResultSnippetCell: View {
 #Preview {
     SearchResultsView()
         .environmentObject(SearchManager())
-        .environmentObject(FolderNavigationStore(libraryManager: LibraryManager.shared))
+        .environment(FolderNavigationStore(libraryManager: LibraryManager.shared))
         .environmentObject(VideoFileManager.shared)
 }

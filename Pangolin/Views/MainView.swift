@@ -27,7 +27,7 @@ struct MainView: View {
     @EnvironmentObject var libraryManager: LibraryManager
     @EnvironmentObject var videoFileManager: VideoFileManager
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @StateObject private var folderStore: FolderNavigationStore
+    @State private var folderStore: FolderNavigationStore
     @StateObject private var searchManager = SearchManager()
     @StateObject private var playerViewModel = VideoPlayerViewModel()
     @StateObject private var floatingVideoState = FloatingVideoState()
@@ -63,7 +63,7 @@ struct MainView: View {
         retryAction: @escaping () -> Void = {},
         resetAction: @escaping () -> Void = {}
     ) {
-        self._folderStore = StateObject(wrappedValue: FolderNavigationStore(libraryManager: libraryManager))
+        self._folderStore = State(initialValue: FolderNavigationStore(libraryManager: libraryManager))
         self.isStartingUp = isStartingUp
         self.startupError = startupError
         self.startupLoadingProgress = startupLoadingProgress
@@ -206,7 +206,7 @@ struct MainView: View {
     private var sidebarColumn: some View {
         SidebarView()
             .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 350)
-            .environmentObject(folderStore)
+            .environment(folderStore)
             .environmentObject(libraryManager)
             .environmentObject(searchManager)
             .applyManagedObjectContext(libraryManager.viewContext)
@@ -374,7 +374,7 @@ struct MainView: View {
                 playerViewModel: playerViewModel,
                 floatingVideoState: floatingVideoState
             )
-                .environmentObject(folderStore)
+                .environment(folderStore)
                 .environmentObject(searchManager)
                 .environmentObject(libraryManager)
                 .environmentObject(transcriptionService)
@@ -427,7 +427,7 @@ struct MainView: View {
                     ProjectsGridView { project in
                         openPhoneProject(project)
                     }
-                    .environmentObject(folderStore)
+                    .environment(folderStore)
                     .navigationDestination(for: PhoneProjectsRoute.self) { route in
                         switch route {
                         case .project(let projectID):
@@ -436,7 +436,7 @@ struct MainView: View {
                                     project: project,
                                     showsPhoneToolbar: true
                                 )
-                                .environmentObject(folderStore)
+                                .environment(folderStore)
                             } else {
                                 ContentUnavailableView(
                                     "Project unavailable",
@@ -451,7 +451,7 @@ struct MainView: View {
                                     playerViewModel: playerViewModel,
                                     floatingVideoState: floatingVideoState
                                 )
-                                    .environmentObject(folderStore)
+                                    .environment(folderStore)
                                     .environmentObject(libraryManager)
                                     .environmentObject(transcriptionService)
                             } else {
@@ -496,7 +496,7 @@ struct MainView: View {
                         onAppear: { folderStore.selectedSidebarItem = .smartCollection(.allVideos) }
                     )
                 }
-                .environmentObject(folderStore)
+                .environment(folderStore)
                 .environmentObject(libraryManager)
                 .environmentObject(transcriptionService)
             }
@@ -513,7 +513,7 @@ struct MainView: View {
                         onAppear: { folderStore.selectedSidebarItem = .smartCollection(.favorites) }
                     )
                 }
-                .environmentObject(folderStore)
+                .environment(folderStore)
                 .environmentObject(libraryManager)
                 .environmentObject(transcriptionService)
             }
@@ -529,7 +529,7 @@ struct MainView: View {
                         .environmentObject(searchManager)
                         .navigationTitle("Search")
                 }
-                .environmentObject(folderStore)
+                .environment(folderStore)
                 .environmentObject(libraryManager)
                 .environmentObject(transcriptionService)
                 .searchable(
@@ -707,7 +707,7 @@ struct MainView: View {
 
 private struct RootContainerView<Content: View>: View {
     let content: Content
-    @ObservedObject var folderStore: FolderNavigationStore
+    let folderStore: FolderNavigationStore
     @ObservedObject var searchManager: SearchManager
     @ObservedObject var libraryManager: LibraryManager
     @Binding var showingImportPicker: Bool
@@ -760,7 +760,7 @@ private struct RootImportModifier: ViewModifier {
 }
 
 private struct RootEventsModifier: ViewModifier {
-    @ObservedObject var folderStore: FolderNavigationStore
+    let folderStore: FolderNavigationStore
     @ObservedObject var searchManager: SearchManager
     @ObservedObject var libraryManager: LibraryManager
     @Binding var showingImportPicker: Bool
@@ -830,7 +830,7 @@ private struct RootAlertModifier: ViewModifier {
 
 // MARK: - Detail Column View
 private struct DetailColumnView: View {
-    @EnvironmentObject private var folderStore: FolderNavigationStore
+    @Environment(FolderNavigationStore.self) private var folderStore
     @EnvironmentObject private var searchManager: SearchManager
     @EnvironmentObject private var libraryManager: LibraryManager
     @EnvironmentObject private var transcriptionService: SpeechTranscriptionService
@@ -843,15 +843,15 @@ private struct DetailColumnView: View {
             case .searchResults:
                 SearchResultsView()
                     .environmentObject(searchManager)
-                    .environmentObject(folderStore)
+                    .environment(folderStore)
                     .environmentObject(libraryManager)
             case .projectsGrid:
                 ProjectsGridView()
-                    .environmentObject(folderStore)
+                    .environment(folderStore)
             case .projectDetail:
                 if let selectedProject = folderStore.selectedProject {
                     ProjectDetailView(project: selectedProject)
-                        .environmentObject(folderStore)
+                        .environment(folderStore)
                 } else {
                     ContentUnavailableView(
                         "No project selected",
@@ -861,7 +861,7 @@ private struct DetailColumnView: View {
                 }
             case .smartCollectionTable(_):
                 FolderContentView()
-                    .environmentObject(folderStore)
+                    .environment(folderStore)
                     .environmentObject(libraryManager)
             case .videoDetail:
                 if let selectedVideo = folderStore.selectedVideo {
@@ -870,7 +870,7 @@ private struct DetailColumnView: View {
                         playerViewModel: playerViewModel,
                         floatingVideoState: floatingVideoState
                     )
-                        .environmentObject(folderStore)
+                        .environment(folderStore)
                         .environmentObject(libraryManager)
                         .environmentObject(transcriptionService)
                 } else {
@@ -893,7 +893,7 @@ private struct DetailColumnView: View {
 
 #if os(iOS)
 private struct PhoneCollectionTabView: View {
-    @EnvironmentObject private var folderStore: FolderNavigationStore
+    @Environment(FolderNavigationStore.self) private var folderStore
     @EnvironmentObject private var libraryManager: LibraryManager
 
     let title: String
@@ -901,7 +901,7 @@ private struct PhoneCollectionTabView: View {
 
     var body: some View {
         FolderContentView()
-            .environmentObject(folderStore)
+            .environment(folderStore)
             .environmentObject(libraryManager)
             .navigationTitle(title)
             .onAppear(perform: onAppear)
@@ -909,7 +909,7 @@ private struct PhoneCollectionTabView: View {
 }
 
 private struct PhoneVideoNavigationStack<Root: View>: View {
-    @EnvironmentObject private var folderStore: FolderNavigationStore
+    @Environment(FolderNavigationStore.self) private var folderStore
     @EnvironmentObject private var libraryManager: LibraryManager
     @EnvironmentObject private var transcriptionService: SpeechTranscriptionService
 
@@ -973,7 +973,7 @@ private struct PhoneVideoNavigationStack<Root: View>: View {
                 playerViewModel: playerViewModel,
                 floatingVideoState: floatingVideoState
             )
-            .environmentObject(folderStore)
+            .environment(folderStore)
             .environmentObject(libraryManager)
             .environmentObject(transcriptionService)
         } else {

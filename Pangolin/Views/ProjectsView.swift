@@ -358,7 +358,7 @@ enum ProjectGridLayout {
 }
 
 struct ProjectsGridView: View {
-    @EnvironmentObject private var store: FolderNavigationStore
+    @Environment(FolderNavigationStore.self) private var store
     @EnvironmentObject private var libraryManager: LibraryManager
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -531,7 +531,7 @@ struct ProjectsGridView: View {
 }
 
 struct ProjectDetailView: View {
-    @EnvironmentObject private var store: FolderNavigationStore
+    @Environment(FolderNavigationStore.self) private var store
 
     #if os(iOS)
     @Environment(\.editMode) private var editMode
@@ -600,6 +600,7 @@ struct ProjectDetailView: View {
     }
 
     var body: some View {
+        @Bindable var store = store
         let baseView = Group {
             #if os(macOS)
             macProjectDetail
@@ -643,7 +644,8 @@ struct ProjectDetailView: View {
 
     #if os(macOS)
     private var macProjectDetail: some View {
-        VStack(spacing: 0) {
+        @Bindable var store = store
+        return VStack(spacing: 0) {
             macAlbumHero
                 .padding(.horizontal, ProjectGridLayout.contentPadding)
                 .padding(.top, ProjectGridLayout.contentPadding)
@@ -728,7 +730,8 @@ struct ProjectDetailView: View {
     }
 
     private func iosProjectDetail(isCompact: Bool) -> some View {
-        VStack(spacing: 0) {
+        @Bindable var store = store
+        return VStack(spacing: 0) {
             heroContent(isCompact: isCompact)
                 .padding(.horizontal, ProjectGridLayout.contentPadding)
                 .padding(.top, ProjectGridLayout.contentPadding)

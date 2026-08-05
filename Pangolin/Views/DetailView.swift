@@ -106,7 +106,7 @@ private struct ActiveTranscriptGeometryPreferenceKey: PreferenceKey {
 }
 
 struct DetailView: View {
-    @EnvironmentObject private var store: FolderNavigationStore
+    @Environment(FolderNavigationStore.self) private var store
     @EnvironmentObject private var libraryManager: LibraryManager
     @EnvironmentObject private var transcriptionService: SpeechTranscriptionService
 

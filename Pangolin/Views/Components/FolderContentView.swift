@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct FolderContentView: View {
-    @EnvironmentObject private var store: FolderNavigationStore
+    @Environment(FolderNavigationStore.self) private var store
     @EnvironmentObject private var libraryManager: LibraryManager
 
     private var currentSmartCollection: SmartCollectionKind? {

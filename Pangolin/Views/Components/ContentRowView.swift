@@ -26,7 +26,7 @@ struct ContentRowView: View {
     @FocusState.Binding var focusedField: UUID?
     @Binding var editedName: String
 
-    @EnvironmentObject private var store: FolderNavigationStore
+    @Environment(FolderNavigationStore.self) private var store
     @State private var isDropTargeted = false
     @State private var shouldCommitOnDisappear = false
     @State private var showingDeletionConfirmation = false

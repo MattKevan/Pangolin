@@ -65,7 +65,7 @@ private struct SidebarProjectRowModel: Identifiable {
 }
 
 struct SidebarView: View {
-    @EnvironmentObject private var store: FolderNavigationStore
+    @Environment(FolderNavigationStore.self) private var store
     @EnvironmentObject private var libraryManager: LibraryManager
 
     @State private var sidebarSelections = Set<SidebarSelection>()

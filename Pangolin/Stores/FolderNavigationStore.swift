@@ -8,6 +8,7 @@
 import SwiftUI
 import CoreData
 import Combine
+import Observation
 
 // MARK: - Sidebar Routing Types
 enum LibrarySidebarDestination: Hashable, Identifiable {
@@ -87,11 +88,20 @@ private enum VideoNavigationOrigin {
 }
 
 @MainActor
-class FolderNavigationStore: ObservableObject {
+@Observable
+class FolderNavigationStore {
     // MARK: - Core State
-    @Published var navigationPath = NavigationPath()
-    @Published var currentFolderID: UUID?
-    @Published var selectedSidebarItem: LibrarySidebarDestination? {
+    var navigationPath = NavigationPath()
+    var currentFolderID: UUID? {
+        didSet {
+            guard oldValue != currentFolderID else { return }
+            // Defer to the next main-actor turn to avoid publishing during view updates.
+            Task { @MainActor [weak self] in
+                self?.refreshContent()
+            }
+        }
+    }
+    var selectedSidebarItem: LibrarySidebarDestination? {
         didSet {
             guard selectionKey(oldValue) != selectionKey(selectedSidebarItem) else { return }
             if suppressNextSidebarSelectionChange {
@@ -104,17 +114,17 @@ class FolderNavigationStore: ObservableObject {
             }
         }
     }
-    @Published var selectedProject: Folder?
-    @Published var selectedTopLevelFolder: Folder?
-    @Published var selectedVideo: Video?
-    @Published var selectedProjectVideoIDs = Set<UUID>()
-    @Published var projectSearchQuery = ""
-    @Published var pendingSearchSeekRequest: SearchSeekRequest?
-    @Published private(set) var projectSelectionAnchorID: UUID?
+    var selectedProject: Folder?
+    var selectedTopLevelFolder: Folder?
+    var selectedVideo: Video?
+    var selectedProjectVideoIDs = Set<UUID>()
+    var projectSearchQuery = ""
+    var pendingSearchSeekRequest: SearchSeekRequest?
+    private(set) var projectSelectionAnchorID: UUID?
     
     // Reactive data sources for the UI
-    @Published var hierarchicalContent: [HierarchicalContentItem] = []
-    @Published var flatContent: [ContentType] = []
+    var hierarchicalContent: [HierarchicalContentItem] = []
+    var flatContent: [ContentType] = []
 
     var currentDestination: LibrarySidebarDestination? {
         selectedSidebarItem
@@ -167,7 +177,7 @@ class FolderNavigationStore: ObservableObject {
     }
 
     // MARK: - UI State
-    @Published var currentSortOption: SortOption = .foldersFirst {
+    var currentSortOption: SortOption = .foldersFirst {
         didSet {
             guard oldValue != currentSortOption else { return }
             // Defer to the next main-actor turn to avoid "Publishing changes from within view updates".
@@ -177,8 +187,8 @@ class FolderNavigationStore: ObservableObject {
             }
         }
     }
-    @Published var isLoading = false
-    @Published var errorMessage: String?
+    var isLoading = false
+    var errorMessage: String?
     
     // MARK: - Dependencies
     private let libraryManager: LibraryManager
@@ -205,16 +215,6 @@ class FolderNavigationStore: ObservableObject {
             .store(in: &cancellables)
 
         observeContextSaveNotifications()
-        
-        // Subscribe to internal navigation changes to refresh content
-        $currentFolderID
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                print("🧠 STORE: Current folder changed, refreshing content.")
-                self?.refreshContent()
-            }
-            .store(in: &cancellables)
         
         ensureInitialSelectionIfNeeded()
         refreshContent()
@@ -864,8 +864,8 @@ class FolderNavigationStore: ObservableObject {
         guard let context = libraryManager.viewContext else { return }
         let request = Video.fetchRequest()
         request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
-        if let v = try? context.fetch(request).first {
-            selectedVideo = v
+        if let matchedVideo = try? context.fetch(request).first {
+            selectedVideo = matchedVideo
         }
     }
 
@@ -1393,7 +1393,7 @@ class FolderNavigationStore: ObservableObject {
         guard shouldAutoSelectFirstVideo else { return }
         // Build a list of videos in the current folder from the freshly refreshed flatContent
         let videosInFolder: [Video] = flatContent.compactMap {
-            if case .video(let v) = $0 { return v }
+            if case .video(let video) = $0 { return video }
             return nil
         }
         

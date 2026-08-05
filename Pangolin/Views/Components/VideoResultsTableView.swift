@@ -31,7 +31,7 @@ enum VideoTableInteractionPolicy {
 }
 
 struct VideoResultsTableView: View {
-    @EnvironmentObject private var store: FolderNavigationStore
+    @Environment(FolderNavigationStore.self) private var store
     @EnvironmentObject private var libraryManager: LibraryManager
     let videos: [Video]
     @Binding var selectedVideoIDs: Set<UUID>
