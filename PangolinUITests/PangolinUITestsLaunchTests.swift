@@ -17,9 +17,12 @@ final class PangolinUITestsLaunchTests: XCTestCase {
         continueAfterFailure = false
     }
 
+    /// The app process must actually launch for this configuration.
     @MainActor
     func testLaunch() throws {
         let app = XCUIApplication()
-        XCTAssertNotNil(app)
+        app.launch()
+        XCTAssertTrue(app.state == .runningForeground, "App did not reach running state")
+        app.terminate()
     }
 }
