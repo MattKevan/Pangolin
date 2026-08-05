@@ -357,6 +357,58 @@ enum ProjectGridLayout {
     }
 }
 
+/// Pure arrow-key navigation math for the projects grid: index movement with
+/// clamping at the grid edges and the partial last row.
+enum ProjectGridFocusPolicy {
+    enum Direction: Equatable {
+        case up
+        case down
+        case left
+        case right
+    }
+
+    static func nextIndex(
+        from currentIndex: Int,
+        columnCount: Int,
+        itemCount: Int,
+        direction: Direction
+    ) -> Int? {
+        guard itemCount > 0 else { return nil }
+        guard currentIndex >= 0, currentIndex < itemCount else { return nil }
+
+        let columns = max(1, columnCount)
+        switch direction {
+        case .left:
+            return max(0, currentIndex - 1)
+        case .right:
+            return min(itemCount - 1, currentIndex + 1)
+        case .up:
+            return max(0, currentIndex - columns)
+        case .down:
+            return min(itemCount - 1, currentIndex + columns)
+        }
+    }
+}
+
+#if os(macOS)
+private extension ProjectGridFocusPolicy.Direction {
+    init(_ direction: MoveCommandDirection) {
+        switch direction {
+        case .up:
+            self = .up
+        case .down:
+            self = .down
+        case .left:
+            self = .left
+        case .right:
+            self = .right
+        @unknown default:
+            self = .right
+        }
+    }
+}
+#endif
+
 struct ProjectsGridView: View {
     @Environment(FolderNavigationStore.self) private var store
     @EnvironmentObject private var libraryManager: LibraryManager
@@ -367,6 +419,10 @@ struct ProjectsGridView: View {
     @State private var renamingProjectID: UUID?
     @State private var editedProjectTitle = ""
     @FocusState private var focusedProjectID: UUID?
+    #if os(macOS)
+    @State private var keyboardFocusedProjectID: UUID?
+    @FocusState private var isGridKeyboardFocused: Bool
+    #endif
     @State private var projectPendingDeletion: Folder?
     @State private var showingDeletionConfirmation = false
 
@@ -375,6 +431,15 @@ struct ProjectsGridView: View {
     private var projects: [Folder] {
         _ = store.contentRevision
         return store.projects()
+    }
+
+    /// The card highlighted by arrow-key navigation (macOS only).
+    private var keyboardHighlightedProjectID: UUID? {
+        #if os(macOS)
+        keyboardFocusedProjectID
+        #else
+        nil
+        #endif
     }
 
     private var usesCompactGrid: Bool {
@@ -418,6 +483,7 @@ struct ProjectsGridView: View {
                                         }
                                     },
                                     isRenaming: renamingProjectID == project.id,
+                                    isKeyboardHighlighted: keyboardHighlightedProjectID == project.id,
                                     editedTitle: $editedProjectTitle,
                                     focusedProjectID: $focusedProjectID,
                                     onRename: { beginRenaming(project) },
@@ -433,6 +499,25 @@ struct ProjectsGridView: View {
                 .padding(ProjectGridLayout.contentPadding)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            #if os(macOS)
+            .focusable()
+            .focused($isGridKeyboardFocused)
+            .onChange(of: isGridKeyboardFocused) { _, isFocused in
+                if isFocused {
+                    keyboardFocusedProjectID = projects.first?.id
+                } else {
+                    keyboardFocusedProjectID = nil
+                }
+            }
+            .onMoveCommand { direction in
+                moveKeyboardFocus(direction, columnCount: columns(for: geometry.size.width).count)
+            }
+            .onKeyPress { press in
+                guard press.key == .return else { return .ignored }
+                openKeyboardFocusedProject()
+                return .handled
+            }
+            #endif
         }
         .navigationTitle("Projects")
         .projectFolderDrop(
@@ -504,6 +589,32 @@ struct ProjectsGridView: View {
         focusedProjectID = nil
         editedProjectTitle = ""
     }
+
+    #if os(macOS)
+    private func moveKeyboardFocus(_ direction: MoveCommandDirection, columnCount: Int) {
+        guard !projects.isEmpty else { return }
+        let currentIndex = keyboardFocusedProjectID
+            .flatMap { id in projects.firstIndex(where: { $0.id == id }) }
+            ?? 0
+        guard let nextIndex = ProjectGridFocusPolicy.nextIndex(
+            from: currentIndex,
+            columnCount: columnCount,
+            itemCount: projects.count,
+            direction: ProjectGridFocusPolicy.Direction(direction)
+        ) else { return }
+        keyboardFocusedProjectID = projects[nextIndex].id
+    }
+
+    private func openKeyboardFocusedProject() {
+        guard let id = keyboardFocusedProjectID,
+              let project = projects.first(where: { $0.id == id }) else { return }
+        if let projectSelectionAction {
+            projectSelectionAction(project)
+        } else {
+            store.openProject(project)
+        }
+    }
+    #endif
 
     private func promptDeletion(of project: Folder) {
         projectPendingDeletion = project
@@ -1006,12 +1117,37 @@ private struct ProjectCard: View {
     let project: Folder
     let action: () -> Void
     let isRenaming: Bool
+    let isKeyboardHighlighted: Bool
     @Binding var editedTitle: String
     @FocusState.Binding var focusedProjectID: UUID?
     let onRename: () -> Void
     let onCommitRename: () -> Void
     let onCancelRename: () -> Void
     let onDelete: () -> Void
+
+    init(
+        project: Folder,
+        action: @escaping () -> Void,
+        isRenaming: Bool,
+        isKeyboardHighlighted: Bool = false,
+        editedTitle: Binding<String>,
+        focusedProjectID: FocusState<UUID?>.Binding,
+        onRename: @escaping () -> Void,
+        onCommitRename: @escaping () -> Void,
+        onCancelRename: @escaping () -> Void,
+        onDelete: @escaping () -> Void
+    ) {
+        self.project = project
+        self.action = action
+        self.isRenaming = isRenaming
+        self.isKeyboardHighlighted = isKeyboardHighlighted
+        self._editedTitle = editedTitle
+        self._focusedProjectID = focusedProjectID
+        self.onRename = onRename
+        self.onCommitRename = onCommitRename
+        self.onCancelRename = onCancelRename
+        self.onDelete = onDelete
+    }
 
     var body: some View {
         Button(action: action) {
@@ -1040,6 +1176,13 @@ private struct ProjectCard: View {
             .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .buttonStyle(.plain)
+        .overlay {
+            if isKeyboardHighlighted {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(Color.accentColor, lineWidth: 2)
+            }
+        }
+        .accessibilityHint("Opens the project")
         .contextMenu {
             Button("Rename") {
                 onRename()

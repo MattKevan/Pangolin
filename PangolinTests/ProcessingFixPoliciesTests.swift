@@ -97,3 +97,44 @@ struct TranscriptionFlowClaimPolicyTests {
         #expect(TranscriptionFlowClaimPolicy.release(activeFlow: nil, for: .translation) == nil)
     }
 }
+
+// MARK: - ProjectGridFocusPolicy
+//
+// Guards arrow-key navigation across the projects grid: index arithmetic
+// with clamping at the edges and the partial last row.
+
+struct ProjectGridFocusPolicyTests {
+    @Test("returns nil for an empty grid or an out-of-range index")
+    func invalidInputsReturnNil() {
+        #expect(ProjectGridFocusPolicy.nextIndex(from: 0, columnCount: 3, itemCount: 0, direction: .right) == nil)
+        #expect(ProjectGridFocusPolicy.nextIndex(from: -1, columnCount: 3, itemCount: 4, direction: .right) == nil)
+        #expect(ProjectGridFocusPolicy.nextIndex(from: 4, columnCount: 3, itemCount: 4, direction: .right) == nil)
+    }
+
+    @Test("horizontal movement clamps at the grid edges")
+    func horizontalClampsAtEdges() {
+        // 4 items in 3 columns -> rows [0,1,2], [3]
+        #expect(ProjectGridFocusPolicy.nextIndex(from: 0, columnCount: 3, itemCount: 4, direction: .left) == 0)
+        #expect(ProjectGridFocusPolicy.nextIndex(from: 0, columnCount: 3, itemCount: 4, direction: .right) == 1)
+        #expect(ProjectGridFocusPolicy.nextIndex(from: 2, columnCount: 3, itemCount: 4, direction: .right) == 3)
+        #expect(ProjectGridFocusPolicy.nextIndex(from: 3, columnCount: 3, itemCount: 4, direction: .right) == 3)
+        #expect(ProjectGridFocusPolicy.nextIndex(from: 3, columnCount: 3, itemCount: 4, direction: .left) == 2)
+    }
+
+    @Test("vertical movement steps by the column count and clamps")
+    func verticalStepsByColumnCount() {
+        // 7 items in 3 columns -> rows [0,1,2], [3,4,5], [6]
+        #expect(ProjectGridFocusPolicy.nextIndex(from: 1, columnCount: 3, itemCount: 7, direction: .down) == 4)
+        #expect(ProjectGridFocusPolicy.nextIndex(from: 4, columnCount: 3, itemCount: 7, direction: .up) == 1)
+        // From the first row, up clamps to the start.
+        #expect(ProjectGridFocusPolicy.nextIndex(from: 2, columnCount: 3, itemCount: 7, direction: .up) == 0)
+        // From the partial last row, down clamps to the last item.
+        #expect(ProjectGridFocusPolicy.nextIndex(from: 6, columnCount: 3, itemCount: 7, direction: .down) == 6)
+    }
+
+    @Test("single-column grid moves one row per press")
+    func singleColumnStepsByOne() {
+        #expect(ProjectGridFocusPolicy.nextIndex(from: 2, columnCount: 1, itemCount: 5, direction: .down) == 3)
+        #expect(ProjectGridFocusPolicy.nextIndex(from: 2, columnCount: 1, itemCount: 5, direction: .up) == 1)
+    }
+}
