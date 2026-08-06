@@ -99,6 +99,7 @@
 		C36184497F2E7496D80099A1 /* CloudKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C3B0CC4C85ABAAEE8DB5B335 /* CloudKit.framework */; };
 		C50D5400D8E2727DAEF77FC0 /* TimedTranslation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EC118B2F7135B31D5508048 /* TimedTranslation.swift */; };
 		C977B7ACA46D1D13E964AA87 /* VideoFileManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99ACA89AE7A7E00054087363 /* VideoFileManager.swift */; };
+		CD33EBB38A3AC7850EBE35D8 /* SpeechTranscriptionService+Audio.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE895F025E38CA7ECC8AD291 /* SpeechTranscriptionService+Audio.swift */; };
 		CF3C51EC9802684F12BCC36D /* SearchEvidenceBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 460FB924FE1BD275776D10BA /* SearchEvidenceBuilder.swift */; };
 		D0944E97463372EE959C8CBF /* LibraryContentProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81BE753E04BED233142777A /* LibraryContentProvider.swift */; };
 		D2D8828BDB868B8DBAC07CA6 /* FolderNavigationStore+Content.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2B462502461FBB4B0FDF9B6 /* FolderNavigationStore+Content.swift */; };
@@ -247,6 +248,7 @@
 		C89C9AECDD53743EEF15DA29 /* VideoPresentationFrameController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPresentationFrameController.swift; sourceTree = "<group>"; };
 		C94555EDCBAF7CE2C94C371A /* ProjectVideoGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectVideoGrid.swift; sourceTree = "<group>"; };
 		CA4DD32EC9273AD5C842C964 /* PangolinApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PangolinApp.swift; sourceTree = "<group>"; };
+		CE895F025E38CA7ECC8AD291 /* SpeechTranscriptionService+Audio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SpeechTranscriptionService+Audio.swift"; sourceTree = "<group>"; };
 		D0494EEFBA9CEA95212F8DA3 /* VideoModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoModel.swift; sourceTree = "<group>"; };
 		D371D926B3F7AE8BE35CC922 /* FlashcardDeck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlashcardDeck.swift; sourceTree = "<group>"; };
 		D62442D85F5ED8BBC00F0732 /* VideoPlaybackPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlaybackPolicyTests.swift; sourceTree = "<group>"; };
@@ -526,6 +528,7 @@
 			children = (
 				33D1FFB47DD09AA360FB045A /* RemoteVideoDownloadService.swift */,
 				F2A086969CAA09848469601A /* SpeechTranscriptionService.swift */,
+				CE895F025E38CA7ECC8AD291 /* SpeechTranscriptionService+Audio.swift */,
 				435B19BB539D10DF5FE57A17 /* SpeechTranscriptionService+Flashcards.swift */,
 				29430BB1CFD6915F8D94C7A4 /* SpeechTranscriptionService+Translation.swift */,
 				14C2C1B43C64B0D14020753F /* SpeechTranscriptionService+Types.swift */,
@@ -830,6 +833,7 @@
 				A9D2FAECEAB30BC1CB5F0B84 /* SidebarView.swift in Sources */,
 				AE5ECEDB04FCD0593AA599F8 /* SmartCollectionKind.swift in Sources */,
 				2D64A301F7A314A50EE55D34 /* SmartFolderTablePane.swift in Sources */,
+				CD33EBB38A3AC7850EBE35D8 /* SpeechTranscriptionService+Audio.swift in Sources */,
 				6FFB415CB751C085C4348C09 /* SpeechTranscriptionService+Flashcards.swift in Sources */,
 				E12DDDC958715EAC3479D7A8 /* SpeechTranscriptionService+Translation.swift in Sources */,
 				7F0A807452A1AED5980C6ADB /* SpeechTranscriptionService+Types.swift in Sources */,
