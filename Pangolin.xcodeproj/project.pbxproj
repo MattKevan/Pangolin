@@ -76,6 +76,7 @@
 		90C1B84CC2542DC4B6F7646C /* DeletionConfirmationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50BC09F91F4360B7125654F7 /* DeletionConfirmationView.swift */; };
 		9208218345B0176BCA69ED9F /* DetailTranscriptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C92E78AC867647D053B2520 /* DetailTranscriptView.swift */; };
 		988401B5BCD8D919C9782DF9 /* ImportFromURLSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59161F0FC147530F7B139E9B /* ImportFromURLSheet.swift */; };
+		98BE8473DFE793B2DAC797F9 /* SpeechTranscriptionService+Transcription.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AD36110991508DEFF19A86C /* SpeechTranscriptionService+Transcription.swift */; };
 		9AE202483B909790613F7DF7 /* ContentTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23429E992895DE201E2610C1 /* ContentTransfer.swift */; };
 		9EAF12DFD6C9411BF74C2836 /* PangolinApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA4DD32EC9273AD5C842C964 /* PangolinApp.swift */; };
 		9FB8418A22D7938662500206 /* Pangolin.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = 32E26A88A7BB8D934985B233 /* Pangolin.xcdatamodeld */; };
@@ -189,6 +190,7 @@
 		6291936AFC754AA338AA3C48 /* SummaryControlsInspectorPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryControlsInspectorPane.swift; sourceTree = "<group>"; };
 		65E3867F55B97D2B31E1842E /* TranscriptionControlsInspectorPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionControlsInspectorPane.swift; sourceTree = "<group>"; };
 		6A41882A210B40FD0B460F23 /* View+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+Extensions.swift"; sourceTree = "<group>"; };
+		6AD36110991508DEFF19A86C /* SpeechTranscriptionService+Transcription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SpeechTranscriptionService+Transcription.swift"; sourceTree = "<group>"; };
 		6C92E78AC867647D053B2520 /* DetailTranscriptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailTranscriptView.swift; sourceTree = "<group>"; };
 		6EC118B2F7135B31D5508048 /* TimedTranslation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimedTranslation.swift; sourceTree = "<group>"; };
 		6FCD6B573253D5AEE638D14D /* VideoFileStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFileStatusView.swift; sourceTree = "<group>"; };
@@ -533,6 +535,7 @@
 				CE895F025E38CA7ECC8AD291 /* SpeechTranscriptionService+Audio.swift */,
 				435B19BB539D10DF5FE57A17 /* SpeechTranscriptionService+Flashcards.swift */,
 				0A86755660D178B5DBD51736 /* SpeechTranscriptionService+LanguageDetection.swift */,
+				6AD36110991508DEFF19A86C /* SpeechTranscriptionService+Transcription.swift */,
 				29430BB1CFD6915F8D94C7A4 /* SpeechTranscriptionService+Translation.swift */,
 				14C2C1B43C64B0D14020753F /* SpeechTranscriptionService+Types.swift */,
 				F01C442B3C6FFE567C11A767 /* ThumbnailGenerator.swift */,
@@ -839,6 +842,7 @@
 				CD33EBB38A3AC7850EBE35D8 /* SpeechTranscriptionService+Audio.swift in Sources */,
 				6FFB415CB751C085C4348C09 /* SpeechTranscriptionService+Flashcards.swift in Sources */,
 				0C6DDB45242BD0837B7F3E22 /* SpeechTranscriptionService+LanguageDetection.swift in Sources */,
+				98BE8473DFE793B2DAC797F9 /* SpeechTranscriptionService+Transcription.swift in Sources */,
 				E12DDDC958715EAC3479D7A8 /* SpeechTranscriptionService+Translation.swift in Sources */,
 				7F0A807452A1AED5980C6ADB /* SpeechTranscriptionService+Types.swift in Sources */,
 				479BB67D62B6E74B8241F339 /* SpeechTranscriptionService.swift in Sources */,
