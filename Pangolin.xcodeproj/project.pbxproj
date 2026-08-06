@@ -128,6 +128,7 @@
 		F84A0D82CFD2B6F232B80FDF /* ThumbnailCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C959C2624799003EBCD37F8 /* ThumbnailCoordinatorTests.swift */; };
 		F8873EF68C10FED401292766 /* VideoPresentationFrameUpdateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 750434AF20EE1CD1F4E0DB94 /* VideoPresentationFrameUpdateTests.swift */; };
 		F9B841C4C410F7C86B8C6765 /* FolderOutlineRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAF1956461F145BF4A555D6F /* FolderOutlineRow.swift */; };
+		FA42F0180ADD4D55D1670AB9 /* SpeechTranscriptionService+Summarization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20C594D522302EEB3FF435B4 /* SpeechTranscriptionService+Summarization.swift */; };
 		FCAD5122E1D3D0ABCE29116D /* SubtitleMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F15031DC46A09DBA22A04B7 /* SubtitleMatcher.swift */; };
 /* End PBXBuildFile section */
 
@@ -160,6 +161,7 @@
 		14C2C1B43C64B0D14020753F /* SpeechTranscriptionService+Types.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SpeechTranscriptionService+Types.swift"; sourceTree = "<group>"; };
 		1932624497E8687E79BAD42F /* VideoPresentationHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPresentationHost.swift; sourceTree = "<group>"; };
 		1AB79366C9C180F9583DB911 /* VideoPlayerWithPosterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerWithPosterView.swift; sourceTree = "<group>"; };
+		20C594D522302EEB3FF435B4 /* SpeechTranscriptionService+Summarization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SpeechTranscriptionService+Summarization.swift"; sourceTree = "<group>"; };
 		23429E992895DE201E2610C1 /* ContentTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentTransfer.swift; sourceTree = "<group>"; };
 		29430BB1CFD6915F8D94C7A4 /* SpeechTranscriptionService+Translation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SpeechTranscriptionService+Translation.swift"; sourceTree = "<group>"; };
 		310B404B1B230FF1B09DD729 /* FolderTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderTransfer.swift; sourceTree = "<group>"; };
@@ -535,6 +537,7 @@
 				CE895F025E38CA7ECC8AD291 /* SpeechTranscriptionService+Audio.swift */,
 				435B19BB539D10DF5FE57A17 /* SpeechTranscriptionService+Flashcards.swift */,
 				0A86755660D178B5DBD51736 /* SpeechTranscriptionService+LanguageDetection.swift */,
+				20C594D522302EEB3FF435B4 /* SpeechTranscriptionService+Summarization.swift */,
 				6AD36110991508DEFF19A86C /* SpeechTranscriptionService+Transcription.swift */,
 				29430BB1CFD6915F8D94C7A4 /* SpeechTranscriptionService+Translation.swift */,
 				14C2C1B43C64B0D14020753F /* SpeechTranscriptionService+Types.swift */,
@@ -842,6 +845,7 @@
 				CD33EBB38A3AC7850EBE35D8 /* SpeechTranscriptionService+Audio.swift in Sources */,
 				6FFB415CB751C085C4348C09 /* SpeechTranscriptionService+Flashcards.swift in Sources */,
 				0C6DDB45242BD0837B7F3E22 /* SpeechTranscriptionService+LanguageDetection.swift in Sources */,
+				FA42F0180ADD4D55D1670AB9 /* SpeechTranscriptionService+Summarization.swift in Sources */,
 				98BE8473DFE793B2DAC797F9 /* SpeechTranscriptionService+Transcription.swift in Sources */,
 				E12DDDC958715EAC3479D7A8 /* SpeechTranscriptionService+Translation.swift in Sources */,
 				7F0A807452A1AED5980C6ADB /* SpeechTranscriptionService+Types.swift in Sources */,
