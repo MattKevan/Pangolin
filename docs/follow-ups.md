@@ -45,7 +45,10 @@
       `VideoFileManager` (1.2k), `ProjectsView` (1.5k), `DetailView` (1.4k),
       `PangolinTests.swift` (2k). God-class + large-file/type/function-length items.
       Progress: ProjectsView (`77c1a06`), PangolinTests (`f185c24`), DetailView (`fb0ced4`) split.
-      Remaining: SpeechTranscriptionService (2261), ProcessingQueueManager (1505).
+      Remaining: none — all six god-files split. SpeechTranscriptionService (2261) -> 550 + six extension
+      files (Types/Translation/Flashcards/Audio/LanguageDetection/Transcription/Summarization) via
+      subagent-driven split (`docs/superpowers/plans/2026-08-05-speech-transcription-service-split.md`).
+      PENDING: manual smoke of transcription/translation/summarization flows in the app.
 - [x] **Merge policy (audit M2):** editing viewContext now uses
       `NSMergeByPropertyObjectTrump` (`577720e`) so CloudKit merges can no longer silently
       overwrite unsaved user edits.

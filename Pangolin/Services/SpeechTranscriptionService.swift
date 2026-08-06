@@ -545,6 +545,5 @@ class SpeechTranscriptionService: ObservableObject {
         }
     }
 
-    // MARK: - Private helpers (existing)
 
 }
