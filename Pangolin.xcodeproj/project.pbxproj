@@ -60,6 +60,7 @@
 		7720E19D0FD7B9525C2731E7 /* FlashcardsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02A596FCF8EA79F240A4848F /* FlashcardsView.swift */; };
 		78C9E2382B4F3539FDB2C9C8 /* LibraryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8796FDF9EC95EE40753861E0 /* LibraryManager.swift */; };
 		7EF2B5F36C99B3C24F358182 /* ThumbnailGeneratorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2346E0EC9B27AD701DF008D /* ThumbnailGeneratorTests.swift */; };
+		7F0A807452A1AED5980C6ADB /* SpeechTranscriptionService+Types.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14C2C1B43C64B0D14020753F /* SpeechTranscriptionService+Types.swift */; };
 		7F0F48FD5ABB8C38A24436E2 /* VideoLibraryOptimizationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 591DAA7E1F4BC8D002CFE788 /* VideoLibraryOptimizationManager.swift */; };
 		7FED2BBECB69485730C29B49 /* ProjectsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 346FC9F3477015577CC63631 /* ProjectsStoreTests.swift */; };
 		81DB7AB699030A33F4E52764 /* TranscriptionControlsInspectorPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65E3867F55B97D2B31E1842E /* TranscriptionControlsInspectorPane.swift */; };
@@ -150,6 +151,7 @@
 		0B4624CAFBC734D7A367EA26 /* ProjectGridPolicies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectGridPolicies.swift; sourceTree = "<group>"; };
 		0F15031DC46A09DBA22A04B7 /* SubtitleMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubtitleMatcher.swift; sourceTree = "<group>"; };
 		10D905C880B75A0795D8B506 /* InlineErrorBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineErrorBanner.swift; sourceTree = "<group>"; };
+		14C2C1B43C64B0D14020753F /* SpeechTranscriptionService+Types.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SpeechTranscriptionService+Types.swift"; sourceTree = "<group>"; };
 		1932624497E8687E79BAD42F /* VideoPresentationHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPresentationHost.swift; sourceTree = "<group>"; };
 		1AB79366C9C180F9583DB911 /* VideoPlayerWithPosterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerWithPosterView.swift; sourceTree = "<group>"; };
 		23429E992895DE201E2610C1 /* ContentTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentTransfer.swift; sourceTree = "<group>"; };
@@ -520,6 +522,7 @@
 			children = (
 				33D1FFB47DD09AA360FB045A /* RemoteVideoDownloadService.swift */,
 				F2A086969CAA09848469601A /* SpeechTranscriptionService.swift */,
+				14C2C1B43C64B0D14020753F /* SpeechTranscriptionService+Types.swift */,
 				F01C442B3C6FFE567C11A767 /* ThumbnailGenerator.swift */,
 				EBCD30D40C1C026BD349728F /* VideoUploadOptimizer.swift */,
 			);
@@ -821,6 +824,7 @@
 				A9D2FAECEAB30BC1CB5F0B84 /* SidebarView.swift in Sources */,
 				AE5ECEDB04FCD0593AA599F8 /* SmartCollectionKind.swift in Sources */,
 				2D64A301F7A314A50EE55D34 /* SmartFolderTablePane.swift in Sources */,
+				7F0A807452A1AED5980C6ADB /* SpeechTranscriptionService+Types.swift in Sources */,
 				479BB67D62B6E74B8241F339 /* SpeechTranscriptionService.swift in Sources */,
 				8CE05D483BC3AAE518A151F8 /* StoragePolicyManager.swift in Sources */,
 				E72D0163211BE06DF347B1D7 /* StorageSettingsPane.swift in Sources */,
