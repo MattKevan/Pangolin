@@ -97,25 +97,18 @@ final class CoreDataStack {
     private func createPersistentContainer() async throws -> NSPersistentCloudKitContainer {
         Logger.coredata.info("STACK: Creating NSPersistentCloudKitContainer...")
 
-        let storeURL = libraryURL.appendingPathComponent("Library.sqlite")
+        let storeURL = Self.storeURL(forLibraryAt: libraryURL)
         Logger.coredata.info("STACK: Database location: \(storeURL.path)")
 
-        var container = makeContainer(storeURL: storeURL)
+        let container = makeContainer(storeURL: storeURL)
 
         do {
             try await loadStores(of: container)
         } catch let error as NSError where Self.isStoreCorruption(error) {
+            // Never rebuild silently: the user may have edits that haven't synced yet. The caller
+            // asks first, then calls quarantineStore(at:) and loads again.
             Logger.coredata.error("STACK: Database corruption detected: \(error), \(error.userInfo)")
-            try Self.moveCorruptedStoreAside(storeURL: storeURL)
-
-            // A container that failed to load is not reused; retry once with a fresh one.
-            container = makeContainer(storeURL: storeURL)
-            do {
-                try await loadStores(of: container)
-            } catch {
-                Logger.coredata.error("STACK: Reload after recovery failed: \(error)")
-                throw CoreDataStackError.loadPersistentStoreFailed(error)
-            }
+            throw CoreDataStackError.storeCorrupted(error)
         } catch {
             Logger.coredata.error("STACK: Core Data load error: \(error)")
             throw CoreDataStackError.loadPersistentStoreFailed(error)
@@ -275,9 +268,24 @@ final class CoreDataStack {
 
     // MARK: - Database Recovery
 
-    /// SQLITE_CORRUPT (11) and SQLITE_NOTADB (26), on the error or anything it wraps.
-    nonisolated private static func isStoreCorruption(_ error: NSError) -> Bool {
-        if error.domain == NSSQLiteErrorDomain, error.code == 11 || error.code == 26 {
+    nonisolated static func storeURL(forLibraryAt libraryURL: URL) -> URL {
+        libraryURL.appendingPathComponent("Library.sqlite")
+    }
+
+    /// True when Core Data reports a damaged or non-database file: SQLITE_CORRUPT (11) or
+    /// SQLITE_NOTADB (26), as the error's own code, as the `NSSQLiteErrorDomain` entry Core Data
+    /// puts in userInfo, or on an underlying error; or Cocoa's NSFileReadCorruptFileError (259).
+    nonisolated static func isStoreCorruption(_ error: NSError) -> Bool {
+        let sqliteCorruptionCodes: Set<Int> = [11, 26]
+        let fileReadCorruptFileError = 259
+
+        if error.domain == NSSQLiteErrorDomain, sqliteCorruptionCodes.contains(error.code) {
+            return true
+        }
+        if let code = error.userInfo[NSSQLiteErrorDomain] as? Int, sqliteCorruptionCodes.contains(code) {
+            return true
+        }
+        if error.domain == NSCocoaErrorDomain, error.code == fileReadCorruptFileError {
             return true
         }
         if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError {
@@ -288,8 +296,8 @@ final class CoreDataStack {
 
     /// Moves the database and its WAL/SHM sidecars aside together, so a stale WAL
     /// is never replayed onto the fresh database. The backup is kept for inspection.
-    nonisolated private static func moveCorruptedStoreAside(storeURL: URL) throws {
-        Logger.coredata.warning("STACK: Moving corrupted database aside...")
+    nonisolated static func quarantineStore(at storeURL: URL) throws {
+        Logger.coredata.warning("STACK: Moving database aside...")
 
         let fileManager = FileManager.default
         let stamp = Int(Date().timeIntervalSince1970)
@@ -319,12 +327,15 @@ final class CoreDataStack {
 }
 
 enum CoreDataStackError: LocalizedError {
+    case storeCorrupted(Error)
     case loadPersistentStoreFailed(Error)
     case persistentStoreURLMissing
     case containerNotInitialized
 
     var errorDescription: String? {
         switch self {
+        case .storeCorrupted(let error):
+            return "The library database is corrupted: \(error.localizedDescription)"
         case .loadPersistentStoreFailed(let error):
             return "Failed to load persistent store: \(error.localizedDescription)"
         case .persistentStoreURLMissing:

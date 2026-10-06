@@ -259,8 +259,10 @@ final class LibraryManager {
         let stack: CoreDataStack
         do {
             stack = try await CoreDataStack.getInstance(for: url)
-        } catch {
+        } catch CoreDataStackError.storeCorrupted(let error) {
             throw LibraryError.databaseCorrupted(error)
+        } catch {
+            throw LibraryError.unexpected(error)
         }
         coreDataStack = stack
         loadingProgress = 0.5
@@ -399,14 +401,8 @@ final class LibraryManager {
 
         await closeCurrentLibrary()
 
-        let databasePath = libraryURL.appendingPathComponent("Library.sqlite").path
-        for path in [databasePath, databasePath + "-wal", databasePath + "-shm"] where fileManager.fileExists(atPath: path) {
-            do {
-                try fileManager.removeItem(atPath: path)
-            } catch {
-                Logger.library.warning("LIBRARY: Failed to remove \(path): \(error)")
-            }
-        }
+        // Keep the old database as a backup beside the new one instead of deleting it.
+        try CoreDataStack.quarantineStore(at: CoreDataStack.storeURL(forLibraryAt: libraryURL))
 
         return try await loadLibrary(at: libraryURL)
     }
@@ -535,7 +531,7 @@ enum LibraryError: LocalizedError {
         case .migrationFailed, .saveFailed, .unexpected:
             return "Please try the operation again. If the problem persists, restart the application."
         case .corruptedDatabase, .databaseCorrupted:
-            return "Reset the library to rebuild it. Synced data will download again from iCloud."
+            return "Reset the library to rebuild it. The current database is kept as a backup, and synced data downloads again from iCloud."
         case .insufficientPermissions:
             return "Check file permissions and try again"
         case .diskSpaceInsufficient:
