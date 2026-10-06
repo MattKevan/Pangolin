@@ -261,18 +261,87 @@ struct ProjectsStoreTests {
         #expect(ProjectVideoSelectionPolicy.backgroundSelection() == [])
     }
 
-    @Test("Projects becomes the default destination on startup")
+    @Test("On iPhone the projects list is the default destination on startup")
     @MainActor
-    func projectsIsDefaultStartupDestination() async throws {
+    func projectsListIsDefaultStartupDestinationOnPhone() async throws {
         let (manager, _, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
 
-        let store = FolderNavigationStore(libraryManager: manager)
+        let store = FolderNavigationStore(libraryManager: manager, home: .projectsList)
 
         #expect(store.selectedSidebarItem == .projects)
         #expect(store.currentDetailSurface == .projectsGrid)
 
         await manager.closeCurrentLibrary()
+    }
+
+    @Test("On Mac and iPad All videos is the default destination on startup")
+    @MainActor
+    func allVideosIsDefaultStartupDestinationWithSidebar() async throws {
+        let (manager, _, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let store = FolderNavigationStore(libraryManager: manager, home: .allVideos)
+
+        #expect(store.selectedSidebarItem == .smartCollection(.allVideos))
+        #expect(store.currentDetailSurface == .smartCollectionTable(.allVideos))
+
+        await manager.closeCurrentLibrary()
+    }
+
+    @Test("With a sidebar a project page has no back button")
+    @MainActor
+    func projectPageHasNoBackButtonWithSidebar() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
+        try context.save()
+
+        let sidebarStore = FolderNavigationStore(libraryManager: manager, home: .allVideos)
+        sidebarStore.openProject(project)
+        #expect(sidebarStore.currentDetailSurface == .projectDetail)
+        #expect(!sidebarStore.showsProjectBackButton)
+
+        let phoneStore = FolderNavigationStore(libraryManager: manager, home: .projectsList)
+        phoneStore.openProject(project)
+        #expect(phoneStore.showsProjectBackButton)
+
+        await manager.closeCurrentLibrary()
+    }
+
+    @Test("Deleting the open project returns to the home destination")
+    @MainActor
+    func deletingTheOpenProjectGoesHome() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
+        let projectID = try #require(project.id)
+        try context.save()
+
+        let sidebarStore = FolderNavigationStore(libraryManager: manager, home: .allVideos)
+        sidebarStore.openProject(project)
+        let deleted = await sidebarStore.deleteItems([projectID])
+
+        #expect(deleted)
+        #expect(sidebarStore.selectedProject == nil)
+        #expect(sidebarStore.selectedSidebarItem == .smartCollection(.allVideos))
+
+        await manager.closeCurrentLibrary()
+    }
+
+    @Test("The sidebar lists All videos, Favourites and Recents, and Downloads only on Mac")
+    func sidebarCollections() {
+        #if os(macOS)
+        #expect(SmartCollectionKind.sidebarCases == [.allVideos, .favorites, .recent, .downloads])
+        #else
+        #expect(SmartCollectionKind.sidebarCases == [.allVideos, .favorites, .recent])
+        #endif
+        #expect(SmartCollectionKind.favorites.title == "Favourites")
+        #expect(SmartCollectionKind.recent.title == "Recents")
     }
 
     @Test("Projects query only returns top-level non-smart folders")

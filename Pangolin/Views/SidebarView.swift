@@ -80,21 +80,15 @@ struct SidebarView: View {
 
     var body: some View {
         List(selection: $sidebarSelections) {
-            Section("Pangolin") {
+            Section {
                 sidebarShortcutRow(
                     title: "Search",
                     systemImage: "magnifyingglass",
                     destination: .search,
                     accessibilityID: "sidebar-search"
                 )
-                sidebarShortcutRow(
-                    title: "Projects",
-                    systemImage: "square.grid.2x2",
-                    destination: .projects,
-                    accessibilityID: "sidebar-projects"
-                )
 
-                ForEach(SmartCollectionKind.allCases) { smartCollection in
+                ForEach(SmartCollectionKind.sidebarCases) { smartCollection in
                     sidebarShortcutRow(
                         title: smartCollection.title,
                         systemImage: smartCollection.sidebarIcon,
@@ -104,18 +98,28 @@ struct SidebarView: View {
                 }
             }
 
-            Section("Projects") {
+            Section {
                 ForEach(sidebarProjects) { row in
                     projectSidebarRow(row.project)
                         .tag(SidebarSelection.folder(row.project))
                 }
+            } header: {
+                HStack {
+                    Text("Projects")
+                    Spacer()
+                    Button {
+                        requestNewProject()
+                    } label: {
+                        Label("New project", systemImage: "plus")
+                            .labelStyle(.iconOnly)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(libraryManager.currentLibrary == nil)
+                    .accessibilityIdentifier("sidebar-new-project")
+                }
             }
         }
-        #if os(macOS)
         .listStyle(.sidebar)
-        #else
-        .listStyle(.insetGrouped)
-        #endif
         .projectFolderDrop(
             isEnabled: libraryManager.currentLibrary != nil,
             libraryManager: libraryManager

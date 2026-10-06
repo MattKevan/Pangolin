@@ -3,6 +3,9 @@ import SwiftUI
 import CoreData
 import Combine
 import Observation
+#if canImport(UIKit)
+import UIKit
+#endif
 // MARK: - Navigation types
 
 // MARK: - Sidebar Routing Types
@@ -46,6 +49,23 @@ enum LibrarySidebarDestination: Hashable, Identifiable {
 }
 
 typealias SidebarSelection = LibrarySidebarDestination
+
+/// Where the library opens, and where navigation falls back to when there is nothing better.
+///
+/// The iPhone starts from the list of projects. The Mac and iPad have a sidebar that already lists
+/// every project, so they start from All videos and never show a separate projects page.
+enum LibraryHome: Equatable {
+    case projectsList
+    case allVideos
+
+    static var platformDefault: LibraryHome {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom == .phone ? .projectsList : .allVideos
+        #else
+        .allVideos
+        #endif
+    }
+}
 
 enum LibraryDetailSurface: Equatable {
     case searchResults

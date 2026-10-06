@@ -177,7 +177,7 @@ struct VideoNavigationSequenceTests {
         await manager.closeCurrentLibrary()
     }
 
-    @Test("Back from a video without an origin falls back to Projects")
+    @Test("On iPhone, back from a video without an origin falls back to the projects list")
     @MainActor
     func originlessVideoBackFallsBackToProjects() async throws {
         let (manager, context, tempRoot) = try await makeLibraryContext()
@@ -187,13 +187,35 @@ struct VideoNavigationSequenceTests {
         let video = try makeVideo(title: "Orphan", thumbnailData: nil, in: context, folder: nil, library: library)
         try context.save()
 
-        let store = FolderNavigationStore(libraryManager: manager)
+        let store = FolderNavigationStore(libraryManager: manager, home: .projectsList)
         store.selectedSidebarItem = nil
         store.openVideoDetailWithoutLocation(video)
         store.navigateBackFromDetail()
 
         #expect(store.currentDestination == .projects)
         #expect(store.currentDetailSurface == .projectsGrid)
+        #expect(store.selectedVideo == nil)
+
+        await manager.closeCurrentLibrary()
+    }
+
+    @Test("On Mac and iPad, back from a video without an origin falls back to All videos")
+    @MainActor
+    func originlessVideoBackFallsBackToAllVideos() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let video = try makeVideo(title: "Orphan", thumbnailData: nil, in: context, folder: nil, library: library)
+        try context.save()
+
+        let store = FolderNavigationStore(libraryManager: manager, home: .allVideos)
+        store.selectedSidebarItem = nil
+        store.openVideoDetailWithoutLocation(video)
+        store.navigateBackFromDetail()
+
+        #expect(store.currentDestination == .smartCollection(.allVideos))
+        #expect(store.currentDetailSurface == .smartCollectionTable(.allVideos))
         #expect(store.selectedVideo == nil)
 
         await manager.closeCurrentLibrary()
@@ -211,7 +233,7 @@ struct VideoNavigationSequenceTests {
         let second = try makeVideo(title: "Second", thumbnailData: nil, in: context, folder: project, library: library)
         try context.save()
 
-        let store = FolderNavigationStore(libraryManager: manager)
+        let store = FolderNavigationStore(libraryManager: manager, home: .projectsList)
         store.activateSearch()
         store.openFromSearchCitation(first, seekTo: 12, source: nil)
         #expect(store.pendingSearchSeekRequest != nil)

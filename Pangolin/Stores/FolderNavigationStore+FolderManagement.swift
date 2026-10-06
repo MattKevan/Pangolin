@@ -324,6 +324,9 @@ extension FolderNavigationStore {
             return false
         }
         
+        // Read this now: once the save lands the deleted object can no longer be asked for its id.
+        let deletesOpenProject = selectedProject?.id.map(itemIDs.contains) ?? false
+
         do {
             // Find all folders to delete
             let folderRequest = Folder.fetchRequest()
@@ -403,6 +406,13 @@ extension FolderNavigationStore {
                    let selectedVideoID = selectedVideo.id,
                    deletedVideoIDs.contains(selectedVideoID) {
                     self.selectedVideo = nil
+                }
+
+                if deletesOpenProject {
+                    selectedProject = nil
+                    selectedTopLevelFolder = nil
+                    currentFolderID = nil
+                    redirectEmptyProjectsDestinationIfNeeded()
                 }
                 
                 return true

@@ -65,6 +65,14 @@ class FolderNavigationStore {
         selectedSidebarItem
     }
 
+    /// The destination to open, and to return to, when nothing more specific applies.
+    var homeDestination: LibrarySidebarDestination {
+        switch home {
+        case .projectsList: .projects
+        case .allVideos: .smartCollection(.allVideos)
+        }
+    }
+
     var isSearchMode: Bool {
         if case .search = currentDestination {
             return true
@@ -127,6 +135,7 @@ class FolderNavigationStore {
     
     // MARK: - Dependencies
     let libraryManager: LibraryManager
+    let home: LibraryHome
     @ObservationIgnored private var projectSectionCache: [ProjectSectionCacheKey: [ProjectSectionSnapshot]] = [:]
     @ObservationIgnored private var projectSectionCacheRevision = -1
     @ObservationIgnored nonisolated(unsafe) private var libraryObservationTask: Task<Void, Never>?
@@ -137,8 +146,9 @@ class FolderNavigationStore {
     @ObservationIgnored private var hasCapturedVideoNavigationOrigin = false
     private let fallbackProjectSectionTitle = "Videos"
     
-    init(libraryManager: LibraryManager) {
+    init(libraryManager: LibraryManager, home: LibraryHome = .platformDefault) {
         self.libraryManager = libraryManager
+        self.home = home
 
         observeLibraryChanges()
 
@@ -744,7 +754,11 @@ class FolderNavigationStore {
     }
 
     var showsProjectBackButton: Bool {
-        currentDetailSurface == .projectDetail && currentDestination == .projects && selectedProject != nil
+        // With a sidebar listing every project there is nothing for a project page to go back to.
+        home == .projectsList
+            && currentDetailSurface == .projectDetail
+            && currentDestination == .projects
+            && selectedProject != nil
     }
 
     var showsVideoBackButton: Bool {
@@ -794,7 +808,7 @@ class FolderNavigationStore {
             return
         }
 
-        guard currentDestination == .projects, selectedProject != nil else { return }
+        guard home == .projectsList, currentDestination == .projects, selectedProject != nil else { return }
 
         if selectionKey(selectedSidebarItem) != selectionKey(.projects) {
             suppressNextSidebarSelectionChange = true
@@ -838,11 +852,17 @@ class FolderNavigationStore {
         case .sidebar(let destination):
             restoreSidebarDestination(destination)
         case .none:
-            restoreSidebarDestination(.projects)
+            restoreSidebarDestination(homeDestination)
         }
     }
 
-    private func restoreSidebarDestination(_ destination: LibrarySidebarDestination) {
+    private func restoreSidebarDestination(_ requested: LibrarySidebarDestination) {
+        var destination = requested
+        // A projects page with no project open only exists on the iPhone.
+        if case .projects = requested, home == .allVideos {
+            destination = homeDestination
+        }
+
         if selectionKey(selectedSidebarItem) != selectionKey(destination) {
             suppressNextSidebarSelectionChange = true
             selectedSidebarItem = destination
@@ -858,7 +878,7 @@ class FolderNavigationStore {
         case .folder(let folder):
             applyFolderSelection(folder, clearSelectedVideo: true)
         case .video:
-            restoreSidebarDestination(.projects)
+            restoreSidebarDestination(homeDestination)
         }
     }
 

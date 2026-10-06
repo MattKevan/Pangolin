@@ -8,6 +8,7 @@ import Observation
 extension FolderNavigationStore {
     // MARK: - Content Fetching
     func refreshContent() {
+        redirectEmptyProjectsDestinationIfNeeded()
         backfillProjectMetadataIfNeeded()
         contentRevision &+= 1
         if currentDestination == nil && currentFolderID == nil {
@@ -143,7 +144,17 @@ extension FolderNavigationStore {
             return
         }
 
-        selectedSidebarItem = .projects
+        selectedSidebarItem = homeDestination
+    }
+
+    /// Without a projects list, an open projects destination with no project (the open project was
+    /// deleted, say) would show an empty page. Send it home instead.
+    func redirectEmptyProjectsDestinationIfNeeded() {
+        guard home == .allVideos,
+              case .projects = currentDestination,
+              selectedProject == nil,
+              selectedVideo == nil else { return }
+        selectedSidebarItem = homeDestination
     }
 
     /// Fills in missing project titles and keeps each project's thumbnail video id current.
