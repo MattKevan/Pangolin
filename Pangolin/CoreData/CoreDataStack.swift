@@ -6,142 +6,149 @@ import CloudKit
 
 /// Singleton Core Data stack that ensures only one instance per database
 /// Cloud-backed Core Data stack for Pangolin libraries
-class CoreDataStack {
+@MainActor
+final class CoreDataStack {
     private let modelName = "Pangolin"
     private let libraryURL: URL
     private let cloudContainerIdentifier = "iCloud.com.newindustries.pangolin"
     let cloudEventSourceID = UUID()
 
-    static let persistentStoreFileProtectionOptionValue =
+    /// Tags writes made by this app in persistent history so they can be told apart from CloudKit imports.
+    nonisolated static let transactionAuthor = "pangolin-app"
+
+    /// CloudKit mirroring needs the iCloud entitlement, which unit-test hosts don't have;
+    /// without it Core Data traps on the first store load. Tests get a plain local store.
+    nonisolated(unsafe) static var isCloudSyncEnabled =
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
+
+    nonisolated static let persistentStoreFileProtectionOptionValue =
         FileProtectionType.completeUntilFirstUserAuthentication.rawValue
-    
+
     // MARK: - Singleton Management
     private static var instances: [String: CoreDataStack] = [:]
-    private static let instanceQueue = DispatchQueue(label: "com.pangolin.coredata.instances", attributes: .concurrent)
-    
-    /// Get or create a CoreDataStack instance for the given library URL
-    /// This ensures only one stack per database file, preventing corruption
+    private static var loadingTasks: [String: Task<CoreDataStack, Error>] = [:]
+
+    /// Get or create a CoreDataStack instance for the given library URL.
+    /// Concurrent callers for the same path share one load, so only one container
+    /// ever opens a given database file.
     static func getInstance(for libraryURL: URL) async throws -> CoreDataStack {
         let key = libraryURL.path
 
-        if let existing = instanceQueue.sync(execute: { instances[key] }) {
+        if let existing = instances[key] {
             Logger.coredata.info("STACK: Reusing existing CoreDataStack for \(key)")
-            try await existing.loadPersistentContainerIfNeeded()
             return existing
         }
 
-        Logger.coredata.info("STACK: Creating new CoreDataStack for \(key)")
-        let stack = CoreDataStack(libraryURL: libraryURL)
-        try await stack.loadPersistentContainerIfNeeded()
-
-        var resolvedStack: CoreDataStack?
-        instanceQueue.sync(flags: .barrier) {
-            if let existing = instances[key] {
-                resolvedStack = existing
-            } else {
-                instances[key] = stack
-                resolvedStack = stack
-            }
+        if let loading = loadingTasks[key] {
+            Logger.coredata.info("STACK: Awaiting in-flight CoreDataStack load for \(key)")
+            return try await loading.value
         }
-        return resolvedStack ?? stack
+
+        Logger.coredata.info("STACK: Creating new CoreDataStack for \(key)")
+        let task = Task { () throws -> CoreDataStack in
+            let stack = CoreDataStack(libraryURL: libraryURL)
+            try await stack.loadPersistentContainer()
+            return stack
+        }
+        loadingTasks[key] = task
+        defer { loadingTasks[key] = nil }
+
+        let stack = try await task.value
+        instances[key] = stack
+        return stack
     }
-    
+
     /// Release a CoreDataStack instance for the given library URL
     static func releaseInstance(for libraryURL: URL) {
         let key = libraryURL.path
-        let stack = instanceQueue.sync(flags: .barrier) {
-            instances.removeValue(forKey: key)
-        }
-        if let stack {
+        if let stack = instances.removeValue(forKey: key) {
             Logger.coredata.info("STACK: Releasing CoreDataStack for \(key)")
             stack.cleanup()
         }
     }
-    
+
     // MARK: - Core Data Properties
-    private var _persistentContainer: NSPersistentCloudKitContainer?
-    private var cloudEventObserver: NSObjectProtocol?
-    private let containerQueue = DispatchQueue(label: "com.pangolin.coredata.container")
-    
+    private var persistentContainer: NSPersistentCloudKitContainer?
+    // Read from the nonisolated deinit, which only runs once nothing else can touch the stack.
+    nonisolated(unsafe) private var cloudEventObserver: NSObjectProtocol?
+
     var viewContext: NSManagedObjectContext? {
-        return containerQueue.sync {
-            _persistentContainer?.viewContext
-        }
+        persistentContainer?.viewContext
     }
-    
+
     // MARK: - Initialization
     private init(libraryURL: URL) {
         self.libraryURL = libraryURL
         Logger.coredata.info("STACK: Initialized CoreDataStack for \(libraryURL.path)")
     }
-    
+
     deinit {
         Logger.coredata.info("STACK: CoreDataStack deallocated")
-        cleanup()
+        if let cloudEventObserver {
+            NotificationCenter.default.removeObserver(cloudEventObserver)
+        }
     }
-    
-    // MARK: - Container Creation
-    private func loadPersistentContainerIfNeeded() async throws {
-        if _persistentContainer != nil {
-            return
-        }
 
-        let container = try await createPersistentContainer()
-        await MainActor.run {
-            _persistentContainer = container
-        }
+    // MARK: - Container Creation
+    private func loadPersistentContainer() async throws {
+        persistentContainer = try await createPersistentContainer()
     }
 
     private func createPersistentContainer() async throws -> NSPersistentCloudKitContainer {
         Logger.coredata.info("STACK: Creating NSPersistentCloudKitContainer...")
 
-        let container = NSPersistentCloudKitContainer(name: modelName)
-        
-        // Set up database file location
         let storeURL = libraryURL.appendingPathComponent("Library.sqlite")
         Logger.coredata.info("STACK: Database location: \(storeURL.path)")
-        
-        let storeDescription = createStoreDescription(for: storeURL)
-        container.persistentStoreDescriptions = [storeDescription]
-        
+
+        var container = makeContainer(storeURL: storeURL)
+
+        do {
+            try await loadStores(of: container)
+        } catch let error as NSError where Self.isStoreCorruption(error) {
+            Logger.coredata.error("STACK: Database corruption detected: \(error), \(error.userInfo)")
+            try Self.moveCorruptedStoreAside(storeURL: storeURL)
+
+            // A container that failed to load is not reused; retry once with a fresh one.
+            container = makeContainer(storeURL: storeURL)
+            do {
+                try await loadStores(of: container)
+            } catch {
+                Logger.coredata.error("STACK: Reload after recovery failed: \(error)")
+                throw CoreDataStackError.loadPersistentStoreFailed(error)
+            }
+        } catch {
+            Logger.coredata.error("STACK: Core Data load error: \(error)")
+            throw CoreDataStackError.loadPersistentStoreFailed(error)
+        }
+
+        Logger.coredata.info("STACK: Persistent store loaded successfully")
+
+        configureViewContext(container.viewContext)
+        registerCloudEventObserver(for: container)
+
+        Logger.coredata.info("STACK: Core Data container configured for CloudKit sync")
+
+        return container
+    }
+
+    private func makeContainer(storeURL: URL) -> NSPersistentCloudKitContainer {
+        let container = NSPersistentCloudKitContainer(name: modelName)
+        container.persistentStoreDescriptions = [createStoreDescription(for: storeURL)]
+        return container
+    }
+
+    private func loadStores(of container: NSPersistentCloudKitContainer) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            container.loadPersistentStores { (storeDescription, error) in
-                if let error = error as NSError? {
-                    Logger.coredata.error("STACK: Core Data load error: \(error), \(error.userInfo)")
-                    
-                    // Handle database corruption with proper recovery
-                    if error.code == 11 || error.domain == NSSQLiteErrorDomain && error.code == 11 {
-                        Logger.coredata.warning("STACK: Database corruption detected - attempting recovery...")
-                        do {
-                            guard let storeURL = storeDescription.url else {
-                                continuation.resume(throwing: CoreDataStackError.persistentStoreURLMissing)
-                                return
-                            }
-                            try CoreDataStack.handleDatabaseCorruptionStatic(storeURL: storeURL)
-                        } catch {
-                            Logger.coredata.error("STACK: Recovery failed: \(error)")
-                            continuation.resume(throwing: error)
-                            return
-                        }
-                    }
-                    continuation.resume(throwing: CoreDataStackError.loadPersistentStoreFailed(error))
+            container.loadPersistentStores { _, error in
+                if let error {
+                    continuation.resume(throwing: error)
                 } else {
-                    Logger.coredata.info("STACK: Persistent store loaded successfully")
                     continuation.resume()
                 }
             }
         }
-
-        // Configure view context
-        configureViewContext(container.viewContext)
-
-        registerCloudEventObserver(for: container)
-
-        Logger.coredata.info("STACK: Core Data container configured for CloudKit sync")
-        
-        return container
     }
-    
+
     private func createStoreDescription(for storeURL: URL) -> NSPersistentStoreDescription {
         let storeDescription = NSPersistentStoreDescription(url: storeURL)
 
@@ -164,13 +171,14 @@ class CoreDataStack {
         storeDescription.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
         storeDescription.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
 
-        // CloudKit metadata sync
-        storeDescription.cloudKitContainerOptions = NSPersistentCloudKitContainerOptions(containerIdentifier: cloudContainerIdentifier)
+        if Self.isCloudSyncEnabled {
+            storeDescription.cloudKitContainerOptions = NSPersistentCloudKitContainerOptions(containerIdentifier: cloudContainerIdentifier)
+        }
 
         // Additional options for better stability
         storeDescription.setOption(10000 as NSNumber, forKey: "busy_timeout")
 
-        Logger.coredata.info("STACK: Core Data store configured with WAL mode + CloudKit container \(self.cloudContainerIdentifier)")
+        Logger.coredata.info("STACK: Core Data store configured with WAL mode, CloudKit sync \(Self.isCloudSyncEnabled ? "on" : "off")")
         return storeDescription
     }
 
@@ -206,6 +214,7 @@ class CoreDataStack {
         // the following save would persist it — silent edit loss.
         context.automaticallyMergesChangesFromParent = true
         context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+        context.transactionAuthor = Self.transactionAuthor
 
         // Do not pin the view context to a query generation. A long-lived pinned
         // reader prevents SQLite from truncating its WAL while CloudKit writes.
@@ -244,51 +253,56 @@ class CoreDataStack {
         }
     }
     
-    func performBackgroundTask<T>(_ block: @escaping (NSManagedObjectContext) throws -> T) async throws -> T {
-        let container = try containerQueue.sync { () throws -> NSPersistentCloudKitContainer in
-            guard let container = _persistentContainer else {
-                throw CoreDataStackError.containerNotInitialized
-            }
-            return container
+    func performBackgroundTask<T: Sendable>(
+        _ block: @escaping @Sendable (NSManagedObjectContext) throws -> T
+    ) async throws -> T {
+        guard let container = persistentContainer else {
+            throw CoreDataStackError.containerNotInitialized
         }
 
         return try await withCheckedThrowingContinuation { continuation in
             container.performBackgroundTask { context in
+                context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+                context.transactionAuthor = Self.transactionAuthor
                 do {
-                    let result = try block(context)
-                    continuation.resume(returning: result)
+                    continuation.resume(returning: try block(context))
                 } catch {
                     continuation.resume(throwing: error)
                 }
             }
         }
     }
-    
+
     // MARK: - Database Recovery
-    private static func handleDatabaseCorruptionStatic(storeURL: URL) throws {
-        Logger.coredata.warning("STACK: Attempting database corruption recovery...")
-        
-        let fileManager = FileManager.default
-        let backupURL = storeURL.appendingPathExtension("corrupted-\(Int(Date().timeIntervalSince1970))")
-        
-        if fileManager.fileExists(atPath: storeURL.path) {
-            try fileManager.moveItem(at: storeURL, to: backupURL)
-            Logger.coredata.info("STACK: Corrupted database backed up to \(backupURL.lastPathComponent)")
+
+    /// SQLITE_CORRUPT (11) and SQLITE_NOTADB (26), on the error or anything it wraps.
+    nonisolated private static func isStoreCorruption(_ error: NSError) -> Bool {
+        if error.domain == NSSQLiteErrorDomain, error.code == 11 || error.code == 26 {
+            return true
         }
-        
-        // Remove WAL and SHM files
-        let walURL = storeURL.appendingPathExtension("sqlite-wal")
-        let shmURL = storeURL.appendingPathExtension("sqlite-shm")
-        
-        [walURL, shmURL].forEach { url in
-            if fileManager.fileExists(atPath: url.path) {
-                try? fileManager.removeItem(at: url)
-            }
+        if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError {
+            return isStoreCorruption(underlying)
         }
-        
-        Logger.coredata.info("STACK: Database recovery prepared - new database will be created on next load")
+        return false
     }
-    
+
+    /// Moves the database and its WAL/SHM sidecars aside together, so a stale WAL
+    /// is never replayed onto the fresh database. The backup is kept for inspection.
+    nonisolated private static func moveCorruptedStoreAside(storeURL: URL) throws {
+        Logger.coredata.warning("STACK: Moving corrupted database aside...")
+
+        let fileManager = FileManager.default
+        let stamp = Int(Date().timeIntervalSince1970)
+
+        for suffix in ["", "-wal", "-shm"] {
+            let source = URL(fileURLWithPath: storeURL.path + suffix)
+            guard fileManager.fileExists(atPath: source.path) else { continue }
+            let backup = URL(fileURLWithPath: source.path + ".corrupted-\(stamp)")
+            try fileManager.moveItem(at: source, to: backup)
+            Logger.coredata.info("STACK: Backed up \(source.lastPathComponent) to \(backup.lastPathComponent)")
+        }
+    }
+
     // MARK: - Cleanup
     private func cleanup() {
         Logger.coredata.info("STACK: Cleaning up CoreDataStack...")
@@ -298,10 +312,7 @@ class CoreDataStack {
             self.cloudEventObserver = nil
         }
 
-        // Clear container reference
-        containerQueue.sync {
-            _persistentContainer = nil
-        }
+        persistentContainer = nil
 
         Logger.coredata.info("STACK: CoreDataStack cleanup complete")
     }
