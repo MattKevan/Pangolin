@@ -8,7 +8,7 @@ import SwiftUI
 struct VideoPresentationHost: View {
     let selectedVideo: Video?
     let isVideoDetailActive: Bool
-    @ObservedObject var playerViewModel: VideoPlayerViewModel
+    let playerViewModel: VideoPlayerViewModel
     @ObservedObject var floatingState: FloatingVideoState
     @ObservedObject var frameController: VideoPresentationFrameController
 

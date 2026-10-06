@@ -16,7 +16,7 @@ struct DetailView: View {
 
     let video: Video?
 
-    @ObservedObject private var playerViewModel: VideoPlayerViewModel
+    private let playerViewModel: VideoPlayerViewModel
     @ObservedObject private var floatingVideoState: FloatingVideoState
     @StateObject private var searchModel = VideoPageSearchModel()
     @State private var selectedInspectorTab: InspectorTab = .transcript
@@ -37,7 +37,7 @@ struct DetailView: View {
         floatingVideoState: FloatingVideoState
     ) {
         self.video = video
-        self._playerViewModel = ObservedObject(wrappedValue: playerViewModel)
+        self.playerViewModel = playerViewModel
         self._floatingVideoState = ObservedObject(wrappedValue: floatingVideoState)
     }
 

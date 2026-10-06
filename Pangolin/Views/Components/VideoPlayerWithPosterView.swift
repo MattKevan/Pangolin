@@ -9,7 +9,7 @@ import SwiftUI
 
 struct VideoPlayerWithPosterView: View {
     let video: Video?
-    @ObservedObject var viewModel: VideoPlayerViewModel
+    let viewModel: VideoPlayerViewModel
     
     var body: some View {
         ZStack {

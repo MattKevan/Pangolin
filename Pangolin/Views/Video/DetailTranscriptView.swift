@@ -106,7 +106,7 @@ struct MergedTranscriptView: View {
     @Environment(LibraryManager.self) private var libraryManager: LibraryManager
 
     @ObservedObject var video: Video
-    @ObservedObject var playerViewModel: VideoPlayerViewModel
+    let playerViewModel: VideoPlayerViewModel
     @ObservedObject var searchModel: VideoPageSearchModel
     let preferredTranslationLocaleIdentifier: String?
     let onRequestScrollToParagraph: (String) -> Void

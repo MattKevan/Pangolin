@@ -30,7 +30,7 @@ struct MainView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var folderStore: FolderNavigationStore
     @StateObject private var searchManager = SearchManager()
-    @StateObject private var playerViewModel = VideoPlayerViewModel()
+    @State private var playerViewModel = VideoPlayerViewModel()
     @StateObject private var floatingVideoState = FloatingVideoState()
     @StateObject private var videoPresentationFrameController = VideoPresentationFrameController()
     @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
@@ -835,7 +835,7 @@ private struct DetailColumnView: View {
     @EnvironmentObject private var searchManager: SearchManager
     @Environment(LibraryManager.self) private var libraryManager: LibraryManager
     @EnvironmentObject private var transcriptionService: SpeechTranscriptionService
-    @ObservedObject var playerViewModel: VideoPlayerViewModel
+    let playerViewModel: VideoPlayerViewModel
     @ObservedObject var floatingVideoState: FloatingVideoState
 
     var body: some View {
@@ -916,7 +916,7 @@ private struct PhoneVideoNavigationStack<Root: View>: View {
 
     let isActive: Bool
     let isSwitchingTabs: Bool
-    @ObservedObject var playerViewModel: VideoPlayerViewModel
+    let playerViewModel: VideoPlayerViewModel
     @ObservedObject var floatingVideoState: FloatingVideoState
     let root: Root
 

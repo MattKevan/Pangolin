@@ -13,7 +13,7 @@ import AppKit
 struct TranslationView: View {
     @Environment(LibraryManager.self) private var libraryManager: LibraryManager
     @ObservedObject var video: Video
-    @ObservedObject var playerViewModel: VideoPlayerViewModel
+    let playerViewModel: VideoPlayerViewModel
     @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
 
     @State private var chunkIndex: TimedTranslation.ChunkIndex?

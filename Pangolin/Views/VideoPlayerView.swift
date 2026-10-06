@@ -4,7 +4,7 @@ import AVKit
 
 #if os(macOS)
 struct VideoPlayerView: NSViewRepresentable {
-    @ObservedObject var viewModel: VideoPlayerViewModel
+    let viewModel: VideoPlayerViewModel
     
     func makeNSView(context: Context) -> AVPlayerView {
         let playerView = AVPlayerView()
@@ -23,7 +23,7 @@ struct VideoPlayerView: NSViewRepresentable {
 }
 #elseif os(iOS)
 struct VideoPlayerView: UIViewControllerRepresentable {
-    @ObservedObject var viewModel: VideoPlayerViewModel
+    let viewModel: VideoPlayerViewModel
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()

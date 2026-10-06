@@ -101,45 +101,47 @@ struct VideoPosterPresentationState: Equatable {
 }
 
 @MainActor
-class VideoPlayerViewModel: NSObject, ObservableObject {
-    @Published var player: AVPlayer?
-    @Published var isPlaying = false
-    @Published var currentTime: TimeInterval = 0
-    @Published var duration: TimeInterval = 0
-    @Published var isLoading = false
-    @Published var volume: Float = 1.0 {
+@Observable
+class VideoPlayerViewModel: NSObject {
+    var player: AVPlayer?
+    var isPlaying = false
+    var currentTime: TimeInterval = 0
+    var duration: TimeInterval = 0
+    var isLoading = false
+    var volume: Float = 1.0 {
         didSet { player?.volume = volume }
     }
-    @Published var playbackRate: Float = 1.0
-    @Published var availableSubtitles: [Subtitle] = []
-    @Published var selectedSubtitle: Subtitle?
-    @Published var currentVideo: Video?
-    @Published var isExternalPlaybackActive = false
-    @Published private(set) var videoAspectRatio = VideoFloatingLayout.fallbackAspectRatio
-    @Published private(set) var posterPresentation = VideoPosterPresentationState()
+    var playbackRate: Float = 1.0
+    var availableSubtitles: [Subtitle] = []
+    var selectedSubtitle: Subtitle?
+    var currentVideo: Video?
+    var isExternalPlaybackActive = false
+    private(set) var videoAspectRatio = VideoFloatingLayout.fallbackAspectRatio
+    private(set) var posterPresentation = VideoPosterPresentationState()
 
     #if os(macOS)
-    weak var playerView: AVPlayerView?
-    private var externalWindow: NSWindow?
-    private var externalPlayerView: AVPlayerView?
+    @ObservationIgnored weak var playerView: AVPlayerView?
+    @ObservationIgnored private var externalWindow: NSWindow?
+    @ObservationIgnored private var externalPlayerView: AVPlayerView?
     #endif
     
-    private var timeObserver: Any?
-    private var timeObserverOwner: AVPlayer?
-    private var playbackEndedCancellable: AnyCancellable?
-    private var durationStatusCancellable: AnyCancellable?
-    private var playerStateCancellable: AnyCancellable?
-    private var buildTask: Task<Void, Never>?
-    private var pendingSeek: (videoID: UUID?, seconds: TimeInterval)?
-    private var loadGeneration: UInt = 0
-    private var loadingOperation: VideoPlaybackOperation.Token?
+    @ObservationIgnored private var timeObserver: Any?
+    @ObservationIgnored private var timeObserverOwner: AVPlayer?
+    @ObservationIgnored private var playbackEndedCancellable: AnyCancellable?
+    @ObservationIgnored private var durationStatusCancellable: AnyCancellable?
+    @ObservationIgnored private var playerStateCancellable: AnyCancellable?
+    @ObservationIgnored private var buildTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingSeek: (videoID: UUID?, seconds: TimeInterval)?
+    @ObservationIgnored private var lastPersistedPosition: TimeInterval = 0
+    @ObservationIgnored private var loadGeneration: UInt = 0
+    @ObservationIgnored private var loadingOperation: VideoPlaybackOperation.Token?
     
     override init() {
         super.init()
     }
 
     // Cache directory for converted VTT files from SRT
-    private lazy var subtitlesCacheDirectory: URL? = {
+    @ObservationIgnored private lazy var subtitlesCacheDirectory: URL? = {
         do {
             let base = try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
             let dir = base.appendingPathComponent("Pangolin/Subtitles", isDirectory: true)
@@ -156,6 +158,9 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
             from: currentVideo?.id,
             to: video.id
         )
+        if isVideoChange {
+            persistPlaybackPosition()
+        }
         buildTask?.cancel()
         loadGeneration &+= 1
         let token = VideoPlaybackOperation.Token(
@@ -246,6 +251,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     func pause() {
         player?.pause()
         isPlaying = false
+        persistPlaybackPosition()
     }
     
     func togglePlayPause() {
@@ -300,6 +306,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
                     self.isPlaying = false
                 }
                 self.currentTime = target
+                self.persistPlaybackPosition()
             }
         }
     }
@@ -314,7 +321,11 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         }
 
         pendingSeek = (video.id, target)
-        currentTime = target
+        // A different video resets currentTime itself when it loads; setting it here would
+        // make the outgoing video's position look like the new target.
+        if isSameVideo {
+            currentTime = target
+        }
         video.playbackPosition = target
 
         if isSameVideo {
@@ -393,6 +404,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
     }
 
     func clearLoadedVideo() {
+        persistPlaybackPosition()
         buildTask?.cancel()
         loadGeneration &+= 1
         resetPlayerObservers()
@@ -680,7 +692,7 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
                     self.duration = CMTimeGetSeconds(duration)
                 }
 
-                self.savePlaybackPosition()
+                self.persistPlaybackPositionIfNeeded()
             }
         }
     }
@@ -747,8 +759,21 @@ class VideoPlayerViewModel: NSObject, ObservableObject {
         }
     }
     
-    private func savePlaybackPosition() {
-        currentVideo?.playbackPosition = currentTime
+    /// Playback position is written to the video every few seconds while playing, not on every
+    /// time tick: each write notifies every view observing the video and dirties the context.
+    private static let positionPersistInterval: TimeInterval = 5
+
+    private func persistPlaybackPositionIfNeeded() {
+        guard abs(currentTime - lastPersistedPosition) >= Self.positionPersistInterval else { return }
+        persistPlaybackPosition()
+    }
+
+    private func persistPlaybackPosition() {
+        guard let currentVideo else { return }
+        lastPersistedPosition = currentTime
+        if currentVideo.playbackPosition != currentTime {
+            currentVideo.playbackPosition = currentTime
+        }
     }
     
     private func handlePlaybackEnded() {
