@@ -55,7 +55,7 @@ struct BulkProcessingView: View {
                         .font(.headline)
                     Text(statusDescription)
                         .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
                 
                 Spacer()
@@ -138,7 +138,7 @@ struct BulkProcessingView: View {
         VStack(spacing: 16) {
             Image(systemName: "tray")
                 .font(.system(size: 48))
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
             
             Text("No Processing Tasks")
                 .font(.title2)
@@ -146,7 +146,7 @@ struct BulkProcessingView: View {
             
             Text("Select videos and choose processing options from the context menu to add tasks to the queue.")
                 .font(.body)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
         }
@@ -252,7 +252,7 @@ struct TaskRowView: View {
         HStack(spacing: 12) {
             // Task icon
             Image(systemName: task.type.systemImage)
-                .foregroundColor(taskTypeColor)
+                .foregroundStyle(taskTypeColor)
                 .frame(width: 20)
             
             VStack(alignment: .leading, spacing: 4) {
@@ -264,12 +264,12 @@ struct TaskRowView: View {
                     
                     // Status icon
                     Image(systemName: task.status.systemImage)
-                        .foregroundColor(statusColor)
+                        .foregroundStyle(statusColor)
                 }
                 
                 Text(task.statusMessage)
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 
                 if task.status == .processing || task.status == .paused || task.status == .completed {
                     ProgressView(value: task.progress)
@@ -279,7 +279,7 @@ struct TaskRowView: View {
                 if let errorMessage = task.errorMessage {
                     Text(errorMessage)
                         .font(.caption)
-                        .foregroundColor(.red)
+                        .foregroundStyle(.red)
                         .lineLimit(2)
                 }
             }
@@ -374,11 +374,11 @@ struct StatView: View {
             Text("\(value)")
                 .font(.title2)
                 .fontWeight(.semibold)
-                .foregroundColor(color)
+                .foregroundStyle(color)
             
             Text(title)
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
         }
     }
 }

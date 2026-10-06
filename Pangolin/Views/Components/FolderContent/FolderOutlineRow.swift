@@ -28,7 +28,7 @@ struct FolderOutlineRow: View {
         case .folder:
             Image(systemName: "folder.fill")
                 .font(.system(size: 17, weight: .medium))
-                .foregroundColor(.accentColor)
+                .foregroundStyle(Color.accentColor)
                 .frame(width: 34, height: 22)
         case .video(let video):
             VideoThumbnailView(video: video, size: CGSize(width: 34, height: 22), showsDurationOverlay: false, showsCloudStatusOverlay: false)
@@ -56,13 +56,13 @@ private struct VideoICloudStatusSymbol: View {
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: symbolName)
-                .foregroundColor(symbolColor)
+                .foregroundStyle(symbolColor)
                 .font(.callout)
 
             if let progressText {
                 Text(progressText)
                     .font(.caption2.monospacedDigit())
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
             }
         }
         .frame(minWidth: 18, alignment: .trailing)

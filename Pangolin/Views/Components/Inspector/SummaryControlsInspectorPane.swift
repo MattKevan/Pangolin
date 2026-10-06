@@ -373,9 +373,9 @@ struct SummaryControlsInspectorPane: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
-                    .foregroundColor(isSelected ? .accentColor : .secondary)
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
                 Text(style.title)
-                    .foregroundColor(.primary)
+                    .foregroundStyle(.primary)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 8)

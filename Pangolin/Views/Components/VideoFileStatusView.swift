@@ -16,12 +16,12 @@ struct VideoFileStatusView: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: statusIcon)
-                .foregroundColor(statusColor)
+                .foregroundStyle(statusColor)
                 .font(.caption)
 
             Text(effectiveSnapshot.displayName)
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
 
             actionContent
         }
@@ -83,7 +83,7 @@ struct VideoFileStatusView: View {
             }
             .font(.caption2)
             .buttonStyle(.plain)
-            .foregroundColor(.red)
+            .foregroundStyle(.red)
 
         case .downloaded:
             EmptyView()
@@ -114,13 +114,13 @@ struct VideoFileStatusView: View {
 
             Text("\(Int((progress * 100).rounded()))%")
                 .font(.caption2.monospacedDigit())
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
         } else {
             ProgressView()
                 .controlSize(.small)
             Text(label)
                 .font(.caption2)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
         }
     }
 

@@ -309,7 +309,7 @@ struct MainView: View {
                                 .padding(.vertical, 3)
                         } else {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(.orange)
+                                .foregroundStyle(.orange)
                                 .padding(.horizontal, 4)
                                 .padding(.vertical, 3)
                         }
@@ -317,7 +317,7 @@ struct MainView: View {
                         if badgeCount > 0 {
                             Text("\(min(badgeCount, 99))")
                                 .font(.system(size: 8, weight: .bold))
-                                .foregroundColor(.white)
+                                .foregroundStyle(.white)
                                 .frame(width: 12, height: 12)
                                 .background(Color.red)
                                 .clipShape(Circle())
@@ -384,7 +384,7 @@ struct MainView: View {
             .onChange(of: folderStore.isSearchMode) { _, isSearchMode in
                 isSearchFieldPresented = isSearchMode
                 if isSearchMode {
-                    DispatchQueue.main.async {
+                    Task { @MainActor in
                         isSearchFieldFocused = true
                     }
                 } else {
@@ -1083,7 +1083,7 @@ private struct StartupInlineView: View {
             if let error {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 42))
-                    .foregroundColor(.red)
+                    .foregroundStyle(.red)
 
                 Text("Couldn't Open Library")
                     .font(.title2)
@@ -1091,12 +1091,12 @@ private struct StartupInlineView: View {
 
                 Text(error.localizedDescription)
                     .multilineTextAlignment(.center)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 if let recovery = error.recoverySuggestion {
                     Text(recovery)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
 
@@ -1116,7 +1116,7 @@ private struct StartupInlineView: View {
                     .font(.headline)
                 Text("Loading your cloud-backed library.")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 if loadingProgress > 0 {
                     ProgressView(value: min(max(loadingProgress, 0), 1))

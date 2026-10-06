@@ -33,11 +33,11 @@ struct VideoThumbnailView: View {
                     VStack(spacing: 4) {
                         Image(systemName: "play.rectangle.fill")
                             .font(.title2)
-                            .foregroundColor(.gray.opacity(0.6))
+                            .foregroundStyle(.gray.opacity(0.6))
 
                         Text("No Preview")
                             .font(.caption2)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
                 )
         }
@@ -51,7 +51,7 @@ struct VideoThumbnailView: View {
                         Spacer()
                         Text(video.formattedDuration)
                             .font(.caption2)
-                            .foregroundColor(.white)
+                            .foregroundStyle(.white)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(Color.black.opacity(0.7))
@@ -81,7 +81,7 @@ struct VideoThumbnailView: View {
         case .cloudOnly:
             Image(systemName: "icloud")
                 .font(.caption)
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
                 .background(Circle().fill(.blue))
                 .frame(width: 16, height: 16)
                 .help("File is in iCloud - tap to download")
@@ -89,7 +89,7 @@ struct VideoThumbnailView: View {
         case .downloading:
             Image(systemName: "icloud.and.arrow.down")
                 .font(.caption)
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
                 .background(Circle().fill(.blue))
                 .frame(width: 16, height: 16)
                 .help("Downloading from iCloud")
@@ -97,7 +97,7 @@ struct VideoThumbnailView: View {
         case .missing:
             Image(systemName: "exclamationmark.icloud")
                 .font(.caption)
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
                 .background(Circle().fill(.red))
                 .frame(width: 16, height: 16)
                 .help("File not found")
@@ -109,7 +109,7 @@ struct VideoThumbnailView: View {
         case .error:
             Image(systemName: "questionmark.diamond")
                 .font(.caption)
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
                 .background(Circle().fill(.gray))
                 .frame(width: 16, height: 16)
                 .help("Invalid file path")
@@ -143,6 +143,6 @@ struct VideoThumbnailView: View {
                 Text("Thumbnail Preview")
                     .font(.caption)
             }
-            .foregroundColor(.gray)
+            .foregroundStyle(.gray)
         )
 }

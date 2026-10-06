@@ -324,6 +324,7 @@ struct ProjectVideoRow: View {
         if let tapAction {
             rowContent
                 .onTapGesture(perform: tapAction)
+                .accessibilityAddTraits(.isButton)
         } else {
             rowContent
         }
@@ -346,7 +347,7 @@ struct ProjectVideoRow: View {
 
             Button(action: toggleFavorite) {
                 Image(systemName: video.isFavorite ? "heart.fill" : "heart")
-                    .foregroundStyle(video.isFavorite ? .red : .secondary)
+                    .foregroundStyle(video.isFavorite ? Color.red : Color.secondary)
             }
             .buttonStyle(.plain)
             .frame(width: 24)

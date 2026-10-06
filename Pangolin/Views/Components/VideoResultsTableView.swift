@@ -83,7 +83,7 @@ struct VideoResultsTableView: View {
 
             TableColumn("Project", value: \.projectSort) { row in
                 Text(row.projectTitle.isEmpty ? "—" : row.projectTitle)
-                    .foregroundStyle(row.projectTitle.isEmpty ? .secondary : .primary)
+                    .foregroundStyle(row.projectTitle.isEmpty ? Color.secondary : Color.primary)
                     .lineLimit(1)
             }
             .width(min: 130, ideal: 180)
@@ -91,7 +91,7 @@ struct VideoResultsTableView: View {
             TableColumn("Duration", value: \.durationSort) { row in
                 Text(row.video.formattedDuration)
                     .font(.system(.body, design: .monospaced))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
             }
             .width(min: 80, ideal: 90, max: 90)
 
@@ -105,7 +105,7 @@ struct VideoResultsTableView: View {
                     toggleFavorite(row.video)
                 } label: {
                     Image(systemName: row.video.isFavorite ? "heart.fill" : "heart")
-                        .foregroundColor(row.video.isFavorite ? .red : .secondary)
+                        .foregroundStyle(row.video.isFavorite ? Color.red : Color.secondary)
                 }
                 .buttonStyle(.plain)
                 .help(row.video.isFavorite ? "Remove from Favorites" : "Add to Favorites")
@@ -353,7 +353,7 @@ private struct VideoWatchStatusCell: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: status.systemImage)
-                .foregroundColor(statusColor)
+                .foregroundStyle(statusColor)
             
         }
         .font(.caption)
@@ -383,26 +383,26 @@ struct VideoICloudStatusCell: View {
             switch effectiveState {
             case .queuedForUploading:
                 Image(systemName: "clock.arrow.trianglehead.2.counterclockwise.rotate.90")
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 Text("Queued for uploading")
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
             case .uploading(let progress):
                 if let progress {
                     CloudTransferProgressIcon(progress: progress, operation: .upload)
                     Text("Uploading \(Int((progress * 100).rounded()))%")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 } else {
                     ProgressView()
                         .controlSize(.small)
                     Text("Uploading")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
 
             case .inCloudOnly:
                 Button(action: startDownload) {
                     Image(systemName: "icloud.and.arrow.down")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
                 .help("In cloud only. Download")
@@ -413,7 +413,7 @@ struct VideoICloudStatusCell: View {
                 if let progress {
                     CloudTransferProgressIcon(progress: progress, operation: .download)
                     Text("Downloading \(Int((progress * 100).rounded()))%")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 } else {
                     ProgressView()
                         .controlSize(.small)
@@ -425,7 +425,7 @@ struct VideoICloudStatusCell: View {
                         videoFileManager.cancelDownload(for: video)
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
                     .help("Cancel download")
@@ -433,14 +433,14 @@ struct VideoICloudStatusCell: View {
 
             case .downloaded:
                 Image(systemName: "checkmark.icloud")
-                    .foregroundColor(.green)
+                    .foregroundStyle(.green)
                 
 
             case .error(let operation, let message, _, _):
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundColor(.orange)
+                    .foregroundStyle(.orange)
                 Text(operation.failedTitle)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 Button("Retry") {
                     retryTransfer()
@@ -516,7 +516,7 @@ private struct CloudTransferProgressIcon: View {
                 .rotationEffect(.degrees(-90))
             Image(systemName: operation == .upload ? "icloud.and.arrow.up" : "icloud.and.arrow.down")
                 .font(.system(size: 8, weight: .semibold))
-                .foregroundColor(.accentColor)
+                .foregroundStyle(Color.accentColor)
         }
         .frame(width: 16, height: 16)
     }

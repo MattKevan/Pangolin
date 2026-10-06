@@ -99,14 +99,14 @@ struct ContentRowView: View {
                 
                 contentIcon
                     .font(.system(size: 40))
-                    .foregroundColor(content.isFolder ? .blue : .primary)
+                    .foregroundStyle(content.isFolder ? Color.blue : Color.primary)
                 
                 if showCheckbox {
                     VStack {
                         HStack {
                             Spacer()
                             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                                .foregroundColor(isSelected ? .blue : .gray)
+                                .foregroundStyle(isSelected ? Color.blue : Color.gray)
                                 .background(Color.white)
                                 .clipShape(Circle())
                         }
@@ -125,17 +125,17 @@ struct ContentRowView: View {
                 if case .folder(let folder) = content {
                     Text("\(folder.itemCount) items")
                         .font(.caption2)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 } else if case .video(let video) = content {
                     Text(video.formattedDuration)
                         .font(.caption2)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
             }
             .frame(maxWidth: .infinity)
         }
         .background(isSelected && !showCheckbox ? Color.accentColor.opacity(0.2) : Color.clear)
-        .cornerRadius(8)
+        .clipShape(.rect(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .stroke(isDropTargeted ? Color.accentColor : Color.clear, lineWidth: 2)
@@ -147,12 +147,12 @@ struct ContentRowView: View {
         HStack {
             if showCheckbox {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .foregroundColor(isSelected ? .blue : .gray)
+                    .foregroundStyle(isSelected ? Color.blue : Color.gray)
             }
             
             contentIcon
                 .font(.system(size: 20))
-                .foregroundColor(content.isFolder ? .blue : .primary)
+                .foregroundStyle(content.isFolder ? Color.blue : Color.primary)
                 .frame(width: 24)
             
             VStack(alignment: .leading, spacing: 2) {
@@ -163,17 +163,17 @@ struct ContentRowView: View {
                     if case .folder(let folder) = content {
                         Text("\(folder.itemCount) items")
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     } else if case .video(let video) = content {
                         Text(video.formattedDuration)
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                         
                         Spacer()
                         
                         Text(ByteCountFormatter().string(fromByteCount: video.fileSize))
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -181,7 +181,7 @@ struct ContentRowView: View {
         }
         .padding(.vertical, 4)
         .background(isSelected && !showCheckbox ? Color.accentColor.opacity(0.1) : Color.clear)
-        .cornerRadius(4)
+        .clipShape(.rect(cornerRadius: 4))
         .overlay(
              RoundedRectangle(cornerRadius: 4)
                 .stroke(isDropTargeted ? Color.accentColor : Color.clear, lineWidth: 2)
@@ -321,7 +321,7 @@ private struct ContentRowVideoIcon: View {
         case .thumbnail:
             SyncedThumbnailImage(video: video, contentMode: .fill) {
                 Image(systemName: "video.fill")
-                    .foregroundColor(.gray)
+                    .foregroundStyle(.gray)
             }
             .frame(width: viewMode == .grid ? 80 : 20, height: viewMode == .grid ? 45 : 15)
             .clipShape(RoundedRectangle(cornerRadius: 4))

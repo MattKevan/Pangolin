@@ -47,7 +47,7 @@ struct CircularProgressButton: View {
                 // Center icon
                 Image(systemName: iconName)
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(progressColor)
+                    .foregroundStyle(progressColor)
                     .rotationEffect(.degrees(isAnimating && activeTaskCount > 0 ? 360 : 0))
                     .animation(
                         isAnimating && activeTaskCount > 0 
@@ -64,7 +64,7 @@ struct CircularProgressButton: View {
                             Spacer()
                             Text("\(activeTaskCount)")
                                 .font(.system(size: 8, weight: .bold))
-                                .foregroundColor(.white)
+                                .foregroundStyle(.white)
                                 .padding(2)
                                 .background(Color.red)
                                 .clipShape(Circle())
@@ -141,7 +141,7 @@ struct CircularProgressButton: View {
         
         Text("Different states of the circular progress button")
             .font(.caption)
-            .foregroundColor(.secondary)
+            .foregroundStyle(.secondary)
     }
     .padding()
 }

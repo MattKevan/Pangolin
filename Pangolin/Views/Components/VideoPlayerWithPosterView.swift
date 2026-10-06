@@ -32,7 +32,7 @@ struct VideoPlayerWithPosterView: View {
                     systemImage: "video.slash",
                     description: Text("Select a video from the library to start playing")
                 )
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
             }
         }
         #if os(macOS)

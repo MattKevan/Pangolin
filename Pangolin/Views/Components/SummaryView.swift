@@ -33,7 +33,7 @@ struct SummaryView: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Image(systemName: "brain.head.profile")
-                        .foregroundColor(.purple)
+                        .foregroundStyle(.purple)
                     Text("Generating summary...")
                         .font(.headline)
                 }
@@ -43,11 +43,11 @@ struct SummaryView: View {
 
                 Text("Using Apple Intelligence to create a comprehensive summary")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
             }
             .padding()
            
-            .cornerRadius(8)
+            .clipShape(.rect(cornerRadius: 8))
         } else if let errorMessage = summaryErrorMessage {
             InlineErrorBanner(
                 title: "Summary error",

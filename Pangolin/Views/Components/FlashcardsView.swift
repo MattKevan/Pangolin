@@ -265,6 +265,8 @@ private struct FlashcardCardView: View {
         .onTapGesture {
             onToggleFlip()
         }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Flips the card")
     }
 }
 

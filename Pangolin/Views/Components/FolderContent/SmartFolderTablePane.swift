@@ -74,7 +74,7 @@ struct SmartCollectionTablePane: View {
         selectedVideoIDs = nextSelection
 
         // Clear the suppression token if the table does not emit a matching onChange callback.
-        DispatchQueue.main.async {
+        Task { @MainActor in
             if suppressedProgrammaticSelection == nextSelection {
                 suppressedProgrammaticSelection = nil
             }

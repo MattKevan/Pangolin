@@ -196,6 +196,8 @@ struct MergedTranscriptView: View {
                                 .onTapGesture {
                                     playerViewModel.seek(to: paragraph.startSeconds, in: video)
                                 }
+                                .accessibilityAddTraits(.isButton)
+                                .accessibilityHint("Jumps to this point in the video")
                                 .id(paragraph.id)
                         }
                     } else {

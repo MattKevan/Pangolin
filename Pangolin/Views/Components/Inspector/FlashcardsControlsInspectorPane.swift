@@ -156,7 +156,7 @@ struct FlashcardsControlsInspectorPane: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
-                    .foregroundColor(isSelected ? .accentColor : .secondary)
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(mode.title)
                         .foregroundStyle(.primary)
@@ -183,7 +183,7 @@ struct FlashcardsControlsInspectorPane: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
-                    .foregroundColor(isSelected ? .accentColor : .secondary)
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
                 Text(style.title)
                     .foregroundStyle(.primary)
                 Spacer(minLength: 0)

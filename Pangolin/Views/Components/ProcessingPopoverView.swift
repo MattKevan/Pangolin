@@ -42,7 +42,7 @@ struct ProcessingPopoverView: View {
             if activeTasks.isEmpty && activeTransfers.isEmpty && failedTasks.isEmpty && transferIssues.isEmpty && cloudSyncStatus == nil {
                 Text("No active tasks")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
             } else {
                 ScrollView {
@@ -254,7 +254,7 @@ private struct CloudSyncStatusRow: View {
 
                 Text(status.detail)
                     .font(.system(size: 9))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
         }
@@ -318,7 +318,7 @@ struct CompactTaskRowView: View {
                 } else {
                     Text(task.statusMessage)
                         .font(.system(size: 9))
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }
@@ -342,7 +342,7 @@ struct CompactTaskRowView: View {
                 if let detail = indeterminateDetailText {
                     Text(detail)
                         .font(.system(size: 9))
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }

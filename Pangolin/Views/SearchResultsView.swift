@@ -86,7 +86,7 @@ private struct LoadingStateView: View {
             ProgressView()
                 .controlSize(.regular)
             Text("Searching...")
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 28)
         .padding(.vertical, 22)
@@ -202,7 +202,7 @@ private struct SearchResultsHeader: View {
                 if !query.isEmpty {
                     Text("for \"\(query)\"")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }
@@ -228,7 +228,7 @@ private struct SearchResultsHeader: View {
                         .font(.caption2)
                 }
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, 16)
@@ -263,7 +263,7 @@ private struct SearchResultTitleCell: View {
                 if row.citations.count > 1 {
                     Text("\(row.citations.count) citations")
                         .font(.caption2)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
             }
 

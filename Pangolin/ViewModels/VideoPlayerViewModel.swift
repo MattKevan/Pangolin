@@ -813,7 +813,6 @@ class VideoPlayerViewModel: NSObject {
     ) {
         playerStateCancellable?.cancel()
         playerStateCancellable = player.publisher(for: \.timeControlStatus)
-            .receive(on: DispatchQueue.main)
             .sink { [weak self, weak player] status in
                 Task { @MainActor in
                     guard let self,
