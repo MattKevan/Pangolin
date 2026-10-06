@@ -735,14 +735,14 @@ extension ProcessingQueueManager {
     }
 
     func hasTimedTranslationArtifact(for video: Video, languageCode: String) -> Bool {
-        guard let url = LibraryManager.shared.existingTimedTranslationURL(for: video, languageCode: languageCode) else {
+        guard let url = LibraryManager.shared.textArtifacts.existingTimedTranslationURL(for: video, languageCode: languageCode) else {
             return false
         }
         return FileManager.default.fileExists(atPath: url.path)
     }
 
     func hasFlashcardsArtifact(for video: Video) -> Bool {
-        guard let url = LibraryManager.shared.existingFlashcardsURL(for: video) else {
+        guard let url = LibraryManager.shared.textArtifacts.existingFlashcardsURL(for: video) else {
             return false
         }
         return FileManager.default.fileExists(atPath: url.path)
@@ -819,9 +819,9 @@ extension ProcessingQueueManager {
             return Locale(identifier: transcriptLanguageIdentifier)
         }
 
-        guard let timedURL = LibraryManager.shared.existingTimedTranscriptURL(for: video),
+        guard let timedURL = LibraryManager.shared.textArtifacts.existingTimedTranscriptURL(for: video),
               FileManager.default.fileExists(atPath: timedURL.path),
-              let transcript = try? LibraryManager.shared.readTimedTranscript(from: timedURL),
+              let transcript = try? LibraryManager.shared.textArtifacts.readTimedTranscript(from: timedURL),
               !transcript.localeIdentifier.isEmpty else {
             return nil
         }

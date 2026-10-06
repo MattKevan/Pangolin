@@ -89,7 +89,7 @@ struct FlashcardsView: View {
     }
 
     private func loadFlashcards() {
-        guard let url = libraryManager.existingFlashcardsURL(for: video),
+        guard let url = libraryManager.textArtifacts.existingFlashcardsURL(for: video),
               FileManager.default.fileExists(atPath: url.path) else {
             deck = nil
             loadError = nil
@@ -99,7 +99,7 @@ struct FlashcardsView: View {
         }
 
         do {
-            let loadedDeck = try libraryManager.readFlashcardDeck(from: url)
+            let loadedDeck = try libraryManager.textArtifacts.readFlashcardDeck(from: url)
             deck = loadedDeck
             selectedIndex = min(selectedIndex, max(loadedDeck.cards.count - 1, 0))
             loadError = nil

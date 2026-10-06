@@ -113,12 +113,12 @@ class SpeechTranscriptionService: ObservableObject {
             do {
                 try await MainActor.run {
                     guard let persistedVideo = fetchVideo(with: videoID) else { return }
-                    try libraryManager.ensureTextArtifactDirectories()
-                    if let transcriptURL = libraryManager.transcriptURL(for: persistedVideo) {
-                        try libraryManager.writeTextAtomically(transcriptionOutput.plainText, to: transcriptURL)
+                    try libraryManager.textArtifacts.ensureDirectories()
+                    if let transcriptURL = libraryManager.textArtifacts.transcriptURL(for: persistedVideo) {
+                        try libraryManager.textArtifacts.writeTextAtomically(transcriptionOutput.plainText, to: transcriptURL)
                     }
-                    if let timedURL = libraryManager.timedTranscriptURL(for: persistedVideo) {
-                        try libraryManager.writeTimedTranscriptAtomically(transcriptionOutput.timedTranscript, to: timedURL)
+                    if let timedURL = libraryManager.textArtifacts.timedTranscriptURL(for: persistedVideo) {
+                        try libraryManager.textArtifacts.writeTimedTranscriptAtomically(transcriptionOutput.timedTranscript, to: timedURL)
                     }
                 }
             } catch {
@@ -164,11 +164,11 @@ class SpeechTranscriptionService: ObservableObject {
         do {
             let timedTranscript = try await MainActor.run { () throws -> TimedTranscript in
                 guard let persistedVideo = fetchVideo(with: videoID),
-                      let timedTranscriptURL = libraryManager.existingTimedTranscriptURL(for: persistedVideo),
+                      let timedTranscriptURL = libraryManager.textArtifacts.existingTimedTranscriptURL(for: persistedVideo),
                       FileManager.default.fileExists(atPath: timedTranscriptURL.path) else {
                     throw TranscriptionError.translationFailed("Timed transcript not found. Please transcribe this video again.")
                 }
-                return try libraryManager.readTimedTranscript(from: timedTranscriptURL)
+                return try libraryManager.textArtifacts.readTimedTranscript(from: timedTranscriptURL)
             }
 
             let computationResult = try await Task.detached(priority: .userInitiated) { [weak self] in
@@ -209,12 +209,12 @@ class SpeechTranscriptionService: ObservableObject {
             do {
                 try await MainActor.run {
                     guard let persistedVideo = fetchVideo(with: videoID) else { return }
-                    try libraryManager.ensureTextArtifactDirectories()
-                    if let url = libraryManager.translationURL(for: persistedVideo, languageCode: targetCode) {
-                        try libraryManager.writeTextAtomically(translatedText, to: url)
+                    try libraryManager.textArtifacts.ensureDirectories()
+                    if let url = libraryManager.textArtifacts.translationURL(for: persistedVideo, languageCode: targetCode) {
+                        try libraryManager.textArtifacts.writeTextAtomically(translatedText, to: url)
                     }
-                    if let timedURL = libraryManager.timedTranslationURL(for: persistedVideo, languageCode: targetCode) {
-                        try libraryManager.writeTimedTranslationAtomically(translationOutput.timedTranslation, to: timedURL)
+                    if let timedURL = libraryManager.textArtifacts.timedTranslationURL(for: persistedVideo, languageCode: targetCode) {
+                        try libraryManager.textArtifacts.writeTimedTranslationAtomically(translationOutput.timedTranslation, to: timedURL)
                     }
                 }
             } catch {
@@ -317,9 +317,9 @@ class SpeechTranscriptionService: ObservableObject {
             do {
                 try await MainActor.run {
                     guard let persistedVideo = fetchVideo(with: videoID) else { return }
-                    try libraryManager.ensureTextArtifactDirectories()
-                    if let url = libraryManager.summaryURL(for: persistedVideo) {
-                        try libraryManager.writeTextAtomically(finalSummary, to: url)
+                    try libraryManager.textArtifacts.ensureDirectories()
+                    if let url = libraryManager.textArtifacts.summaryURL(for: persistedVideo) {
+                        try libraryManager.textArtifacts.writeTextAtomically(finalSummary, to: url)
                     }
                 }
             } catch {
@@ -433,11 +433,11 @@ class SpeechTranscriptionService: ObservableObject {
             await setProgress(0.95)
             try await MainActor.run {
                 guard let persistedVideo = fetchVideo(with: videoID) else { return }
-                try libraryManager.ensureTextArtifactDirectories()
-                guard let url = libraryManager.flashcardsURL(for: persistedVideo) else {
+                try libraryManager.textArtifacts.ensureDirectories()
+                guard let url = libraryManager.textArtifacts.flashcardsURL(for: persistedVideo) else {
                     throw TranscriptionError.flashcardsGenerationFailed("Could not determine flashcards storage path.")
                 }
-                try libraryManager.writeFlashcardDeckAtomically(deck, to: url)
+                try libraryManager.textArtifacts.writeFlashcardDeckAtomically(deck, to: url)
             }
 
             await libraryManager.save()

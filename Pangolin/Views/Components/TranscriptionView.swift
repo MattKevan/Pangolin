@@ -177,7 +177,7 @@ struct TranscriptionView: View {
     }
 
     private func loadTimedTranscript() {
-        guard let url = libraryManager.existingTimedTranscriptURL(for: video) else {
+        guard let url = libraryManager.textArtifacts.existingTimedTranscriptURL(for: video) else {
             chunkIndex = nil
             inlineTokens = []
             chunkParagraphs = []
@@ -189,7 +189,7 @@ struct TranscriptionView: View {
         }
 
         do {
-            guard let transcript = try libraryManager.readTimedTranscriptIfAvailable(from: url) else {
+            guard let transcript = try libraryManager.textArtifacts.readTimedTranscriptIfAvailable(from: url) else {
                 chunkIndex = nil
                 inlineTokens = []
                 chunkParagraphs = []

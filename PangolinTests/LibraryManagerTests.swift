@@ -19,7 +19,7 @@ struct LibraryManagerTests {
         }
 
         let libraryURL = tempRoot.appendingPathComponent("RestoredLibrary", isDirectory: true)
-        let bootstrapLibrary = try await manager.createLibrary(at: libraryURL, name: "Pangolin Library")
+        let bootstrapLibrary = try await manager.loadLibrary(at: libraryURL)
         guard let context = manager.viewContext,
               let libraryEntity = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Library"],
               let folderEntity = context.persistentStoreCoordinator?.managedObjectModel.entitiesByName["Folder"] else {
@@ -76,7 +76,7 @@ struct LibraryManagerTests {
         }
 
         let libraryURL = tempRoot.appendingPathComponent("CanonicalLibrary", isDirectory: true)
-        let library = try await manager.createLibrary(at: libraryURL, name: "Pangolin Library")
+        let library = try await manager.loadLibrary(at: libraryURL)
 
         guard let context = manager.viewContext else {
             #expect(false)
@@ -125,7 +125,7 @@ struct LibraryManagerTests {
         try context.save()
         await manager.closeCurrentLibrary()
 
-        let reopenedLibrary = try await manager.openLibrary(at: libraryURL)
+        let reopenedLibrary = try await manager.loadLibrary(at: libraryURL)
         guard let reopenedContext = manager.viewContext else {
             #expect(false)
             return

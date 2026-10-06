@@ -490,7 +490,7 @@ extension FolderNavigationStore {
             }
 
             // Delete transcript artifacts
-            if let transcriptURL = libraryManager.transcriptURL(for: video) {
+            if let transcriptURL = libraryManager.textArtifacts.transcriptURL(for: video) {
                 do {
                     if FileManager.default.fileExists(atPath: transcriptURL.path) {
                         try FileManager.default.removeItem(at: transcriptURL)
@@ -501,7 +501,7 @@ extension FolderNavigationStore {
                 }
             }
 
-            if let timedTranscriptURL = libraryManager.timedTranscriptURL(for: video) {
+            if let timedTranscriptURL = libraryManager.textArtifacts.timedTranscriptURL(for: video) {
                 do {
                     if FileManager.default.fileExists(atPath: timedTranscriptURL.path) {
                         try FileManager.default.removeItem(at: timedTranscriptURL)
@@ -512,7 +512,7 @@ extension FolderNavigationStore {
                 }
             }
 
-            if let summaryURL = libraryManager.summaryURL(for: video) {
+            if let summaryURL = libraryManager.textArtifacts.summaryURL(for: video) {
                 do {
                     if FileManager.default.fileExists(atPath: summaryURL.path) {
                         try FileManager.default.removeItem(at: summaryURL)
@@ -523,7 +523,7 @@ extension FolderNavigationStore {
                 }
             }
 
-            if let flashcardsURL = libraryManager.flashcardsURL(for: video) {
+            if let flashcardsURL = libraryManager.textArtifacts.flashcardsURL(for: video) {
                 do {
                     if FileManager.default.fileExists(atPath: flashcardsURL.path) {
                         try FileManager.default.removeItem(at: flashcardsURL)
@@ -534,7 +534,7 @@ extension FolderNavigationStore {
                 }
             }
 
-            for translationURL in libraryManager.translationURLs(for: video) {
+            for translationURL in libraryManager.textArtifacts.translationURLs(for: video) {
                 do {
                     if FileManager.default.fileExists(atPath: translationURL.path) {
                         try FileManager.default.removeItem(at: translationURL)

@@ -224,7 +224,7 @@ struct TranslationView: View {
     private func loadTimedTranslation() {
         guard let languageCode = video.translatedLanguage,
               !languageCode.isEmpty,
-              let url = libraryManager.existingTimedTranslationURL(for: video, languageCode: languageCode),
+              let url = libraryManager.textArtifacts.existingTimedTranslationURL(for: video, languageCode: languageCode),
               FileManager.default.fileExists(atPath: url.path) else {
             chunkIndex = nil
             inlineTokens = []
@@ -237,7 +237,7 @@ struct TranslationView: View {
         }
 
         do {
-            let translation = try libraryManager.readTimedTranslation(from: url)
+            let translation = try libraryManager.textArtifacts.readTimedTranslation(from: url)
             let loadedChunkIndex = translation.makeChunkIndex()
             let entries = loadedChunkIndex.allEntries
             let shouldUseChunkList = entries.count > Self.chunkListLayoutThreshold

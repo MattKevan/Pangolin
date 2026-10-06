@@ -322,7 +322,7 @@ struct VideoNavigationSequenceTests {
         try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
 
         let libraryURL = tempRoot.appendingPathComponent("Library", isDirectory: true)
-        _ = try await manager.createLibrary(at: libraryURL, name: "Navigation Test Library")
+        _ = try await manager.loadLibrary(at: libraryURL)
 
         guard let context = manager.viewContext else {
             throw NavigationTestFailure("Expected view context")

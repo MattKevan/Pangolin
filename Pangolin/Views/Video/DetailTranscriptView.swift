@@ -377,9 +377,9 @@ struct MergedTranscriptView: View {
     private func resolvedSource() -> ResolvedSource {
         if shouldPreferTranslation,
            let translatedLanguage = video.translatedLanguage,
-           let timedURL = libraryManager.existingTimedTranslationURL(for: video, languageCode: translatedLanguage),
+           let timedURL = libraryManager.textArtifacts.existingTimedTranslationURL(for: video, languageCode: translatedLanguage),
            FileManager.default.fileExists(atPath: timedURL.path),
-           let translation = try? libraryManager.readTimedTranslation(from: timedURL) {
+           let translation = try? libraryManager.textArtifacts.readTimedTranslation(from: timedURL) {
             return .timedTranslation(translation.makeChunkIndex())
         }
 
@@ -389,8 +389,8 @@ struct MergedTranscriptView: View {
             return .plainTranslation(translatedText)
         }
 
-        if let timedURL = libraryManager.existingTimedTranscriptURL(for: video),
-           let transcript = try? libraryManager.readTimedTranscriptIfAvailable(from: timedURL) {
+        if let timedURL = libraryManager.textArtifacts.existingTimedTranscriptURL(for: video),
+           let transcript = try? libraryManager.textArtifacts.readTimedTranscriptIfAvailable(from: timedURL) {
             return .timedTranscript(transcript.makeChunkIndex())
         }
 

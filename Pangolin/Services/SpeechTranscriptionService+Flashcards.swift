@@ -16,12 +16,12 @@ extension SpeechTranscriptionService {
     ) async throws -> ResolvedFlashcardsSource {
         let transcriptData = try await MainActor.run { () throws -> (languageCode: String, entries: [FlashcardSourceEntry]) in
             guard let persistedVideo = fetchVideo(with: videoID),
-                  let timedURL = libraryManager.existingTimedTranscriptURL(for: persistedVideo),
+                  let timedURL = libraryManager.textArtifacts.existingTimedTranscriptURL(for: persistedVideo),
                   FileManager.default.fileExists(atPath: timedURL.path) else {
                 throw TranscriptionError.flashcardsGenerationFailed("Timed transcript not found. Please transcribe this video again.")
             }
 
-            let transcript = try libraryManager.readTimedTranscript(from: timedURL)
+            let transcript = try libraryManager.textArtifacts.readTimedTranscript(from: timedURL)
             let entries = transcript.makeChunkIndex().allEntries.map {
                 FlashcardSourceEntry(
                     id: $0.id.uuidString,
@@ -42,12 +42,12 @@ extension SpeechTranscriptionService {
             guard let persistedVideo = fetchVideo(with: videoID),
                   let translatedLanguageIdentifier,
                   !translatedLanguageIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  let timedURL = libraryManager.existingTimedTranslationURL(for: persistedVideo, languageCode: translatedLanguageIdentifier),
+                  let timedURL = libraryManager.textArtifacts.existingTimedTranslationURL(for: persistedVideo, languageCode: translatedLanguageIdentifier),
                   FileManager.default.fileExists(atPath: timedURL.path) else {
                 return nil
             }
 
-            let translation = try libraryManager.readTimedTranslation(from: timedURL)
+            let translation = try libraryManager.textArtifacts.readTimedTranslation(from: timedURL)
             let entries = translation.makeChunkIndex().allEntries.map {
                 FlashcardSourceEntry(
                     id: $0.id,

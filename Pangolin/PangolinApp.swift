@@ -118,7 +118,7 @@ struct PangolinApp: App {
                 await StoragePolicyManager.shared.scheduleAutomaticPolicyApply(for: library)
             } catch {
                 Logger.app.error("APP: Startup failed: \(error)")
-                libraryManager.error = error as? LibraryError
+                libraryManager.error = (error as? LibraryError) ?? .unexpected(error)
             }
         }
     }
@@ -138,7 +138,7 @@ struct PangolinApp: App {
                 Logger.app.info("APP: Database reset successful")
             } catch {
                 Logger.app.error("APP: Database reset failed: \(error)")
-                libraryManager.error = error as? LibraryError
+                libraryManager.error = (error as? LibraryError) ?? .unexpected(error)
             }
         }
     }

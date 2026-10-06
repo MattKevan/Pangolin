@@ -1300,7 +1300,7 @@ struct ProjectsStoreTests {
         try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
 
         let libraryURL = tempRoot.appendingPathComponent("Library", isDirectory: true)
-        _ = try await manager.createLibrary(at: libraryURL, name: "Projects Test Library")
+        _ = try await manager.loadLibrary(at: libraryURL)
 
         guard let context = manager.viewContext else {
             throw TestFailure("Expected view context")

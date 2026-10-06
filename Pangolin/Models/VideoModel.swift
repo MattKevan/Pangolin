@@ -616,26 +616,3 @@ struct VideoPagePreferences {
             .map { String($0).lowercased() }
     }
 }
-
-// MARK: - Library Descriptor (for multiple libraries)
-struct LibraryDescriptor: Codable, Identifiable {
-    let id: UUID
-    let name: String
-    let path: URL
-    let lastOpenedDate: Date
-    let createdDate: Date
-    let version: String
-    let thumbnailData: Data?
-    let videoCount: Int
-    let totalSize: Int64
-    
-    var isAvailable: Bool {
-        return FileManager.default.fileExists(atPath: path.path)
-    }
-    
-    var formattedSize: String {
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: totalSize)
-    }
-}
