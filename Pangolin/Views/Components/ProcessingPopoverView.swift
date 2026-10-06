@@ -126,13 +126,13 @@ struct ProcessingPopoverView: View {
                         Button("Resume") {
                             processingManager.resumeProcessing()
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.glassProminent)
                         .controlSize(.small)
                     } else if processingManager.activeTasks > 0 {
                         Button("Pause") {
                             processingManager.pauseProcessing()
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.glass)
                         .controlSize(.small)
                     }
 
@@ -143,7 +143,7 @@ struct ProcessingPopoverView: View {
                                 await videoFileManager.retryAllFailedTransfers(in: library)
                             }
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.glass)
                         .controlSize(.small)
                     }
 
@@ -153,7 +153,7 @@ struct ProcessingPopoverView: View {
                                 processingManager.retryTask(task)
                             }
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.glass)
                         .controlSize(.small)
                     }
 
@@ -162,7 +162,7 @@ struct ProcessingPopoverView: View {
                             processingManager.clearFailed()
                             videoFileManager.clearAllTransferIssues()
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.glass)
                         .controlSize(.small)
                     }
                 }

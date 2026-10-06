@@ -67,6 +67,7 @@ private struct SidebarProjectRowModel: Identifiable {
 struct SidebarView: View {
     @Environment(FolderNavigationStore.self) private var store
     @Environment(LibraryManager.self) private var libraryManager: LibraryManager
+    @Environment(LibraryActions.self) private var libraryActions: LibraryActions
 
     @State private var sidebarSelections = Set<SidebarSelection>()
     @State private var isSyncingSelection = false
@@ -125,6 +126,11 @@ struct SidebarView: View {
             libraryManager: libraryManager
         )
         .navigationTitle("Library")
+        #if os(iOS)
+        .toolbarTitleMenu {
+            LibraryActionsMenuContent(actions: libraryActions)
+        }
+        #endif
         .contextMenu {
             Button("New project") {
                 requestNewProject()

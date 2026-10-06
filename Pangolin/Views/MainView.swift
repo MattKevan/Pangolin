@@ -26,6 +26,7 @@ struct MainView: View {
     #endif
 
     @Environment(LibraryManager.self) var libraryManager: LibraryManager
+    @Environment(LibraryActions.self) private var libraryActions: LibraryActions
     @Environment(VideoFileManager.self) var videoFileManager: VideoFileManager
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let folderStore: FolderNavigationStore
@@ -75,6 +76,7 @@ struct MainView: View {
     
     var body: some View {
         rootView
+            .confirmsOptimizeAll(libraryActions)
             .onAppear {
                 synchronizeVideoSelection()
             }
@@ -284,57 +286,25 @@ struct MainView: View {
         }
 
         ToolbarItemGroup(placement: .primaryAction) {
-            if !isStartingUp && (backgroundActivityCount > 0 || processingQueueManager.failedTasks > 0 || videoFileManager.failedTransferCount > 0) {
-                Button {
-                    showTaskPopover.toggle()
-                } label: {
-                    let hasActiveTasks = backgroundActivityCount > 0
-                    let failedProcessingCount = processingQueueManager.failedTasks
-                    let transferIssueCount = videoFileManager.failedTransferCount
-                    let nonActiveIssueCount = transferIssueCount + failedProcessingCount
-                    let badgeCount = nonActiveIssueCount > 0 ? nonActiveIssueCount : max(0, backgroundActivityCount - 1)
-
-                    ZStack(alignment: .topTrailing) {
-                        if let activityProgress {
-                            ProgressView(value: activityProgress)
-                                .progressViewStyle(.circular)
-                                .frame(width: 16, height: 16)
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 3)
-                        } else if hasActiveTasks {
-                            ProgressView()
-                                .controlSize(.small)
-                                .frame(width: 16, height: 16)
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 3)
-                        } else {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 3)
-                        }
-
-                        if badgeCount > 0 {
-                            Text("\(min(badgeCount, 99))")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundStyle(.white)
-                                .frame(width: 12, height: 12)
-                                .background(Color.red)
-                                .clipShape(Circle())
-                                .offset(x: 4, y: -2)
-                        }
-                    }
-                    .frame(minWidth: 24, minHeight: 22, alignment: .center)
-                    .contentShape(Rectangle())
-                    .accessibilityLabel("Background tasks")
-                    .accessibilityValue("\(backgroundActivityCount) active tasks or transfers, \(processingQueueManager.failedTasks) failed tasks, \(videoFileManager.failedTransferCount) transfer issues")
-                }
-                .buttonStyle(.plain)
-                .popover(isPresented: $showTaskPopover, arrowEdge: .top) {
+            if !isStartingUp, let presentation = activityPresentation {
+                ActivityToolbarButton(
+                    presentation: presentation,
+                    accessibilityValue: "\(backgroundActivityCount) active tasks or transfers, \(processingQueueManager.failedTasks) failed tasks, \(videoFileManager.failedTransferCount) transfer issues",
+                    isPresented: $showTaskPopover
+                ) {
                     ProcessingPopoverView(processingManager: processingQueueManager)
                 }
             }
         }
+    }
+
+    private var activityPresentation: ActivityIndicatorPolicy.Presentation? {
+        ActivityIndicatorPolicy.presentation(
+            activeCount: backgroundActivityCount,
+            failedTaskCount: processingQueueManager.failedTasks,
+            transferIssueCount: videoFileManager.failedTransferCount,
+            progress: activityProgress
+        )
     }
 
     private var backgroundActivityCount: Int {
