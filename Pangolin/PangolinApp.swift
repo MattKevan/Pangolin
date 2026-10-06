@@ -19,80 +19,39 @@ struct PangolinApp: App {
     @State private var storagePolicyManager = StoragePolicyManager.shared
     @State private var hasAttemptedStartup = false
 
+    private var mainContent: some View {
+        MainView(
+            libraryManager: libraryManager,
+            folderStore: folderStore,
+            isStartingUp: libraryManager.currentLibrary == nil && hasAttemptedStartup,
+            startupError: libraryManager.error,
+            startupLoadingProgress: libraryManager.loadingProgress,
+            retryAction: retryLibraryOpen,
+            resetAction: resetCorruptedLibrary
+        )
+        .environment(libraryManager)
+        .environment(videoFileManager)
+        .onAppear {
+            if !hasAttemptedStartup {
+                startLibraryStartup()
+            }
+        }
+    }
+
     var body: some Scene {
+        // One library and one window: the store and library state are app-wide, so a second
+        // window would only mirror the first.
+        #if os(macOS)
+        Window("Pangolin", id: "main") {
+            mainContent
+        }
+        .commands { appCommands }
+        #else
         WindowGroup {
-            MainView(
-                libraryManager: libraryManager,
-                folderStore: folderStore,
-                isStartingUp: libraryManager.currentLibrary == nil && hasAttemptedStartup,
-                startupError: libraryManager.error,
-                startupLoadingProgress: libraryManager.loadingProgress,
-                retryAction: retryLibraryOpen,
-                resetAction: resetCorruptedLibrary
-            )
-            .environment(libraryManager)
-            .environment(videoFileManager)
-            .onAppear {
-                if !hasAttemptedStartup {
-                    startLibraryStartup()
-                }
-            }
+            mainContent
         }
-        .commands {
-            CommandGroup(replacing: .newItem) {
-                Button("New Project") {
-                    triggerCreateProject()
-                }
-                .keyboardShortcut(FileCommandPolicy.newProjectShortcut, modifiers: .command)
-                .disabled(libraryManager.currentLibrary == nil)
-
-                Button("Import Videos...") {
-                    triggerImportVideos()
-                }
-                .keyboardShortcut(FileCommandPolicy.importVideosShortcut, modifiers: .command)
-                .disabled(libraryManager.currentLibrary == nil)
-
-                #if os(macOS)
-                Button("Reload Library") {
-                    retryLibraryOpen()
-                }
-                .keyboardShortcut("R", modifiers: [.command, .shift])
-
-                Divider()
-
-                Button("Import from URL...") {
-                    triggerImportFromURL()
-                }
-                .keyboardShortcut("I", modifiers: [.command, .shift])
-                .disabled(libraryManager.currentLibrary == nil)
-                #endif
-            }
-
-            #if os(macOS)
-            CommandGroup(after: .undoRedo) {
-                Button("Search") {
-                    triggerSearch()
-                }
-                .keyboardShortcut("f", modifiers: .command)
-                .disabled(libraryManager.currentLibrary == nil)
-
-                Divider()
-
-                Button("Rename") {
-                    triggerRename()
-                }
-                .keyboardShortcut(.return)
-                .disabled(libraryManager.currentLibrary == nil)
-            }
-
-            CommandMenu("Video") {
-                Button("Generate Thumbnails") {
-                    generateThumbnails()
-                }
-                .disabled(libraryManager.currentLibrary == nil)
-            }
-            #endif
-        }
+        .commands { appCommands }
+        #endif
 
         #if os(macOS)
         Settings {
@@ -100,6 +59,63 @@ struct PangolinApp: App {
                 .environment(libraryManager)
                 .environment(storagePolicyManager)
                 .environment(videoFileManager)
+        }
+        #endif
+    }
+
+    @CommandsBuilder
+    private var appCommands: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("New Project") {
+                triggerCreateProject()
+            }
+            .keyboardShortcut(FileCommandPolicy.newProjectShortcut, modifiers: .command)
+            .disabled(libraryManager.currentLibrary == nil)
+
+            Button("Import Videos...") {
+                triggerImportVideos()
+            }
+            .keyboardShortcut(FileCommandPolicy.importVideosShortcut, modifiers: .command)
+            .disabled(libraryManager.currentLibrary == nil)
+
+            #if os(macOS)
+            Button("Reload Library") {
+                retryLibraryOpen()
+            }
+            .keyboardShortcut("R", modifiers: [.command, .shift])
+
+            Divider()
+
+            Button("Import from URL...") {
+                triggerImportFromURL()
+            }
+            .keyboardShortcut("I", modifiers: [.command, .shift])
+            .disabled(libraryManager.currentLibrary == nil)
+            #endif
+        }
+
+        #if os(macOS)
+        CommandGroup(after: .undoRedo) {
+            Button("Search") {
+                triggerSearch()
+            }
+            .keyboardShortcut("f", modifiers: .command)
+            .disabled(libraryManager.currentLibrary == nil)
+
+            Divider()
+
+            Button("Rename") {
+                triggerRename()
+            }
+            .keyboardShortcut(.return)
+            .disabled(libraryManager.currentLibrary == nil)
+        }
+
+        CommandMenu("Video") {
+            Button("Generate Thumbnails") {
+                generateThumbnails()
+            }
+            .disabled(libraryManager.currentLibrary == nil)
         }
         #endif
     }
