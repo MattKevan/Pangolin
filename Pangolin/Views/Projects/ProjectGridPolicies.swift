@@ -296,44 +296,6 @@ enum ProjectVideoSelectionPolicy {
     }
 }
 
-enum ProjectVideoGridLayout {
-    static let spacing: CGFloat = ProjectGridLayout.spacing
-    static let minimumRegularCardWidth: CGFloat = 180
-
-    static func columnCount(availableWidth: CGFloat, isCompact: Bool) -> Int {
-        guard !isCompact else { return 2 }
-        return max(2, Int((availableWidth + spacing) / (minimumRegularCardWidth + spacing)))
-    }
-
-    static func regularColumns(availableWidth: CGFloat) -> [GridItem] {
-        Array(
-            repeating: GridItem(.flexible(), spacing: spacing),
-            count: columnCount(availableWidth: availableWidth, isCompact: false)
-        )
-    }
-}
-
-enum IOSProjectVideoCollectionInteraction: Equatable {
-    case open(UUID)
-    case selecting(Set<UUID>)
-}
-
-enum IOSProjectVideoCollectionPolicy {
-    static func interaction(
-        for id: UUID,
-        selection: Set<UUID>,
-        isEditing: Bool
-    ) -> IOSProjectVideoCollectionInteraction {
-        guard isEditing else { return .open(id) }
-
-        var next = selection
-        if !next.insert(id).inserted {
-            next.remove(id)
-        }
-        return .selecting(next)
-    }
-}
-
 enum ProjectRenamePolicy {
     static func savedTitle(draft: String, current: String) -> String? {
         let trimmedTitle = draft.trimmingCharacters(in: .whitespacesAndNewlines)

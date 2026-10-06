@@ -402,29 +402,18 @@ struct ProjectDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
-                MacProjectVideoCollectionView(
+                ProjectVideoList(
                     sections: sections,
                     selection: $store.selectedProjectVideoIDs,
-                    header: AnyView(
-                        macAlbumHero
-                            .padding(.horizontal, ProjectGridLayout.contentPadding)
-                            .padding(.top, ProjectGridLayout.contentPadding)
-                            .padding(.bottom, 28)
-                    ),
-                    footer: AnyView(
-                        ProjectAlbumFooter(
-                            videoCount: totalVideoCount,
-                            duration: formattedProjectDuration(totalDuration)
-                        )
-                        .padding(.horizontal, ProjectGridLayout.contentPadding)
-                        .padding(.top, 14)
-                        .padding(.bottom, 28)
-                    ),
                     onOpen: { store.openProjectVideo($0, in: project) },
                     onEdit: { editingVideo = $0 },
                     onDelete: promptVideoDeletion,
                     onToggleFavorite: toggleFavorite
-                )
+                ) {
+                    macAlbumHero
+                        .padding(ProjectGridLayout.contentPadding)
+                        .background(.quaternary.opacity(0.4))
+                }
                 .accessibilityIdentifier("project-video-collection")
             }
         }
@@ -500,40 +489,23 @@ struct ProjectDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
-                IOSProjectVideoCollectionView(
+                ProjectVideoList(
                     sections: sections,
                     selection: $store.selectedProjectVideoIDs,
-                    isEditing: isEditingSelection,
-                    isCompact: isCompact,
-                    header: AnyView(
-                        heroContent(isCompact: isCompact)
-                            .padding(.horizontal, ProjectGridLayout.contentPadding)
-                            .padding(.top, ProjectGridLayout.contentPadding)
-                            .padding(.bottom, 28)
-                    ),
-                    footer: AnyView(
-                        ProjectAlbumFooter(
-                            videoCount: totalVideoCount,
-                            duration: formattedProjectDuration(totalDuration)
-                        )
-                        .padding(.horizontal, ProjectGridLayout.contentPadding)
-                        .padding(.top, 14)
-                        .padding(.bottom, 28)
-                    ),
-                    onEditingChanged: setIOSSelectionMode,
                     onOpen: { store.openProjectVideo($0, in: project) },
                     onEdit: { editingVideo = $0 },
                     onDelete: promptVideoDeletion,
                     onToggleFavorite: toggleFavorite
-                )
+                ) {
+                    heroContent(isCompact: isCompact)
+                        .padding(ProjectGridLayout.contentPadding)
+                        .background(.quaternary.opacity(0.4))
+                }
                 .accessibilityIdentifier("project-video-collection")
             }
         }
     }
 
-    private func setIOSSelectionMode(_ isActive: Bool) {
-        editMode?.wrappedValue = isActive ? .active : .inactive
-    }
     #endif
 
     @ViewBuilder
@@ -622,13 +594,13 @@ struct ProjectDetailView: View {
                     store.openProjectVideo(continueWatchingVideo, in: project)
                 }
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.glassProminent)
             .disabled(continueWatchingVideo == nil)
 
             Button("Highlights") {
                 showingHighlightsPlaceholder = true
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.glass)
         }
 
         if centered {
