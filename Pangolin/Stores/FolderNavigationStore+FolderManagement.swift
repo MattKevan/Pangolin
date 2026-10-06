@@ -274,39 +274,6 @@ extension FolderNavigationStore {
         }
     }
     
-    // MARK: - Auto-select first video
-    
-    private func selectFirstVideoInCurrentFolderIfNeeded() {
-        guard shouldAutoSelectFirstVideo else { return }
-        // Build a list of videos in the current folder from the freshly refreshed flatContent
-        let videosInFolder: [Video] = flatContent.compactMap {
-            if case .video(let video) = $0 { return video }
-            return nil
-        }
-        
-        guard let firstVideo = videosInFolder.first else {
-            // No videos in this folder; clear selection
-            selectedVideo = nil
-            return
-        }
-        
-        // If nothing selected, select the first
-        guard let currentSelected = selectedVideo else {
-            selectedVideo = firstVideo
-            return
-        }
-        
-        // If a video is selected but it's not in the current folder's content, select the first
-        let containsCurrent = videosInFolder.contains(where: { $0.objectID == currentSelected.objectID })
-        if !containsCurrent {
-            selectedVideo = firstVideo
-        }
-        
-        // If containsCurrent is true, keep current selection (do not override)
-    }
-
-    private var shouldAutoSelectFirstVideo: Bool { false }
-    
     // MARK: - Renaming
     func renameItem(id: UUID, to newName: String) async {
         guard let context = libraryManager.viewContext else { return }

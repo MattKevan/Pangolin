@@ -130,11 +130,11 @@ class FolderNavigationStore {
     @ObservationIgnored private var projectSectionCache: [ProjectSectionCacheKey: [ProjectSectionSnapshot]] = [:]
     @ObservationIgnored private var projectSectionCacheRevision = -1
     @ObservationIgnored nonisolated(unsafe) private var libraryObservationTask: Task<Void, Never>?
-    var contextSaveCancellable: AnyCancellable?
-    private var isRevealingVideoLocation = false
-    var suppressNextSidebarSelectionChange = false
-    private var videoNavigationOrigin: VideoNavigationOrigin?
-    private var hasCapturedVideoNavigationOrigin = false
+    // Bookkeeping that views never read; keeping it out of observation avoids needless invalidation.
+    @ObservationIgnored var contextSaveCancellable: AnyCancellable?
+    @ObservationIgnored var suppressNextSidebarSelectionChange = false
+    @ObservationIgnored private var videoNavigationOrigin: VideoNavigationOrigin?
+    @ObservationIgnored private var hasCapturedVideoNavigationOrigin = false
     private let fallbackProjectSectionTitle = "Videos"
     
     init(libraryManager: LibraryManager) {
@@ -194,12 +194,8 @@ class FolderNavigationStore {
                 openProject(folder)
                 return
             }
-            // When revealing a video's location, revealVideoLocation(_:) sets
-            // selectedTopLevelFolder/currentFolderID/navigationPath explicitly.
-            // Avoid clobbering that state from this sidebar selection callback.
-            if isRevealingVideoLocation {
-                return
-            }
+            // revealVideoLocation(_:) sets selectedTopLevelFolder/currentFolderID/navigationPath
+            // itself and sets suppressNextSidebarSelectionChange so this callback never runs for it.
             // Do not auto-select a video when a normal folder is selected from the sidebar.
             // This avoids unexpectedly opening a nested video's detail view.
             applyFolderSelection(folder, clearSelectedVideo: true)
@@ -337,16 +333,6 @@ class FolderNavigationStore {
     func navigateToFolder(_ folderID: UUID) {
         navigationPath.append(folderID)
         currentFolderID = folderID
-    }
-    func navigateBack() {
-        guard !navigationPath.isEmpty else { return }
-        navigationPath.removeLast()
-        
-        if navigationPath.isEmpty {
-            currentFolderID = selectedTopLevelFolder?.id
-        } else {
-            // Complex navigation could decode the path here
-        }
     }
     func navigateToRoot() {
         navigationPath = NavigationPath()
@@ -656,8 +642,6 @@ class FolderNavigationStore {
     // Reveal a video's location in the folder hierarchy and select it.
     func revealVideoLocation(_ video: Video) {
         captureVideoNavigationOrigin()
-        isRevealingVideoLocation = true
-        defer { isRevealingVideoLocation = false }
 
         selectedVideo = video
         guard let folder = video.folder else {

@@ -146,15 +146,6 @@ extension FolderNavigationStore {
         selectedSidebarItem = .projects
     }
 
-    private func applySidebarFolderSelectionWithoutCallback(_ folder: Folder, clearSelectedVideo: Bool) {
-        let targetSelection: SidebarSelection = .folder(folder)
-        if selectionKey(selectedSidebarItem) != selectionKey(targetSelection) {
-            suppressNextSidebarSelectionChange = true
-        }
-        selectedSidebarItem = targetSelection
-        applyFolderSelection(folder, clearSelectedVideo: clearSelectedVideo)
-    }
-
     /// Fills in missing project titles and keeps each project's thumbnail video id current.
     /// Runs from `refreshContent()`, never from a view body: it saves the context, and saving
     /// triggers another refresh. That settles after one pass because the backfill is idempotent.
