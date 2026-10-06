@@ -383,10 +383,16 @@ extension Library {
 
     static let defaultMaxLocalVideoCacheBytes: Int64 = 10 * 1024 * 1024 * 1024
 
-    // Computed properties
-    var url: URL? {
-        guard let libraryPath = libraryPath else { return nil }
-        return URL(fileURLWithPath: libraryPath)
+    /// Where this device keeps the library's files. Not stored with the library; see `LibraryLocation`.
+    var url: URL? { LibraryLocation.url }
+
+    /// Per-device limit for locally cached videos. Not stored with the library; see `LocalVideoCachePreferences`.
+    var maxLocalVideoCacheBytes: Int64 {
+        get { LocalVideoCachePreferences.maxBytes(for: id) }
+        set {
+            objectWillChange.send()
+            LocalVideoCachePreferences.setMaxBytes(newValue, for: id)
+        }
     }
 
     var storagePreference: LibraryStoragePreference {

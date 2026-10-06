@@ -30,7 +30,6 @@ struct LibraryManagerTests {
         let cloudLibrary = Library(entity: libraryEntity, insertInto: context)
         cloudLibrary.id = UUID()
         cloudLibrary.name = "Pangolin Library"
-        cloudLibrary.libraryPath = libraryURL.path
         cloudLibrary.createdDate = Date().addingTimeInterval(-60)
         cloudLibrary.lastOpenedDate = Date().addingTimeInterval(-60)
         cloudLibrary.version = "1.1.0"
@@ -40,7 +39,6 @@ struct LibraryManagerTests {
         cloudLibrary.defaultPlaybackSpeed = 1.0
         cloudLibrary.rememberPlaybackPosition = true
         cloudLibrary.videoStorageType = LibraryStoragePreference.optimizeStorage.rawValue
-        cloudLibrary.maxLocalVideoCacheBytes = Library.defaultMaxLocalVideoCacheBytes
 
         let restoredProject = Folder(entity: folderEntity, insertInto: context)
         restoredProject.id = UUID()
@@ -92,7 +90,6 @@ struct LibraryManagerTests {
         let duplicate = Library(entity: libraryEntity, insertInto: context)
         duplicate.id = UUID()
         duplicate.name = "Pangolin Library"
-        duplicate.libraryPath = libraryURL.path
         duplicate.createdDate = Date().addingTimeInterval(10)
         duplicate.lastOpenedDate = Date().addingTimeInterval(10)
         duplicate.version = "1.1.0"
@@ -102,7 +99,6 @@ struct LibraryManagerTests {
         duplicate.defaultPlaybackSpeed = 1.0
         duplicate.rememberPlaybackPosition = true
         duplicate.videoStorageType = LibraryStoragePreference.optimizeStorage.rawValue
-        duplicate.maxLocalVideoCacheBytes = Library.defaultMaxLocalVideoCacheBytes
 
         let macFolder = Folder(entity: folderEntity, insertInto: context)
         macFolder.id = UUID()

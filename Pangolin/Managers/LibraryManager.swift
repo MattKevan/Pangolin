@@ -35,7 +35,6 @@ final class LibraryManager {
     private let cloudContainerIdentifier = "iCloud.com.newindustries.pangolin"
     private static let defaultLibraryName = "Pangolin Library"
     private let defaultVideoStorageType = LibraryStoragePreference.optimizeStorage.rawValue
-    private let defaultMaxLocalVideoCacheBytes = Library.defaultMaxLocalVideoCacheBytes
     
     // MARK: - Initialization
     private init() {}
@@ -265,6 +264,7 @@ final class LibraryManager {
             throw LibraryError.unexpected(error)
         }
         coreDataStack = stack
+        LibraryLocation.url = url
         loadingProgress = 0.5
 
         guard let context = stack.viewContext else {
@@ -273,12 +273,6 @@ final class LibraryManager {
         observeCloudImportedLibraries(in: context)
 
         let library = try consolidateDuplicateLibraries(in: context) ?? (try makeLibrary(at: url, in: context))
-        let previousLibraryURL = library.libraryPath.map(URL.init(fileURLWithPath:))
-        // Resolve everything below against where the library actually is, not a stale stored path.
-        if library.libraryPath != url.path {
-            Logger.library.warning("LIBRARY: Updating stored libraryPath from \(library.libraryPath ?? "nil") to \(url.path)")
-            library.libraryPath = url.path
-        }
         loadingProgress = 0.7
 
         let storedVersion = library.version ?? "0.0.0"
@@ -287,8 +281,7 @@ final class LibraryManager {
         }
 
         normalizeStorageSettings(for: library)
-        textArtifacts.libraryRoot = url
-        try textArtifacts.migrateToPreferredLocation(libraryRoot: url, legacyRoot: previousLibraryURL)
+        try textArtifacts.migrateToPreferredLocation(libraryRoot: url)
         library.lastOpenedDate = Date()
         try context.save()
 
@@ -316,11 +309,9 @@ final class LibraryManager {
         let library = Library(entity: entity, insertInto: context)
         library.id = UUID()
         library.name = Self.defaultLibraryName
-        library.libraryPath = url.path
         library.createdDate = Date()
         library.version = currentVersion
         library.videoStorageType = defaultVideoStorageType
-        library.maxLocalVideoCacheBytes = defaultMaxLocalVideoCacheBytes
         return library
     }
 
@@ -348,7 +339,7 @@ final class LibraryManager {
         
         coreDataStack = nil
         currentLibrary = nil
-        textArtifacts.libraryRoot = nil
+        LibraryLocation.url = nil
         isLibraryOpen = false
     }
 
@@ -476,10 +467,6 @@ final class LibraryManager {
 
         if !isExistingTypeValid {
             library.videoStorageType = defaultVideoStorageType
-        }
-
-        if library.maxLocalVideoCacheBytes <= 0 {
-            library.maxLocalVideoCacheBytes = defaultMaxLocalVideoCacheBytes
         }
     }
 }

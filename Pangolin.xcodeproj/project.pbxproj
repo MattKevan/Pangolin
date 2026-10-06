@@ -50,6 +50,7 @@
 		4B46AD9E945D539AC9A21379 /* ThumbnailModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97BCAF698EB3460169543E9B /* ThumbnailModelTests.swift */; };
 		4D4D7B161BF23E1643421A28 /* SummaryControlsInspectorPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6291936AFC754AA338AA3C48 /* SummaryControlsInspectorPane.swift */; };
 		4DD11E77D674F60FDDA6AD0F /* VideoPresentationHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1932624497E8687E79BAD42F /* VideoPresentationHost.swift */; };
+		521A0C29762AFC370BFA16ED /* LibraryLocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B9F20E85432F1AEC58089D4 /* LibraryLocation.swift */; };
 		521FACFFDF571108AEE2CBE6 /* FolderContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2D9F2D0F5A0A6478889ACE4 /* FolderContentView.swift */; };
 		5AE09C21DFE8F5D507B16776 /* VideoFloatingLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 368387BBC11C59679055085E /* VideoFloatingLayoutTests.swift */; };
 		605B15F28A91BF0AB2B13E7E /* RemoteVideoDownloadService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33D1FFB47DD09AA360FB045A /* RemoteVideoDownloadService.swift */; };
@@ -77,6 +78,7 @@
 		8F049CBBE74DF95E68601713 /* VideoImporterRollbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68D47EFB24520196DD13F8B6 /* VideoImporterRollbackTests.swift */; };
 		8F5CA2D1FE85959AB3A8F06E /* DetailPageChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70D9560C4480F524DCDFBD18 /* DetailPageChrome.swift */; };
 		8FEABD9FE96DDF9C797B6995 /* TextArtifactStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B68392CA70E3F5601FE1D0F5 /* TextArtifactStore.swift */; };
+		8FF482DADABB8FBCD06148F4 /* ModelMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96C116CD80E69AF3334B1C6F /* ModelMigrationTests.swift */; };
 		90C1B84CC2542DC4B6F7646C /* DeletionConfirmationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50BC09F91F4360B7125654F7 /* DeletionConfirmationView.swift */; };
 		9208218345B0176BCA69ED9F /* DetailTranscriptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C92E78AC867647D053B2520 /* DetailTranscriptView.swift */; };
 		94A5DB6DD7A436EA1741D94F /* SpeechPipelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 453611ED636DDF8DE4B7DB44 /* SpeechPipelineTests.swift */; };
@@ -174,6 +176,7 @@
 		20C594D522302EEB3FF435B4 /* SpeechTranscriptionService+Summarization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SpeechTranscriptionService+Summarization.swift"; sourceTree = "<group>"; };
 		23429E992895DE201E2610C1 /* ContentTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentTransfer.swift; sourceTree = "<group>"; };
 		29430BB1CFD6915F8D94C7A4 /* SpeechTranscriptionService+Translation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SpeechTranscriptionService+Translation.swift"; sourceTree = "<group>"; };
+		2B9F20E85432F1AEC58089D4 /* LibraryLocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryLocation.swift; sourceTree = "<group>"; };
 		310B404B1B230FF1B09DD729 /* FolderTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderTransfer.swift; sourceTree = "<group>"; };
 		33232B10DCFE883C5127E91F /* TimedTranslationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimedTranslationTests.swift; sourceTree = "<group>"; };
 		33D1FFB47DD09AA360FB045A /* RemoteVideoDownloadService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteVideoDownloadService.swift; sourceTree = "<group>"; };
@@ -232,6 +235,7 @@
 		964CAC32DE5B726E4A914EEB /* MacProjectVideoCollectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacProjectVideoCollectionView.swift; sourceTree = "<group>"; };
 		966068E6F758B9BE50FCFCE1 /* VideoThumbnailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoThumbnailView.swift; sourceTree = "<group>"; };
 		9663BA7F7A5EF31D400BDE02 /* MiscPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiscPolicyTests.swift; sourceTree = "<group>"; };
+		96C116CD80E69AF3334B1C6F /* ModelMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelMigrationTests.swift; sourceTree = "<group>"; };
 		96E65EE14F17FAD0C4A95166 /* CoreDataStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreDataStack.swift; sourceTree = "<group>"; };
 		97BCAF698EB3460169543E9B /* ThumbnailModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailModelTests.swift; sourceTree = "<group>"; };
 		97F9AA59802CDD61494F2BE8 /* ProcessingQueueManager+Execution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ProcessingQueueManager+Execution.swift"; sourceTree = "<group>"; };
@@ -246,6 +250,7 @@
 		A2FEE876C0C2B4C24C1D791C /* RemediationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemediationTests.swift; sourceTree = "<group>"; };
 		A458CFE72FFBF88B47BAF415 /* Video+GeneratedText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Video+GeneratedText.swift"; sourceTree = "<group>"; };
 		A5DB27920A4CA5874C960F09 /* ProcessingQueueManager+Enqueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ProcessingQueueManager+Enqueue.swift"; sourceTree = "<group>"; };
+		A7687ED62C60C0F30272AE1F /* Pangolin 2.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = "Pangolin 2.xcdatamodel"; sourceTree = "<group>"; };
 		AC33176EA111CFE584E008C7 /* SummaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryView.swift; sourceTree = "<group>"; };
 		AE0F3204636BE512D5DE1195 /* Pangolin.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = Pangolin.xcdatamodel; sourceTree = "<group>"; };
 		AED33C7E1B0F16EC012EFE88 /* PangolinTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PangolinTests.swift; sourceTree = "<group>"; };
@@ -338,6 +343,7 @@
 				D371D926B3F7AE8BE35CC922 /* FlashcardDeck.swift */,
 				310B404B1B230FF1B09DD729 /* FolderTransfer.swift */,
 				EEEBFE89C280C586735C6FC7 /* HierarchicalContent.swift */,
+				2B9F20E85432F1AEC58089D4 /* LibraryLocation.swift */,
 				C82F9C173483A73DD7C2D0A9 /* ProcessingQueue.swift */,
 				4EB30D7CF0707906EAC655F7 /* ProcessingTask.swift */,
 				9505F39918347E4BA4039BC9 /* SearchPresentationModels.swift */,
@@ -487,6 +493,7 @@
 				9F4C52A6889D8B12CC77FE9A /* ImportDateFolderTests.swift */,
 				3931E8CB587EE4B4123B831E /* LibraryManagerTests.swift */,
 				9663BA7F7A5EF31D400BDE02 /* MiscPolicyTests.swift */,
+				96C116CD80E69AF3334B1C6F /* ModelMigrationTests.swift */,
 				AED33C7E1B0F16EC012EFE88 /* PangolinTests.swift */,
 				9316C1FC752E08A19CAF765D /* PhoneRoutePolicyTests.swift */,
 				B07ADC417DE5AF498358D318 /* ProcessingFixPoliciesTests.swift */,
@@ -795,6 +802,7 @@
 				F28CDCAD7E5C31A057CB28A6 /* ImportDateFolderTests.swift in Sources */,
 				2642C2AB4A75B2C54714CF46 /* LibraryManagerTests.swift in Sources */,
 				B2C17339F0E2B8B23E67CCE7 /* MiscPolicyTests.swift in Sources */,
+				8FF482DADABB8FBCD06148F4 /* ModelMigrationTests.swift in Sources */,
 				3DF35C9D6B1BEC261EACA352 /* PangolinTests.swift in Sources */,
 				00BBC9F0CA647514351FAE41 /* PhoneRoutePolicyTests.swift in Sources */,
 				38279C9C9129E29EDB31812D /* ProcessingFixPoliciesTests.swift in Sources */,
@@ -852,6 +860,7 @@
 				28D3B511B522B4B7B2D4B7A6 /* InlineErrorBanner.swift in Sources */,
 				29449FC602ECDFACC844F590 /* InspectorContentView.swift in Sources */,
 				D0944E97463372EE959C8CBF /* LibraryContentProvider.swift in Sources */,
+				521A0C29762AFC370BFA16ED /* LibraryLocation.swift in Sources */,
 				78C9E2382B4F3539FDB2C9C8 /* LibraryManager.swift in Sources */,
 				EBE9A321DE2CAD5A709576BE /* Logging.swift in Sources */,
 				403357116333CC46322D2FF1 /* MacProjectVideoCollectionView.swift in Sources */,
@@ -1386,9 +1395,10 @@
 		32E26A88A7BB8D934985B233 /* Pangolin.xcdatamodeld */ = {
 			isa = XCVersionGroup;
 			children = (
+				A7687ED62C60C0F30272AE1F /* Pangolin 2.xcdatamodel */,
 				AE0F3204636BE512D5DE1195 /* Pangolin.xcdatamodel */,
 			);
-			currentVersion = AE0F3204636BE512D5DE1195 /* Pangolin.xcdatamodel */;
+			currentVersion = A7687ED62C60C0F30272AE1F /* Pangolin 2.xcdatamodel */;
 			path = Pangolin.xcdatamodeld;
 			sourceTree = "<group>";
 			versionGroupType = wrapper.xcdatamodel;

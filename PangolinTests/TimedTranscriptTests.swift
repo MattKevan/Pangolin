@@ -421,25 +421,18 @@ struct TimedTranscriptTests {
         await manager.closeCurrentLibrary()
     }
 
-    @Test("Migration uses opened library URL instead of stale stored path")
+    @Test("Migrating an old library resolves everything against the opened location")
     @MainActor
-    func migrationUsesOpenedLibraryURLInsteadOfStaleStoredPath() async throws {
+    func migrationUsesOpenedLibraryURL() async throws {
         let manager = LibraryManager.shared
         let fileManager = FileManager.default
-        let tempRoot = fileManager.temporaryDirectory.appendingPathComponent("PangolinStalePathMigration-\(UUID().uuidString)", isDirectory: true)
+        let tempRoot = fileManager.temporaryDirectory.appendingPathComponent("PangolinOldVersionMigration-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: tempRoot, withIntermediateDirectories: true)
-
-        let staleParent = tempRoot.appendingPathComponent("ReadOnlyParent", isDirectory: true)
-        try fileManager.createDirectory(at: staleParent, withIntermediateDirectories: true)
-        try fileManager.setAttributes([.posixPermissions: 0o555], ofItemAtPath: staleParent.path)
-
-        defer {
-            try? fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: staleParent.path)
-            try? fileManager.removeItem(at: tempRoot)
-        }
+        defer { try? fileManager.removeItem(at: tempRoot) }
 
         let libraryURL = tempRoot.appendingPathComponent("ActualLibrary", isDirectory: true)
         let library = try await manager.loadLibrary(at: libraryURL)
+        #expect(library.url == libraryURL)
 
         guard let context = manager.viewContext else {
             #expect(Bool(false))
@@ -447,14 +440,14 @@ struct TimedTranscriptTests {
         }
 
         library.version = "1.0.0"
-        library.libraryPath = staleParent.appendingPathComponent("Library.pangolin", isDirectory: true).path
         try context.save()
-
         await manager.closeCurrentLibrary()
+        #expect(LibraryLocation.url == nil)
 
         let reopenedLibrary = try await manager.loadLibrary(at: libraryURL)
-        #expect(reopenedLibrary.libraryPath == libraryURL.path)
-        #expect(fileManager.fileExists(atPath: staleParent.appendingPathComponent("Library.pangolin", isDirectory: true).path) == false)
+        #expect(reopenedLibrary.url == libraryURL)
+        #expect(reopenedLibrary.version != "1.0.0")
+        #expect(fileManager.fileExists(atPath: libraryURL.appendingPathComponent("Transcripts").path))
 
         await manager.closeCurrentLibrary()
     }

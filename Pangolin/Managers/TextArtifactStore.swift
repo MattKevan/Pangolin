@@ -62,8 +62,8 @@ final class TextArtifactStore {
         }
     }
 
-    /// Folder of the open library. Used for videos that have no library of their own.
-    var libraryRoot: URL?
+    /// Folder of the open library on this device.
+    var libraryRoot: URL? { LibraryLocation.url }
 
     var cloudRootProvider: () -> URL? = {
         let fileManager = FileManager.default
@@ -158,14 +158,11 @@ final class TextArtifactStore {
 
     // MARK: - Migration
 
-    /// Copies artifacts from the library folder, and from a previous library location,
-    /// into the iCloud container. Does nothing when iCloud is unavailable.
-    func migrateToPreferredLocation(libraryRoot root: URL?, legacyRoot: URL?) throws {
-        guard let destination = cloudDirectories() else { return }
-
-        for source in [root, legacyRoot].compactMap({ $0 }).map(Directories.init(root:)) {
-            try migrate(from: source, to: destination)
-        }
+    /// Copies artifacts from the library folder into the iCloud container.
+    /// Does nothing when iCloud is unavailable.
+    func migrateToPreferredLocation(libraryRoot root: URL?) throws {
+        guard let destination = cloudDirectories(), let root else { return }
+        try migrate(from: Directories(root: root), to: destination)
     }
 
     /// Deletes every artifact directory, local and cloud, then recreates the preferred ones.
