@@ -15,6 +15,11 @@ struct IOSProjectVideoCollectionView: UIViewRepresentable {
     @Binding var selection: Set<UUID>
     let isEditing: Bool
     let isCompact: Bool
+    /// Scrollable header (the album hero) rendered as the first section's
+    /// supplementary header so it scrolls with the collection.
+    let header: AnyView?
+    /// Scrollable footer rendered as the last section's supplementary footer.
+    let footer: AnyView?
     let onEditingChanged: (Bool) -> Void
     let onOpen: (Video) -> Void
     let onEdit: (Video) -> Void
@@ -45,6 +50,16 @@ struct IOSProjectVideoCollectionView: UIViewRepresentable {
             IOSProjectVideoSectionHeader.self,
             forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader,
             withReuseIdentifier: IOSProjectVideoSectionHeader.reuseIdentifier
+        )
+        collectionView.register(
+            IOSProjectVideoHeroHeader.self,
+            forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader,
+            withReuseIdentifier: IOSProjectVideoHeroHeader.reuseIdentifier
+        )
+        collectionView.register(
+            IOSProjectVideoFooter.self,
+            forSupplementaryViewOfKind: UICollectionView.elementKindSectionFooter,
+            withReuseIdentifier: IOSProjectVideoFooter.reuseIdentifier
         )
         collectionView.dataSource = context.coordinator
         collectionView.delegate = context.coordinator
@@ -92,6 +107,24 @@ struct IOSProjectVideoCollectionView: UIViewRepresentable {
             viewForSupplementaryElementOfKind kind: String,
             at indexPath: IndexPath
         ) -> UICollectionReusableView {
+            if kind == UICollectionView.elementKindSectionFooter {
+                let footer = collectionView.dequeueReusableSupplementaryView(
+                    ofKind: kind,
+                    withReuseIdentifier: IOSProjectVideoFooter.reuseIdentifier,
+                    for: indexPath
+                ) as! IOSProjectVideoFooter
+                footer.configure(rootView: parent.footer)
+                return footer
+            }
+            if kind == UICollectionView.elementKindSectionHeader, indexPath.section == 0, parent.header != nil {
+                let hero = collectionView.dequeueReusableSupplementaryView(
+                    ofKind: kind,
+                    withReuseIdentifier: IOSProjectVideoHeroHeader.reuseIdentifier,
+                    for: indexPath
+                ) as! IOSProjectVideoHeroHeader
+                hero.configure(rootView: parent.header)
+                return hero
+            }
             let header = collectionView.dequeueReusableSupplementaryView(
                 ofKind: kind,
                 withReuseIdentifier: IOSProjectVideoSectionHeader.reuseIdentifier,
@@ -115,6 +148,26 @@ struct IOSProjectVideoCollectionView: UIViewRepresentable {
             let totalSpacing = CGFloat(max(0, columnCount - 1)) * ProjectVideoGridLayout.spacing
             let width = max(1, floor((availableWidth - totalSpacing) / CGFloat(columnCount)))
             return CGSize(width: width, height: width * 9 / 16 + 76)
+        }
+
+        func collectionView(
+            _ collectionView: UICollectionView,
+            layout collectionViewLayout: UICollectionViewLayout,
+            referenceSizeForHeaderInSection section: Int
+        ) -> CGSize {
+            if section == 0, parent.header != nil {
+                return heroHeaderSize(for: collectionView.bounds.width)
+            }
+            return CGSize(width: 1, height: 36)
+        }
+
+        func collectionView(
+            _ collectionView: UICollectionView,
+            layout collectionViewLayout: UICollectionViewLayout,
+            referenceSizeForFooterInSection section: Int
+        ) -> CGSize {
+            guard section == parent.sections.count - 1, parent.footer != nil else { return .zero }
+            return footerSize(for: collectionView.bounds.width)
         }
 
         func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
@@ -204,6 +257,8 @@ struct IOSProjectVideoCollectionView: UIViewRepresentable {
             if contentSignature != nextSignature {
                 contentSignature = nextSignature
                 presentationSignature = nextPresentationSignature
+                heroSizedWidth = 0
+                footerSizedWidth = 0
                 isSynchronizingSelection = true
                 collectionView.reloadData()
                 isSynchronizingSelection = false
@@ -246,6 +301,66 @@ struct IOSProjectVideoCollectionView: UIViewRepresentable {
                 (collectionView.indexPathsForSelectedItems ?? [])
                     .compactMap { video(at: $0).id }
             )
+        }
+
+        // MARK: - Hero / footer sizing (measured via hosting controllers, cached by width)
+
+        private var heroSizingController: UIHostingController<AnyView>?
+        private var heroSizedWidth: CGFloat = 0
+        private var heroSizedHeight: CGFloat = 0
+
+        private func heroHeaderSize(for width: CGFloat) -> CGSize {
+            guard let hero = parent.header else { return CGSize(width: 1, height: 36) }
+            let controller: UIHostingController<AnyView>
+            if let heroSizingController {
+                controller = heroSizingController
+                controller.rootView = hero
+            } else {
+                let created = UIHostingController(rootView: hero)
+                created.view.backgroundColor = .clear
+                controller = created
+                heroSizingController = created
+            }
+            if heroSizedWidth != width {
+                controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 0)
+                let size = controller.view.systemLayoutSizeFitting(
+                    CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
+                    withHorizontalFittingPriority: .required,
+                    verticalFittingPriority: .fittingSizeLevel
+                )
+                heroSizedWidth = width
+                heroSizedHeight = size.height
+            }
+            return CGSize(width: width, height: heroSizedHeight)
+        }
+
+        private var footerSizingController: UIHostingController<AnyView>?
+        private var footerSizedWidth: CGFloat = 0
+        private var footerSizedHeight: CGFloat = 0
+
+        private func footerSize(for width: CGFloat) -> CGSize {
+            guard let footer = parent.footer else { return .zero }
+            let controller: UIHostingController<AnyView>
+            if let footerSizingController {
+                controller = footerSizingController
+                controller.rootView = footer
+            } else {
+                let created = UIHostingController(rootView: footer)
+                created.view.backgroundColor = .clear
+                controller = created
+                footerSizingController = created
+            }
+            if footerSizedWidth != width {
+                controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 0)
+                let size = controller.view.systemLayoutSizeFitting(
+                    CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
+                    withHorizontalFittingPriority: .required,
+                    verticalFittingPriority: .fittingSizeLevel
+                )
+                footerSizedWidth = width
+                footerSizedHeight = size.height
+            }
+            return CGSize(width: width, height: footerSizedHeight)
         }
 
         private var selectedIndexPaths: Set<IndexPath> {
@@ -335,12 +450,64 @@ private final class IOSProjectVideoSectionHeader: UICollectionReusableView {
 
     required init?(coder: NSCoder) { nil }
 }
+
+/// Hosts the album hero so it scrolls with the collection (first section header).
+private final class IOSProjectVideoHeroHeader: UICollectionReusableView {
+    static let reuseIdentifier = "ProjectVideoHeroHeader"
+    private var hostingController: UIHostingController<AnyView>?
+
+    func configure(rootView: AnyView?) {
+        guard let rootView else { return }
+        if let hostingController {
+            hostingController.rootView = rootView
+        } else {
+            let controller = UIHostingController(rootView: rootView)
+            controller.view.backgroundColor = .clear
+            controller.view.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(controller.view)
+            NSLayoutConstraint.activate([
+                controller.view.leadingAnchor.constraint(equalTo: leadingAnchor),
+                controller.view.trailingAnchor.constraint(equalTo: trailingAnchor),
+                controller.view.topAnchor.constraint(equalTo: topAnchor),
+                controller.view.bottomAnchor.constraint(equalTo: bottomAnchor)
+            ])
+            hostingController = controller
+        }
+    }
+}
+
+/// Hosts the album footer so it scrolls with the collection (last section footer).
+private final class IOSProjectVideoFooter: UICollectionReusableView {
+    static let reuseIdentifier = "ProjectVideoFooter"
+    private var hostingController: UIHostingController<AnyView>?
+
+    func configure(rootView: AnyView?) {
+        guard let rootView else { return }
+        if let hostingController {
+            hostingController.rootView = rootView
+        } else {
+            let controller = UIHostingController(rootView: rootView)
+            controller.view.backgroundColor = .clear
+            controller.view.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(controller.view)
+            NSLayoutConstraint.activate([
+                controller.view.leadingAnchor.constraint(equalTo: leadingAnchor),
+                controller.view.trailingAnchor.constraint(equalTo: trailingAnchor),
+                controller.view.topAnchor.constraint(equalTo: topAnchor),
+                controller.view.bottomAnchor.constraint(equalTo: bottomAnchor)
+            ])
+            hostingController = controller
+        }
+    }
+}
 #endif
 
 /// Shared visual treatment for project video cards. Platform-specific containers own selection and activation.
 struct ProjectVideoCardContent: View {
     let video: Video
     let isSelected: Bool
+
+    @State private var isHovering = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -356,7 +523,11 @@ struct ProjectVideoCardContent: View {
             .aspectRatio(16 / 9, contentMode: .fit)
             .frame(maxWidth: .infinity)
             .clipShape(.rect(cornerRadius: 6))
-            .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
+            .shadow(
+                color: .black.opacity(isHovering ? 0.32 : 0.18),
+                radius: isHovering ? 14 : 6,
+                y: isHovering ? 6 : 2
+            )
             .overlay(alignment: .bottomTrailing) {
                 Text(video.formattedDuration)
                     .font(.caption2.weight(.medium).monospacedDigit())
@@ -378,6 +549,18 @@ struct ProjectVideoCardContent: View {
                         .padding(6)
                 }
             }
+            #if os(macOS)
+            // Selection border + hover zoom on the thumbnail only, matching the
+            // projects grid card rules.
+            .overlay {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(Color.accentColor, lineWidth: 2)
+                }
+            }
+            .scaleEffect(isHovering ? 1.02 : 1.0)
+            .animation(.easeOut(duration: 0.15), value: isHovering)
+            #endif
 
             Text(resolvedTitle)
                 .font(.subheadline.weight(.semibold))
@@ -405,13 +588,18 @@ struct ProjectVideoCardContent: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onHover { hovering in
+            isHovering = hovering
+        }
         .overlay(alignment: .topTrailing) {
+            #if os(iOS)
             if isSelected {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(Color.accentColor, .background)
                     .font(.title3)
                     .padding(6)
             }
+            #endif
         }
     }
 

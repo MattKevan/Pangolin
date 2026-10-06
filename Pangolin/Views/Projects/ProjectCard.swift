@@ -6,9 +6,12 @@ import SwiftUI
 
 struct ProjectCard: View {
     let project: Folder
+    /// Single click/tap: selects the project on macOS, opens it on iOS/iPadOS.
+    /// Double-click handling lives in the grid (manual timing), so the card
+    /// needs only this one action.
     let action: () -> Void
     let isRenaming: Bool
-    let isKeyboardHighlighted: Bool
+    let isSelected: Bool
     @Binding var editedTitle: String
     @FocusState.Binding var focusedProjectID: UUID?
     let onRename: () -> Void
@@ -16,11 +19,13 @@ struct ProjectCard: View {
     let onCancelRename: () -> Void
     let onDelete: () -> Void
 
+    @State private var isHovering = false
+
     init(
         project: Folder,
         action: @escaping () -> Void,
         isRenaming: Bool,
-        isKeyboardHighlighted: Bool = false,
+        isSelected: Bool = false,
         editedTitle: Binding<String>,
         focusedProjectID: FocusState<UUID?>.Binding,
         onRename: @escaping () -> Void,
@@ -31,7 +36,7 @@ struct ProjectCard: View {
         self.project = project
         self.action = action
         self.isRenaming = isRenaming
-        self.isKeyboardHighlighted = isKeyboardHighlighted
+        self.isSelected = isSelected
         self._editedTitle = editedTitle
         self._focusedProjectID = focusedProjectID
         self.onRename = onRename
@@ -50,7 +55,20 @@ struct ProjectCard: View {
                         thumbnail
                     }
                     .clipShape(.rect(cornerRadius: 6))
-                    .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
+                    .shadow(
+                        color: .black.opacity(isHovering ? 0.32 : 0.18),
+                        radius: isHovering ? 14 : 6,
+                        y: isHovering ? 6 : 2
+                    )
+                    .overlay {
+                        if isSelected {
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .strokeBorder(Color.accentColor, lineWidth: 2)
+                        }
+                    }
+                    // Hover zoom applies to the thumbnail only, not the title.
+                    .scaleEffect(isHovering ? 1.02 : 1.0)
+                    .animation(.easeOut(duration: 0.15), value: isHovering)
 
                 VStack(alignment: .leading, spacing: 2) {
                     projectTitle
@@ -67,11 +85,8 @@ struct ProjectCard: View {
             .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .buttonStyle(.plain)
-        .overlay {
-            if isKeyboardHighlighted {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .strokeBorder(Color.accentColor, lineWidth: 2)
-            }
+        .onHover { hovering in
+            isHovering = hovering
         }
         .accessibilityHint("Opens the project")
         .contextMenu {
@@ -109,13 +124,6 @@ struct ProjectCard: View {
                 .font(.subheadline)
                 .foregroundStyle(.primary)
                 .lineLimit(2)
-                #if os(macOS)
-                // Finder-style rename affordance: slow double-click on the title.
-                // Single clicks still bubble to the card's open action.
-                .onTapGesture(count: 2) {
-                    onRename()
-                }
-                #endif
         }
     }
 

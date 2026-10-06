@@ -343,8 +343,8 @@ enum ProjectRenamePolicy {
 }
 
 enum ProjectGridLayout {
-    static let contentPadding: CGFloat = 22
-    static let spacing: CGFloat = 22
+    static let contentPadding: CGFloat = 28
+    static let spacing: CGFloat = 28
     static let minimumRegularCardWidth: CGFloat = 220
     static let compactColumnCount = 2
     static let minimumRegularColumnCount = 2

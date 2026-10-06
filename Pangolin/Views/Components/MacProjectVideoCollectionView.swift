@@ -58,6 +58,11 @@ enum MacProjectVideoCollectionLayout {
 struct MacProjectVideoCollectionView: NSViewRepresentable {
     let sections: [ProjectSectionSnapshot]
     @Binding var selection: Set<UUID>
+    /// Scrollable header (the album hero) rendered as the first section's
+    /// supplementary header so it scrolls with the collection.
+    let header: AnyView?
+    /// Scrollable footer rendered as the last section's supplementary footer.
+    let footer: AnyView?
     let onOpen: (Video) -> Void
     let onEdit: (Video) -> Void
     let onDelete: (Video) -> Void
@@ -80,6 +85,8 @@ struct MacProjectVideoCollectionView: NSViewRepresentable {
         collectionView.backgroundColors = [.clear]
         collectionView.register(MacProjectVideoCollectionItem.self, forItemWithIdentifier: .item)
         collectionView.register(MacProjectVideoSectionHeader.self, forSupplementaryViewOfKind: NSCollectionView.elementKindSectionHeader, withIdentifier: .header)
+        collectionView.register(MacProjectVideoHeroHeader.self, forSupplementaryViewOfKind: NSCollectionView.elementKindSectionHeader, withIdentifier: .hero)
+        collectionView.register(MacProjectVideoFooter.self, forSupplementaryViewOfKind: NSCollectionView.elementKindSectionFooter, withIdentifier: .footer)
         collectionView.dataSource = context.coordinator
         collectionView.delegate = context.coordinator
         collectionView.onReturn = { [weak coordinator = context.coordinator] in coordinator?.activateSelectionFromReturn() }
@@ -125,6 +132,16 @@ struct MacProjectVideoCollectionView: NSViewRepresentable {
             viewForSupplementaryElementOfKind kind: NSCollectionView.SupplementaryElementKind,
             at indexPath: IndexPath
         ) -> NSView {
+            if kind == NSCollectionView.elementKindSectionFooter {
+                let footer = collectionView.makeSupplementaryView(ofKind: kind, withIdentifier: .footer, for: indexPath) as! MacProjectVideoFooter
+                footer.configure(rootView: parent.footer)
+                return footer
+            }
+            if kind == NSCollectionView.elementKindSectionHeader, indexPath.section == 0, parent.header != nil {
+                let hero = collectionView.makeSupplementaryView(ofKind: kind, withIdentifier: .hero, for: indexPath) as! MacProjectVideoHeroHeader
+                hero.configure(rootView: parent.header)
+                return hero
+            }
             let header = collectionView.makeSupplementaryView(ofKind: kind, withIdentifier: .header, for: indexPath) as! MacProjectVideoSectionHeader
             header.title = parent.sections[indexPath.section].title
             return header
@@ -139,6 +156,26 @@ struct MacProjectVideoCollectionView: NSViewRepresentable {
 
         func collectionView(_ collectionView: NSCollectionView, layout collectionViewLayout: NSCollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> NSSize {
             MacProjectVideoCollectionLayout.itemSize(containerWidth: collectionView.bounds.width)
+        }
+
+        func collectionView(
+            _ collectionView: NSCollectionView,
+            layout collectionViewLayout: NSCollectionViewLayout,
+            referenceSizeForHeaderInSection section: Int
+        ) -> NSSize {
+            if section == 0, parent.header != nil {
+                return heroHeaderSize(for: collectionView.bounds.width)
+            }
+            return NSSize(width: 1, height: 36)
+        }
+
+        func collectionView(
+            _ collectionView: NSCollectionView,
+            layout collectionViewLayout: NSCollectionViewLayout,
+            referenceSizeForFooterInSection section: Int
+        ) -> NSSize {
+            guard section == parent.sections.count - 1, parent.footer != nil else { return .zero }
+            return footerSize(for: collectionView.bounds.width)
         }
 
         func collectionView(_ collectionView: NSCollectionView, menuForItemsAt indexPaths: Set<IndexPath>) -> NSMenu? {
@@ -204,6 +241,8 @@ struct MacProjectVideoCollectionView: NSViewRepresentable {
             if contentSignature != nextSignature {
                 contentSignature = nextSignature
                 presentationSignature = nextPresentationSignature
+                heroSizedWidth = 0
+                footerSizedWidth = 0
                 isSynchronizingSelection = true
                 collectionView.reloadData()
                 isSynchronizingSelection = false
@@ -275,6 +314,55 @@ struct MacProjectVideoCollectionView: NSViewRepresentable {
             ) else { return nil }
             return video(id: id)
         }
+
+        // MARK: - Hero / footer sizing (measured via hosting views, cached by width)
+
+        private var heroSizingView: NSHostingView<AnyView>?
+        private var heroSizedWidth: CGFloat = 0
+
+        private func heroHeaderSize(for width: CGFloat) -> NSSize {
+            guard let hero = parent.header else { return NSSize(width: 1, height: 36) }
+            let host: NSHostingView<AnyView>
+            if let heroSizingView {
+                host = heroSizingView
+                host.rootView = hero
+            } else {
+                let created = NSHostingView(rootView: hero)
+                created.sizingOptions = [.preferredContentSize]
+                host = created
+                heroSizingView = created
+            }
+            if heroSizedWidth != width {
+                host.frame = NSRect(x: 0, y: 0, width: width, height: 0)
+                host.layoutSubtreeIfNeeded()
+                heroSizedWidth = width
+            }
+            return NSSize(width: width, height: max(0, host.fittingSize.height))
+        }
+
+        private var footerSizingView: NSHostingView<AnyView>?
+        private var footerSizedWidth: CGFloat = 0
+
+        private func footerSize(for width: CGFloat) -> NSSize {
+            guard let footer = parent.footer else { return .zero }
+            let host: NSHostingView<AnyView>
+            if let footerSizingView {
+                host = footerSizingView
+                host.rootView = footer
+            } else {
+                let created = NSHostingView(rootView: footer)
+                created.sizingOptions = [.preferredContentSize]
+                host = created
+                footerSizingView = created
+            }
+            if footerSizedWidth != width {
+                host.frame = NSRect(x: 0, y: 0, width: width, height: 0)
+                host.layoutSubtreeIfNeeded()
+                footerSizedWidth = width
+            }
+            return NSSize(width: width, height: max(0, host.fittingSize.height))
+        }
+
         private func video(at indexPath: IndexPath) -> Video { parent.sections[indexPath.section].videos[indexPath.item] }
         private func video(id: UUID) -> Video? { parent.sections.flatMap(\.videos).first { $0.id == id } }
         private func cardPresentationSignature(for video: Video) -> String {
@@ -457,8 +545,37 @@ private final class MacProjectVideoSectionHeader: NSView {
     override func layout() { super.layout(); label.frame = bounds.insetBy(dx: 24, dy: 6) }
 }
 
+/// Supplementary view that hosts an arbitrary SwiftUI view (album hero or
+/// footer) so it scrolls with the collection's content.
+private class MacProjectVideoHostingSupplementary: NSView {
+    private var hostingView: NSHostingView<AnyView>?
+
+    func configure(rootView: AnyView?) {
+        guard let rootView else { return }
+        if let hostingView {
+            hostingView.rootView = rootView
+        } else {
+            let hostingView = NSHostingView(rootView: rootView)
+            hostingView.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(hostingView)
+            NSLayoutConstraint.activate([
+                hostingView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                hostingView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                hostingView.topAnchor.constraint(equalTo: topAnchor),
+                hostingView.bottomAnchor.constraint(equalTo: bottomAnchor)
+            ])
+            self.hostingView = hostingView
+        }
+    }
+}
+
+private final class MacProjectVideoHeroHeader: MacProjectVideoHostingSupplementary {}
+private final class MacProjectVideoFooter: MacProjectVideoHostingSupplementary {}
+
 private extension NSUserInterfaceItemIdentifier {
     static let item = NSUserInterfaceItemIdentifier("MacProjectVideoCollectionItem")
     static let header = NSUserInterfaceItemIdentifier("MacProjectVideoCollectionHeader")
+    static let hero = NSUserInterfaceItemIdentifier("MacProjectVideoCollectionHero")
+    static let footer = NSUserInterfaceItemIdentifier("MacProjectVideoCollectionFooter")
 }
 #endif

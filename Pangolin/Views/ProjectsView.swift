@@ -1,5 +1,8 @@
 import CoreData
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 
 struct ProjectsGridView: View {
@@ -12,9 +15,16 @@ struct ProjectsGridView: View {
     @State private var renamingProjectID: UUID?
     @State private var editedProjectTitle = ""
     @FocusState private var focusedProjectID: UUID?
+    /// The selected card (macOS). Declared unconditionally so the card
+    /// highlight comparison compiles on iOS, where it stays nil.
+    @State private var selectedProjectID: UUID?
     #if os(macOS)
-    @State private var keyboardFocusedProjectID: UUID?
     @FocusState private var isGridKeyboardFocused: Bool
+    /// Last single-click target, for manual double-click detection. A tap
+    /// gesture on the card would defer the first click's action while macOS
+    /// disambiguates single vs double click, which delays selection.
+    @State private var lastClickProjectID: UUID?
+    @State private var lastClickTime = Date.distantPast
     #endif
     @State private var projectPendingDeletion: Folder?
     @State private var showingDeletionConfirmation = false
@@ -24,15 +34,6 @@ struct ProjectsGridView: View {
     private var projects: [Folder] {
         _ = store.contentRevision
         return store.projects()
-    }
-
-    /// The card highlighted by arrow-key navigation (macOS only).
-    private var keyboardHighlightedProjectID: UUID? {
-        #if os(macOS)
-        keyboardFocusedProjectID
-        #else
-        nil
-        #endif
     }
 
     private var usesCompactGrid: Bool {
@@ -69,14 +70,14 @@ struct ProjectsGridView: View {
                                 ProjectCard(
                                     project: project,
                                     action: {
-                                        if let projectSelectionAction {
-                                            projectSelectionAction(project)
-                                        } else {
-                                            store.openProject(project)
-                                        }
+                                        #if os(macOS)
+                                        handleProjectClick(project)
+                                        #else
+                                        openProject(project)
+                                        #endif
                                     },
                                     isRenaming: renamingProjectID == project.id,
-                                    isKeyboardHighlighted: keyboardHighlightedProjectID == project.id,
+                                    isSelected: selectedProjectID == project.id,
                                     editedTitle: $editedProjectTitle,
                                     focusedProjectID: $focusedProjectID,
                                     onRename: { beginRenaming(project) },
@@ -93,15 +94,14 @@ struct ProjectsGridView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             #if os(macOS)
+            // Interaction model: click selects, double-click opens, arrow keys
+            // move the selection, Return opens it. Single click never navigates.
+            // Selection is only set by explicit click/arrow-key/onAppear — never
+            // by focus changes, because mouse-down focuses the grid before the
+            // click action fires, which would flash the first card's border.
             .focusable()
+            .focusEffectDisabled()
             .focused($isGridKeyboardFocused)
-            .onChange(of: isGridKeyboardFocused) { _, isFocused in
-                if isFocused {
-                    keyboardFocusedProjectID = projects.first?.id
-                } else {
-                    keyboardFocusedProjectID = nil
-                }
-            }
             .onMoveCommand { direction in
                 moveKeyboardFocus(direction, columnCount: columns(for: geometry.size.width).count)
             }
@@ -109,6 +109,11 @@ struct ProjectsGridView: View {
                 guard press.key == .return else { return .ignored }
                 openKeyboardFocusedProject()
                 return .handled
+            }
+            .onAppear {
+                // The grid is recreated after opening a project, which clears
+                // @State. Re-select the last selected project from the store.
+                selectedProjectID = store.lastSelectedProjectID
             }
             #endif
         }
@@ -183,10 +188,24 @@ struct ProjectsGridView: View {
         editedProjectTitle = ""
     }
 
+    private func openProject(_ project: Folder) {
+        store.lastSelectedProjectID = project.id
+        if let projectSelectionAction {
+            projectSelectionAction(project)
+        } else {
+            store.openProject(project)
+        }
+    }
+
+    private func selectProject(_ project: Folder) {
+        selectedProjectID = project.id
+        store.lastSelectedProjectID = project.id
+    }
+
     #if os(macOS)
     private func moveKeyboardFocus(_ direction: MoveCommandDirection, columnCount: Int) {
         guard !projects.isEmpty else { return }
-        let currentIndex = keyboardFocusedProjectID
+        let currentIndex = selectedProjectID
             .flatMap { id in projects.firstIndex(where: { $0.id == id }) }
             ?? 0
         guard let nextIndex = ProjectGridFocusPolicy.nextIndex(
@@ -195,16 +214,28 @@ struct ProjectsGridView: View {
             itemCount: projects.count,
             direction: ProjectGridFocusPolicy.Direction(direction)
         ) else { return }
-        keyboardFocusedProjectID = projects[nextIndex].id
+        selectedProjectID = projects[nextIndex].id
     }
 
     private func openKeyboardFocusedProject() {
-        guard let id = keyboardFocusedProjectID,
+        guard let id = selectedProjectID,
               let project = projects.first(where: { $0.id == id }) else { return }
-        if let projectSelectionAction {
-            projectSelectionAction(project)
+        openProject(project)
+    }
+
+    /// Every click selects immediately; a second click on the same card within
+    /// the system double-click interval also opens it. Manual detection keeps
+    /// selection instant (a count-2 tap gesture defers the first click).
+    private func handleProjectClick(_ project: Folder) {
+        selectProject(project)
+        let isDoubleClick = project.id == lastClickProjectID
+            && Date.now.timeIntervalSince(lastClickTime) <= NSEvent.doubleClickInterval
+        if isDoubleClick {
+            lastClickProjectID = nil
+            openProject(project)
         } else {
-            store.openProject(project)
+            lastClickProjectID = project.id
+            lastClickTime = Date.now
         }
     }
     #endif
@@ -227,6 +258,9 @@ struct ProjectsGridView: View {
 
         let deleted = await store.deleteItems([projectID])
         if deleted {
+            if store.lastSelectedProjectID == projectID {
+                store.lastSelectedProjectID = nil
+            }
             if renamingProjectID == projectID {
                 cancelRenaming()
             }
@@ -352,34 +386,46 @@ struct ProjectDetailView: View {
     private var macProjectDetail: some View {
         @Bindable var store = store
         return VStack(spacing: 0) {
-            macAlbumHero
-                .padding(.horizontal, ProjectGridLayout.contentPadding)
-                .padding(.top, ProjectGridLayout.contentPadding)
-                .padding(.bottom, 28)
-
             if sections.isEmpty {
-                projectEmptyState
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(.horizontal, ProjectGridLayout.contentPadding)
-                    .padding(.bottom, ProjectGridLayout.contentPadding)
+                ScrollView {
+                    VStack(spacing: 0) {
+                        macAlbumHero
+                            .padding(.horizontal, ProjectGridLayout.contentPadding)
+                            .padding(.top, ProjectGridLayout.contentPadding)
+                            .padding(.bottom, 28)
+
+                        projectEmptyState
+                            .frame(maxWidth: .infinity, minHeight: 320)
+                            .padding(.horizontal, ProjectGridLayout.contentPadding)
+                            .padding(.bottom, ProjectGridLayout.contentPadding)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             } else {
                 MacProjectVideoCollectionView(
                     sections: sections,
                     selection: $store.selectedProjectVideoIDs,
+                    header: AnyView(
+                        macAlbumHero
+                            .padding(.horizontal, ProjectGridLayout.contentPadding)
+                            .padding(.top, ProjectGridLayout.contentPadding)
+                            .padding(.bottom, 28)
+                    ),
+                    footer: AnyView(
+                        ProjectAlbumFooter(
+                            videoCount: totalVideoCount,
+                            duration: formattedProjectDuration(totalDuration)
+                        )
+                        .padding(.horizontal, ProjectGridLayout.contentPadding)
+                        .padding(.top, 14)
+                        .padding(.bottom, 28)
+                    ),
                     onOpen: { store.openProjectVideo($0, in: project) },
                     onEdit: { editingVideo = $0 },
                     onDelete: promptVideoDeletion,
                     onToggleFavorite: toggleFavorite
                 )
                 .accessibilityIdentifier("project-video-collection")
-
-                ProjectAlbumFooter(
-                    videoCount: totalVideoCount,
-                    duration: formattedProjectDuration(totalDuration)
-                )
-                .padding(.horizontal, ProjectGridLayout.contentPadding)
-                .padding(.top, 14)
-                .padding(.bottom, 28)
             }
         }
         .navigationTitle(project.resolvedProjectTitle)
@@ -438,22 +484,42 @@ struct ProjectDetailView: View {
     private func iosProjectDetail(isCompact: Bool) -> some View {
         @Bindable var store = store
         return VStack(spacing: 0) {
-            heroContent(isCompact: isCompact)
-                .padding(.horizontal, ProjectGridLayout.contentPadding)
-                .padding(.top, ProjectGridLayout.contentPadding)
-                .padding(.bottom, 28)
-
             if sections.isEmpty {
-                projectEmptyState
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(.horizontal, ProjectGridLayout.contentPadding)
-                    .padding(.bottom, ProjectGridLayout.contentPadding)
+                ScrollView {
+                    VStack(spacing: 0) {
+                        heroContent(isCompact: isCompact)
+                            .padding(.horizontal, ProjectGridLayout.contentPadding)
+                            .padding(.top, ProjectGridLayout.contentPadding)
+                            .padding(.bottom, 28)
+
+                        projectEmptyState
+                            .frame(maxWidth: .infinity, minHeight: 320)
+                            .padding(.horizontal, ProjectGridLayout.contentPadding)
+                            .padding(.bottom, ProjectGridLayout.contentPadding)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             } else {
                 IOSProjectVideoCollectionView(
                     sections: sections,
                     selection: $store.selectedProjectVideoIDs,
                     isEditing: isEditingSelection,
                     isCompact: isCompact,
+                    header: AnyView(
+                        heroContent(isCompact: isCompact)
+                            .padding(.horizontal, ProjectGridLayout.contentPadding)
+                            .padding(.top, ProjectGridLayout.contentPadding)
+                            .padding(.bottom, 28)
+                    ),
+                    footer: AnyView(
+                        ProjectAlbumFooter(
+                            videoCount: totalVideoCount,
+                            duration: formattedProjectDuration(totalDuration)
+                        )
+                        .padding(.horizontal, ProjectGridLayout.contentPadding)
+                        .padding(.top, 14)
+                        .padding(.bottom, 28)
+                    ),
                     onEditingChanged: setIOSSelectionMode,
                     onOpen: { store.openProjectVideo($0, in: project) },
                     onEdit: { editingVideo = $0 },
@@ -461,14 +527,6 @@ struct ProjectDetailView: View {
                     onToggleFavorite: toggleFavorite
                 )
                 .accessibilityIdentifier("project-video-collection")
-
-                ProjectAlbumFooter(
-                    videoCount: totalVideoCount,
-                    duration: formattedProjectDuration(totalDuration)
-                )
-                .padding(.horizontal, ProjectGridLayout.contentPadding)
-                .padding(.top, 14)
-                .padding(.bottom, 28)
             }
         }
     }

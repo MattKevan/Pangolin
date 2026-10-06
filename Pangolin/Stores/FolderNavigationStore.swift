@@ -40,6 +40,9 @@ class FolderNavigationStore {
         }
     }
     var selectedProject: Folder?
+    /// The most recently selected project, kept across grid view recreation so
+    /// the projects grid can re-select it when the user navigates back.
+    var lastSelectedProjectID: UUID?
     var selectedTopLevelFolder: Folder?
     var selectedVideo: Video?
     var selectedProjectVideoIDs = Set<UUID>()
@@ -580,6 +583,7 @@ class FolderNavigationStore {
         if selectedProject?.objectID != project.objectID {
             selectedProject = project
         }
+        lastSelectedProjectID = project.id
 
         if selectedTopLevelFolder?.objectID != project.objectID {
             selectedTopLevelFolder = project

@@ -191,7 +191,7 @@ struct ProjectsStoreTests {
     @Test("Shared project video grid expands with the available macOS width")
     func projectVideoGridUsesResponsiveColumnsOnMac() {
         #expect(ProjectVideoGridLayout.regularColumns(availableWidth: 420).count == 2)
-        #expect(ProjectVideoGridLayout.regularColumns(availableWidth: 1_200).count == 6)
+        #expect(ProjectVideoGridLayout.regularColumns(availableWidth: 1_300).count == 6)
     }
 
     @Test("Project video grid keeps two columns in compact and regular layouts")
@@ -204,7 +204,7 @@ struct ProjectsStoreTests {
     @Test("Project video grid creates explicit flexible regular columns")
     func projectVideoGridRegularColumnsMatchLayoutPolicy() {
         #expect(ProjectVideoGridLayout.regularColumns(availableWidth: 300).count == 2)
-        #expect(ProjectVideoGridLayout.regularColumns(availableWidth: 800).count == 4)
+        #expect(ProjectVideoGridLayout.regularColumns(availableWidth: 840).count == 4)
     }
 
     @Test("Native iOS project collection opens outside editing and selects while editing")
