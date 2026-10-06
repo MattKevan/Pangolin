@@ -82,7 +82,13 @@ extension ProcessingQueueManager {
         refreshStats()
 
         if context.hasChanges {
-            try? context.save()
+            do {
+                try context.save()
+            } catch {
+                // The download is already queued; report the unrelated pending save instead of hiding it.
+                Logger.queue.error("QUEUE: Saving pending changes after enqueueing a download failed: \(error.localizedDescription)")
+                LibraryManager.shared.error = .saveFailed(error)
+            }
         }
 
         startProcessingIfNeeded()

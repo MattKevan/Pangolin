@@ -10,15 +10,10 @@ import Foundation
 import CoreData
 import AVFoundation
 
-final class FileSystemManager: @unchecked Sendable {
+final class FileSystemManager: Sendable {
     static let shared = FileSystemManager()
     
     private let fileManager = FileManager.default
-    private let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
     
     private init() {}
 
@@ -61,7 +56,7 @@ final class FileSystemManager: @unchecked Sendable {
         
         // Create date-based subdirectory
         let importDate = Date()
-        let dateString = dateFormatter.string(from: importDate)
+        let dateString = importDate.formatted(Date.ISO8601FormatStyle(timeZone: .current).year().month().day())
         let videosDir = videoStorageURL.appendingPathComponent(dateString)
         
         // Ensure directory exists
