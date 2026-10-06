@@ -108,7 +108,8 @@ enum ProcessingTaskStatus: String, Codable {
 }
 
 @MainActor
-class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
+@Observable
+class ProcessingTask: Identifiable, @preconcurrency Codable {
     let id: UUID
     let videoID: UUID?
     let sourceURLPath: String?
@@ -129,13 +130,13 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
     let flashcardsCustomPrompt: String?
     let flashcardsCount: Int?
     let flashcardsSourceModeRawValue: String?
-    @Published var status: ProcessingTaskStatus
-    @Published var progress: Double
-    @Published var errorMessage: String?
-    @Published var statusMessage: String
+    var status: ProcessingTaskStatus
+    var progress: Double
+    var errorMessage: String?
+    var statusMessage: String
     let createdAt: Date
-    @Published var startedAt: Date?
-    @Published var completedAt: Date?
+    var startedAt: Date?
+    var completedAt: Date?
     
     init(
         videoID: UUID,

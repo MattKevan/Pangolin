@@ -33,7 +33,7 @@ struct MainView: View {
     @State private var playerViewModel = VideoPlayerViewModel()
     @StateObject private var floatingVideoState = FloatingVideoState()
     @StateObject private var videoPresentationFrameController = VideoPresentationFrameController()
-    @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
+    private let processingQueueManager = ProcessingQueueManager.shared
     
     let isStartingUp: Bool
     let startupError: LibraryError?

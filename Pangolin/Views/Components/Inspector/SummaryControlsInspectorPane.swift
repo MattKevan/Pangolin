@@ -121,7 +121,7 @@ struct LineSpacedTextEditor: NSViewRepresentable {
 
 struct SummaryControlsInspectorPane: View {
     @ObservedObject var video: Video
-    @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
+    private let processingQueueManager = ProcessingQueueManager.shared
 
     @State private var didCopyRendered = false
     @State private var didCopyMarkdown = false

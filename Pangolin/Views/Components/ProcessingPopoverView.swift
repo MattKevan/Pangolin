@@ -5,7 +5,7 @@ enum ActivityPopoverPolicy {
 }
 
 struct ProcessingPopoverView: View {
-    @ObservedObject var processingManager: ProcessingQueueManager
+    let processingManager: ProcessingQueueManager
     @Environment(LibraryManager.self) private var libraryManager: LibraryManager
     @ObservedObject private var videoFileManager = VideoFileManager.shared
 
@@ -296,7 +296,7 @@ private struct TransferIssueRow: View {
 // MARK: - Compact Task Row
 
 struct CompactTaskRowView: View {
-    @ObservedObject var task: ProcessingTask
+    let task: ProcessingTask
 
     var body: some View {
         HStack(spacing: 8) {

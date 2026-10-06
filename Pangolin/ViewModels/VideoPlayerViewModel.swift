@@ -133,6 +133,9 @@ class VideoPlayerViewModel: NSObject {
     @ObservationIgnored private var buildTask: Task<Void, Never>?
     @ObservationIgnored private var pendingSeek: (videoID: UUID?, seconds: TimeInterval)?
     @ObservationIgnored private var lastPersistedPosition: TimeInterval = 0
+    /// The file the current player item was built from. Rebuilding for a subtitle change must use
+    /// this, not `video.fileURL`, which can differ for cloud-only or relocated files.
+    @ObservationIgnored private var loadedMediaURL: URL?
     @ObservationIgnored private var loadGeneration: UInt = 0
     @ObservationIgnored private var loadingOperation: VideoPlaybackOperation.Token?
     
@@ -209,6 +212,7 @@ class VideoPlayerViewModel: NSObject {
             do {
                 let resolvedURL = try await video.getAccessibleFileURL(downloadIfNeeded: true)
                 guard isCurrentOperation(token) else { return }
+                loadedMediaURL = resolvedURL
                 await updateDisplayAspectRatio(for: resolvedURL, token: token)
                 guard isCurrentOperation(token) else { return }
                 do {
@@ -356,7 +360,7 @@ class VideoPlayerViewModel: NSObject {
     func selectSubtitle(_ subtitle: Subtitle?) {
         selectedSubtitle = subtitle
         guard let video = currentVideo,
-              let url = video.fileURL,
+              let url = loadedMediaURL ?? video.fileURL,
               let activePlayer = player else { return }
         
         let wasPlaying = isPlaying
@@ -411,6 +415,7 @@ class VideoPlayerViewModel: NSObject {
         player?.pause()
         player = nil
         currentVideo = nil
+        loadedMediaURL = nil
         isPlaying = false
         currentTime = 0
         duration = 0
@@ -421,6 +426,7 @@ class VideoPlayerViewModel: NSObject {
     }
 
     private func discardPlayerForVideoChange() {
+        loadedMediaURL = nil
         resetPlayerObservers()
         player?.pause()
         player = nil

@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct BulkProcessingView: View {
-    @ObservedObject var processingManager: ProcessingQueueManager
+    let processingManager: ProcessingQueueManager
     @Binding var isPresented: Bool
     
     @State private var selectedTasks: Set<UUID> = []
@@ -245,7 +245,7 @@ struct BulkProcessingView: View {
 // MARK: - Task Row View
 
 struct TaskRowView: View {
-    @ObservedObject var task: ProcessingTask
+    let task: ProcessingTask
     let processingManager: ProcessingQueueManager
     
     var body: some View {

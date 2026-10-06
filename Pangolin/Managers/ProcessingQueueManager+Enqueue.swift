@@ -45,7 +45,6 @@ extension ProcessingQueueManager {
         if plan.videoFiles.isEmpty {
             Logger.queue.warning("QUEUE: No importable video files discovered in dropped items.")
         }
-        refreshStats()
         startProcessingIfNeeded()
     }
 
@@ -79,7 +78,6 @@ extension ProcessingQueueManager {
         )
         processingQueue.addTask(task)
         Logger.queue.info("QUEUE: Added remote download task \(task.id.uuidString) for \(url.absoluteString)")
-        refreshStats()
 
         if context.hasChanges {
             do {
@@ -99,7 +97,6 @@ extension ProcessingQueueManager {
         for video in videos {
             enqueueThumbnailTask(for: video, force: force)
         }
-        refreshStats()
         if !videoIDs.isEmpty {
             startProcessingIfNeeded()
         }
@@ -169,7 +166,6 @@ extension ProcessingQueueManager {
                 }
                 processingQueue.removeTask(task)
             }
-            refreshStats()
 
             if let scanTask {
                 await scanTask.value
@@ -303,7 +299,6 @@ extension ProcessingQueueManager {
                 processingQueue.addTask(task)
             }
         }
-        refreshStats()
         if !videoIDs.isEmpty {
             startProcessingIfNeeded()
         }

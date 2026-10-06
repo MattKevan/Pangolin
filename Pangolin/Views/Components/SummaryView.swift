@@ -3,7 +3,7 @@ import MarkdownUI
 
 struct SummaryView: View {
     @ObservedObject var video: Video
-    @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
+    private let processingQueueManager = ProcessingQueueManager.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {

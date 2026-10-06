@@ -1,14 +1,15 @@
 import Foundation
 
 @MainActor
-class ProcessingQueue: ObservableObject {
-    @Published private(set) var tasks: [ProcessingTask] = []
-    @Published private(set) var isProcessing = false
-    @Published private(set) var isPaused = false
+@Observable
+class ProcessingQueue {
+    private(set) var tasks: [ProcessingTask] = []
+    private(set) var isProcessing = false
+    private(set) var isPaused = false
     
-    private let maxConcurrentTasks = 1 // Single worker for stability
-    private var processingTaskIDs: Set<UUID> = []
-    var hasRequiredDataProvider: ((UUID, ProcessingTaskType) -> Bool)?
+    @ObservationIgnored private let maxConcurrentTasks = 1 // Single worker for stability
+    @ObservationIgnored private var processingTaskIDs: Set<UUID> = []
+    @ObservationIgnored var hasRequiredDataProvider: ((UUID, ProcessingTaskType) -> Bool)?
     
     // MARK: - Queue Statistics
     
@@ -166,13 +167,7 @@ class ProcessingQueue: ObservableObject {
     }
     
     private func updateProcessingState() {
-        let wasProcessing = isProcessing
         isProcessing = hasActiveTasks && !isPaused
-        
-        // Notify if processing state changed
-        if wasProcessing != isProcessing {
-            objectWillChange.send()
-        }
     }
     
     // MARK: - Task Retrieval

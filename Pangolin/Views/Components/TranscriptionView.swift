@@ -4,7 +4,7 @@ struct TranscriptionView: View {
     @Environment(LibraryManager.self) private var libraryManager: LibraryManager
     @ObservedObject var video: Video
     let playerViewModel: VideoPlayerViewModel
-    @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
+    private let processingQueueManager = ProcessingQueueManager.shared
 
     @State private var chunkIndex: TimedTranscript.ChunkIndex?
     @State private var inlineTokens: [InlineToken] = []

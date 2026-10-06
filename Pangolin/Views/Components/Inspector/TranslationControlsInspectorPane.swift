@@ -3,7 +3,7 @@ import Speech
 
 struct TranslationControlsInspectorPane: View {
     @ObservedObject var video: Video
-    @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
+    private let processingQueueManager = ProcessingQueueManager.shared
 
     @State private var outputSelection: Locale? = nil
     @State private var supportedLocales: [Locale] = []

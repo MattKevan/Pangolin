@@ -18,7 +18,8 @@ enum ImportLibraryResolution {
 }
 
 @MainActor
-class ProcessingQueueManager: ObservableObject {
+@Observable
+class ProcessingQueueManager {
     struct TaskFailure: LocalizedError {
         let message: String
         var errorDescription: String? { message }
@@ -71,21 +72,20 @@ class ProcessingQueueManager: ObservableObject {
     static let shared = ProcessingQueueManager()
 
     let processingQueue = ProcessingQueue()
-    var cancellables = Set<AnyCancellable>()
-    var workerTask: Task<Void, Never>?
-    var importFolderMaps: [UUID: [String: Folder]] = [:]
-    var pendingImportSaveCounts: [UUID: Int] = [:]
+    @ObservationIgnored var workerTask: Task<Void, Never>?
+    @ObservationIgnored var importFolderMaps: [UUID: [String: Folder]] = [:]
+    @ObservationIgnored var pendingImportSaveCounts: [UUID: Int] = [:]
     let importSaveBatchSize = 8
-    var importStoragePolicyTask: Task<Void, Never>?
-    var activeCloudSyncEvents: [UUID: ActiveCloudSyncEvent] = [:]
-    var cloudEventSourceLifecycle = CloudEventSourceLifecycle()
-    var cloudSyncHideTask: Task<Void, Never>?
-    var thumbnailReconciliationGate = ThumbnailReconciliationGate()
-    var thumbnailReconciliationScanTask: Task<Void, Never>?
-    var thumbnailReconciliationScanLibraryID: UUID?
-    var thumbnailReconciliationScanToken: UUID?
-    var thumbnailReconciliationRescanLibraryID: UUID?
-    var thumbnailLibraryLifecycle = ThumbnailLibraryLifecycle()
+    @ObservationIgnored var importStoragePolicyTask: Task<Void, Never>?
+    @ObservationIgnored var activeCloudSyncEvents: [UUID: ActiveCloudSyncEvent] = [:]
+    @ObservationIgnored var cloudEventSourceLifecycle = CloudEventSourceLifecycle()
+    @ObservationIgnored var cloudSyncHideTask: Task<Void, Never>?
+    @ObservationIgnored var thumbnailReconciliationGate = ThumbnailReconciliationGate()
+    @ObservationIgnored var thumbnailReconciliationScanTask: Task<Void, Never>?
+    @ObservationIgnored var thumbnailReconciliationScanLibraryID: UUID?
+    @ObservationIgnored var thumbnailReconciliationScanToken: UUID?
+    @ObservationIgnored var thumbnailReconciliationRescanLibraryID: UUID?
+    @ObservationIgnored var thumbnailLibraryLifecycle = ThumbnailLibraryLifecycle()
     var closingThumbnailLibraryIDs: Set<UUID> {
         thumbnailLibraryLifecycle.closingLibraryIDs
     }
@@ -99,14 +99,17 @@ class ProcessingQueueManager: ObservableObject {
         VideoPagePreferences()
     }
 
-    @Published var queue: [ProcessingTask] = []
-    @Published var isPaused: Bool = false
-    @Published var overallProgress: Double = 0.0
-    @Published var activeTaskCount: Int = 0
-    @Published var totalTaskCount: Int = 0
-    @Published var completedTasks: Int = 0
-    @Published var failedTasks: Int = 0
-    @Published var cloudSyncQueueStatus: CloudSyncQueueStatus?
+    var isPaused: Bool = false
+    var cloudSyncQueueStatus: CloudSyncQueueStatus?
+
+    // Stats come straight from the queue; @Observable tracks the tasks they read, so nothing
+    // needs to be mirrored or refreshed by hand.
+    var queue: [ProcessingTask] { processingQueue.tasks }
+    var overallProgress: Double { processingQueue.overallProgress }
+    var activeTaskCount: Int { processingQueue.activeTasks }
+    var totalTaskCount: Int { processingQueue.totalTasks }
+    var completedTasks: Int { processingQueue.completedTasks }
+    var failedTasks: Int { processingQueue.failedTasks }
 
     var totalTasks: Int { totalTaskCount }
     var activeTasks: Int { activeTaskCount }
@@ -127,15 +130,6 @@ class ProcessingQueueManager: ObservableObject {
             guard let self else { return false }
             return self.hasRequiredData(videoID: videoID, type: type)
         }
-
-        processingQueue.$tasks
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] tasks in
-                guard let self else { return }
-                self.queue = tasks
-                self.refreshStats()
-            }
-            .store(in: &cancellables)
     }
 
     func handleCloudKitEvent(_ event: NSPersistentCloudKitContainer.Event, sourceID: UUID) {
@@ -247,7 +241,6 @@ class ProcessingQueueManager: ObservableObject {
 
     func retryTask(_ task: ProcessingTask) {
         processingQueue.retryTask(task)
-        refreshStats()
         startProcessingIfNeeded()
     }
 
@@ -262,7 +255,6 @@ class ProcessingQueueManager: ObservableObject {
             ThumbnailCoordinator.shared.cancel(videoID: videoID)
         }
         processingQueue.cancelTask(task)
-        refreshStats()
         if task.type == .transcribe {
             Task {
                 await transcriptionService.cancelCurrentTranscription()
@@ -278,7 +270,6 @@ class ProcessingQueueManager: ObservableObject {
         do {
             try remoteDownloadService.pauseCurrentDownload()
             task.markAsPaused(message: "Download paused")
-            refreshStats()
         } catch {
             task.errorMessage = error.localizedDescription
         }
@@ -289,7 +280,6 @@ class ProcessingQueueManager: ObservableObject {
         do {
             try remoteDownloadService.resumeCurrentDownload()
             task.markAsResumed(message: "Download resumed")
-            refreshStats()
         } catch {
             task.errorMessage = error.localizedDescription
         }
@@ -300,7 +290,6 @@ class ProcessingQueueManager: ObservableObject {
         task.markAsCancelled()
         task.statusMessage = "Download stopped"
         remoteDownloadService.stopCurrentDownload()
-        refreshStats()
     }
 
     func cancelTask(id: UUID) {
@@ -316,7 +305,6 @@ class ProcessingQueueManager: ObservableObject {
             ThumbnailCoordinator.shared.cancel(videoID: videoID)
         }
         processingQueue.removeTask(task)
-        refreshStats()
     }
 
     func removeTask(id: UUID) {
@@ -327,12 +315,10 @@ class ProcessingQueueManager: ObservableObject {
 
     func clearCompleted() {
         processingQueue.clearCompleted()
-        refreshStats()
     }
 
     func clearFailed() {
         processingQueue.clearFailed()
-        refreshStats()
     }
 
     func clearAll() {
@@ -342,7 +328,6 @@ class ProcessingQueueManager: ObservableObject {
             }
         }
         processingQueue.clearAll()
-        refreshStats()
     }
 
     // MARK: - Lookup Helpers

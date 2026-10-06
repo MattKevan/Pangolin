@@ -34,14 +34,12 @@ extension ProcessingQueueManager {
 
     func execute(_ task: ProcessingTask) async {
         processingQueue.markTaskAsProcessing(task)
-        refreshStats()
         Logger.queue.info("QUEUE: Starting task \(task.type.rawValue) [\(task.id.uuidString)] - \(task.itemName ?? "Unnamed")")
 
         if shouldSkip(task) {
             task.markAsCompleted()
             task.statusMessage = "Skipped (already generated)"
             processingQueue.markTaskAsFinished(task)
-            refreshStats()
             return
         }
 
@@ -79,7 +77,6 @@ extension ProcessingQueueManager {
         }
 
         processingQueue.markTaskAsFinished(task)
-        refreshStats()
     }
 
     // MARK: - Task Implementations
@@ -118,7 +115,6 @@ extension ProcessingQueueManager {
         )
         processingQueue.addTask(importTask)
         Logger.queue.info("DOWNLOAD: Completed to staging file \(result.localFileURL.path)")
-        refreshStats()
     }
 
     func executeImport(_ task: ProcessingTask) async throws {
@@ -211,7 +207,6 @@ extension ProcessingQueueManager {
                 processingQueue.addTask(followUp)
             }
         }
-        refreshStats()
     }
 
     /// Resolves the source URL for an import task, starting a security-scoped
@@ -493,7 +488,6 @@ extension ProcessingQueueManager {
                 force: false
             )
         }
-        refreshStats()
         startProcessingIfNeeded()
     }
 
@@ -578,15 +572,6 @@ extension ProcessingQueueManager {
         request.predicate = NSPredicate(format: "id == %@", libraryID as CVarArg)
         request.fetchLimit = 1
         return try? context.fetch(request).first
-    }
-
-    func refreshStats() {
-        let tasks = processingQueue.tasks
-        totalTaskCount = tasks.count
-        completedTasks = tasks.filter { $0.status == .completed }.count
-        failedTasks = tasks.filter { $0.status == .failed }.count
-        activeTaskCount = tasks.filter { $0.status.isActive }.count
-        overallProgress = processingQueue.overallProgress
     }
 
     func makeEnsureLocalAvailabilityProgressMonitor(task: ProcessingTask, videoID: UUID?) -> Task<Void, Never>? {

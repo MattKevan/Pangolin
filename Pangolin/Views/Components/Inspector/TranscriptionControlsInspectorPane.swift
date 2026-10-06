@@ -16,7 +16,7 @@ struct TranscriptionControlsInspectorPane: View {
 
     @Environment(LibraryManager.self) private var libraryManager: LibraryManager
     @ObservedObject var video: Video
-    @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
+    private let processingQueueManager = ProcessingQueueManager.shared
 
     @AppStorage(VideoPagePreferences.autoTranslateEnabledKey)
     private var autoTranslateEnabled = true

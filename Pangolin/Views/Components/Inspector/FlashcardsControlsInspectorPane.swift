@@ -2,7 +2,7 @@ import SwiftUI
 
 struct FlashcardsControlsInspectorPane: View {
     @ObservedObject var video: Video
-    @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
+    private let processingQueueManager = ProcessingQueueManager.shared
 
     @State private var sourceMode: FlashcardsSourceMode = .autoSystemLanguage
     @State private var cardCount: Int = 12
