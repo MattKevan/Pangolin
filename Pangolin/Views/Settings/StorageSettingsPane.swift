@@ -6,7 +6,7 @@
 import SwiftUI
 
 struct StorageSettingsPane: View {
-    @EnvironmentObject private var libraryManager: LibraryManager
+    @Environment(LibraryManager.self) private var libraryManager: LibraryManager
     @EnvironmentObject private var storagePolicyManager: StoragePolicyManager
     @EnvironmentObject private var videoFileManager: VideoFileManager
     @StateObject private var libraryOptimizationManager = VideoLibraryOptimizationManager.shared
@@ -313,7 +313,7 @@ struct StorageSettingsPane: View {
 
 #Preview {
     StorageSettingsPane()
-        .environmentObject(LibraryManager.shared)
+        .environment(LibraryManager.shared)
         .environmentObject(StoragePolicyManager.shared)
         .environmentObject(VideoFileManager.shared)
 }

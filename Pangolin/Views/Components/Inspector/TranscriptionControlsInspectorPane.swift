@@ -14,7 +14,7 @@ struct TranscriptionControlsInspectorPane: View {
         var id: String { rawValue }
     }
 
-    @EnvironmentObject private var libraryManager: LibraryManager
+    @Environment(LibraryManager.self) private var libraryManager: LibraryManager
     @ObservedObject var video: Video
     @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared
 

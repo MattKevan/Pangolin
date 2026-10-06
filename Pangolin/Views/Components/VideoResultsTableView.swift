@@ -33,7 +33,7 @@ enum VideoTableInteractionPolicy {
 
 struct VideoResultsTableView: View {
     @Environment(FolderNavigationStore.self) private var store
-    @EnvironmentObject private var libraryManager: LibraryManager
+    @Environment(LibraryManager.self) private var libraryManager: LibraryManager
     let videos: [Video]
     @Binding var selectedVideoIDs: Set<UUID>
     let onSelectionChange: (Set<UUID>) -> Void

@@ -12,7 +12,7 @@ enum FileCommandPolicy {
 
 @main
 struct PangolinApp: App {
-    @StateObject private var libraryManager = LibraryManager.shared
+    @State private var libraryManager = LibraryManager.shared
     @StateObject private var videoFileManager = VideoFileManager.shared
     @StateObject private var storagePolicyManager = StoragePolicyManager.shared
     @State private var hasAttemptedStartup = false
@@ -27,7 +27,7 @@ struct PangolinApp: App {
                 retryAction: retryLibraryOpen,
                 resetAction: resetCorruptedLibrary
             )
-            .environmentObject(libraryManager)
+            .environment(libraryManager)
             .environmentObject(videoFileManager)
             .onAppear {
                 if !hasAttemptedStartup {
@@ -94,7 +94,7 @@ struct PangolinApp: App {
         #if os(macOS)
         Settings {
             SettingsView()
-                .environmentObject(libraryManager)
+                .environment(libraryManager)
                 .environmentObject(storagePolicyManager)
                 .environmentObject(videoFileManager)
         }

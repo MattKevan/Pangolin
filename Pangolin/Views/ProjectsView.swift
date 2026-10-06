@@ -7,7 +7,7 @@ import AppKit
 
 struct ProjectsGridView: View {
     @Environment(FolderNavigationStore.self) private var store
-    @EnvironmentObject private var libraryManager: LibraryManager
+    @Environment(LibraryManager.self) private var libraryManager: LibraryManager
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     #endif

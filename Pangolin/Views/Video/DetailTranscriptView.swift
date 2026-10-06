@@ -103,7 +103,7 @@ struct ActiveTranscriptGeometryPreferenceKey: PreferenceKey {
 }
 
 struct MergedTranscriptView: View {
-    @EnvironmentObject private var libraryManager: LibraryManager
+    @Environment(LibraryManager.self) private var libraryManager: LibraryManager
 
     @ObservedObject var video: Video
     @ObservedObject var playerViewModel: VideoPlayerViewModel

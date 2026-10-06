@@ -19,7 +19,7 @@ struct SettingsView: View {
 
 #Preview {
     SettingsView()
-        .environmentObject(LibraryManager.shared)
+        .environment(LibraryManager.shared)
         .environmentObject(StoragePolicyManager.shared)
         .environmentObject(VideoFileManager.shared)
 }

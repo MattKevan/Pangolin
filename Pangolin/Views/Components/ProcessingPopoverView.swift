@@ -6,7 +6,7 @@ enum ActivityPopoverPolicy {
 
 struct ProcessingPopoverView: View {
     @ObservedObject var processingManager: ProcessingQueueManager
-    @EnvironmentObject private var libraryManager: LibraryManager
+    @Environment(LibraryManager.self) private var libraryManager: LibraryManager
     @ObservedObject private var videoFileManager = VideoFileManager.shared
 
     let onViewAllTapped: () -> Void
@@ -436,5 +436,5 @@ struct CompactTaskRowView: View {
 
 #Preview {
     ProcessingPopoverView(processingManager: ProcessingQueueManager.shared)
-        .environmentObject(LibraryManager.shared)
+        .environment(LibraryManager.shared)
 }

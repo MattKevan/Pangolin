@@ -66,7 +66,7 @@ private struct SidebarProjectRowModel: Identifiable {
 
 struct SidebarView: View {
     @Environment(FolderNavigationStore.self) private var store
-    @EnvironmentObject private var libraryManager: LibraryManager
+    @Environment(LibraryManager.self) private var libraryManager: LibraryManager
 
     @State private var sidebarSelections = Set<SidebarSelection>()
     @State private var isSyncingSelection = false

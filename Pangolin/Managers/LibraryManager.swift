@@ -11,22 +11,23 @@ import CoreData
 
 // MARK: - Library Manager
 @MainActor
-class LibraryManager: ObservableObject {
+@Observable
+final class LibraryManager {
     static let shared = LibraryManager()
     
-    // MARK: - Published Properties
-    @Published var currentLibrary: Library?
-    @Published var isLibraryOpen = false
-    @Published var isLoading = false
-    @Published var loadingProgress: Double = 0
-    @Published var error: LibraryError?
+    // MARK: - Observable State
+    var currentLibrary: Library?
+    var isLibraryOpen = false
+    var isLoading = false
+    var loadingProgress: Double = 0
+    var error: LibraryError?
     
     // MARK: - Private Properties
     private let fileManager = FileManager.default
     private var coreDataStack: CoreDataStack?
-    private var thumbnailReconciliationTask: Task<Void, Never>?
-    private var libraryRecordsObserverTask: Task<Void, Never>?
-    private var isReconcilingCloudImportedLibraries = false
+    @ObservationIgnored private var thumbnailReconciliationTask: Task<Void, Never>?
+    @ObservationIgnored private var libraryRecordsObserverTask: Task<Void, Never>?
+    @ObservationIgnored private var isReconcilingCloudImportedLibraries = false
     let textArtifacts = TextArtifactStore()
     
     // MARK: - Constants

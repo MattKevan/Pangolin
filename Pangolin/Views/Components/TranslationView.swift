@@ -11,7 +11,7 @@ import AppKit
 #endif
 
 struct TranslationView: View {
-    @EnvironmentObject private var libraryManager: LibraryManager
+    @Environment(LibraryManager.self) private var libraryManager: LibraryManager
     @ObservedObject var video: Video
     @ObservedObject var playerViewModel: VideoPlayerViewModel
     @ObservedObject private var processingQueueManager = ProcessingQueueManager.shared

@@ -127,7 +127,7 @@ class FolderNavigationStore {
     
     // MARK: - Dependencies
     let libraryManager: LibraryManager
-    var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored nonisolated(unsafe) private var libraryObservationTask: Task<Void, Never>?
     var contextSaveCancellable: AnyCancellable?
     private var isRevealingVideoLocation = false
     var suppressNextSidebarSelectionChange = false
@@ -138,16 +138,7 @@ class FolderNavigationStore {
     init(libraryManager: LibraryManager) {
         self.libraryManager = libraryManager
 
-        libraryManager.$currentLibrary
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                guard let self else { return }
-                self.observeContextSaveNotifications()
-                self.ensureInitialSelectionIfNeeded()
-                self.refreshContent()
-            }
-            .store(in: &cancellables)
+        observeLibraryChanges()
 
         observeContextSaveNotifications()
         
@@ -155,6 +146,30 @@ class FolderNavigationStore {
         refreshContent()
     }
     
+    deinit {
+        libraryObservationTask?.cancel()
+    }
+
+    /// Reloads content whenever the open library changes. The first value is the current library,
+    /// which `init` already handles.
+    private func observeLibraryChanges() {
+        let libraryManager = libraryManager
+        libraryObservationTask = Task { [weak self] in
+            let libraryIDs = Observations { libraryManager.currentLibrary?.objectID }
+            var isInitialValue = true
+            for await _ in libraryIDs {
+                if isInitialValue {
+                    isInitialValue = false
+                    continue
+                }
+                guard let self else { return }
+                observeContextSaveNotifications()
+                ensureInitialSelectionIfNeeded()
+                refreshContent()
+            }
+        }
+    }
+
     // MARK: - Search Support
     private func handleSidebarSelectionChange() {
         switch selectedSidebarItem {

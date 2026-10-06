@@ -16,7 +16,7 @@ enum VideoMetadataEditPolicy {
 
 struct VideoMetadataEditor: View {
     @ObservedObject var video: Video
-    @EnvironmentObject private var libraryManager: LibraryManager
+    @Environment(LibraryManager.self) private var libraryManager: LibraryManager
     @Environment(\.dismiss) private var dismiss
 
     @State private var title: String

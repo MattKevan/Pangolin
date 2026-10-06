@@ -25,7 +25,7 @@ struct MainView: View {
     }
     #endif
 
-    @EnvironmentObject var libraryManager: LibraryManager
+    @Environment(LibraryManager.self) var libraryManager: LibraryManager
     @EnvironmentObject var videoFileManager: VideoFileManager
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var folderStore: FolderNavigationStore
@@ -208,7 +208,7 @@ struct MainView: View {
         SidebarView()
             .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 350)
             .environment(folderStore)
-            .environmentObject(libraryManager)
+            .environment(libraryManager)
             .environmentObject(searchManager)
             .applyManagedObjectContext(libraryManager.viewContext)
     }
@@ -377,7 +377,7 @@ struct MainView: View {
             )
                 .environment(folderStore)
                 .environmentObject(searchManager)
-                .environmentObject(libraryManager)
+                .environment(libraryManager)
                 .environmentObject(transcriptionService)
                 .navigationSplitViewColumnWidth(min: 420, ideal: 760)
             .onChange(of: folderStore.isSearchMode) { _, isSearchMode in
@@ -453,7 +453,7 @@ struct MainView: View {
                                     floatingVideoState: floatingVideoState
                                 )
                                     .environment(folderStore)
-                                    .environmentObject(libraryManager)
+                                    .environment(libraryManager)
                                     .environmentObject(transcriptionService)
                             } else {
                                 ContentUnavailableView(
@@ -498,7 +498,7 @@ struct MainView: View {
                     )
                 }
                 .environment(folderStore)
-                .environmentObject(libraryManager)
+                .environment(libraryManager)
                 .environmentObject(transcriptionService)
             }
 
@@ -515,7 +515,7 @@ struct MainView: View {
                     )
                 }
                 .environment(folderStore)
-                .environmentObject(libraryManager)
+                .environment(libraryManager)
                 .environmentObject(transcriptionService)
             }
 
@@ -531,7 +531,7 @@ struct MainView: View {
                         .navigationTitle("Search")
                 }
                 .environment(folderStore)
-                .environmentObject(libraryManager)
+                .environment(libraryManager)
                 .environmentObject(transcriptionService)
                 .searchable(
                     text: $searchManager.searchText,
@@ -710,7 +710,7 @@ private struct RootContainerView<Content: View>: View {
     let content: Content
     let folderStore: FolderNavigationStore
     @ObservedObject var searchManager: SearchManager
-    @ObservedObject var libraryManager: LibraryManager
+    let libraryManager: LibraryManager
     @Binding var showingImportPicker: Bool
     @Binding var showingURLImportSheet: Bool
     let handleAutoTranscribe: () -> Void
@@ -763,7 +763,7 @@ private struct RootImportModifier: ViewModifier {
 private struct RootEventsModifier: ViewModifier {
     let folderStore: FolderNavigationStore
     @ObservedObject var searchManager: SearchManager
-    @ObservedObject var libraryManager: LibraryManager
+    let libraryManager: LibraryManager
     @Binding var showingImportPicker: Bool
     @Binding var showingURLImportSheet: Bool
     let handleAutoTranscribe: () -> Void
@@ -817,7 +817,7 @@ private struct RootEventsModifier: ViewModifier {
 }
 
 private struct RootAlertModifier: ViewModifier {
-    @ObservedObject var libraryManager: LibraryManager
+    @Bindable var libraryManager: LibraryManager
 
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -833,7 +833,7 @@ private struct RootAlertModifier: ViewModifier {
 private struct DetailColumnView: View {
     @Environment(FolderNavigationStore.self) private var folderStore
     @EnvironmentObject private var searchManager: SearchManager
-    @EnvironmentObject private var libraryManager: LibraryManager
+    @Environment(LibraryManager.self) private var libraryManager: LibraryManager
     @EnvironmentObject private var transcriptionService: SpeechTranscriptionService
     @ObservedObject var playerViewModel: VideoPlayerViewModel
     @ObservedObject var floatingVideoState: FloatingVideoState
@@ -845,7 +845,7 @@ private struct DetailColumnView: View {
                 SearchResultsView()
                     .environmentObject(searchManager)
                     .environment(folderStore)
-                    .environmentObject(libraryManager)
+                    .environment(libraryManager)
             case .projectsGrid:
                 ProjectsGridView()
                     .environment(folderStore)
@@ -863,7 +863,7 @@ private struct DetailColumnView: View {
             case .smartCollectionTable(_):
                 FolderContentView()
                     .environment(folderStore)
-                    .environmentObject(libraryManager)
+                    .environment(libraryManager)
             case .videoDetail:
                 if let selectedVideo = folderStore.selectedVideo {
                     DetailView(
@@ -872,7 +872,7 @@ private struct DetailColumnView: View {
                         floatingVideoState: floatingVideoState
                     )
                         .environment(folderStore)
-                        .environmentObject(libraryManager)
+                        .environment(libraryManager)
                         .environmentObject(transcriptionService)
                 } else {
                     ContentUnavailableView(
@@ -895,7 +895,7 @@ private struct DetailColumnView: View {
 #if os(iOS)
 private struct PhoneCollectionTabView: View {
     @Environment(FolderNavigationStore.self) private var folderStore
-    @EnvironmentObject private var libraryManager: LibraryManager
+    @Environment(LibraryManager.self) private var libraryManager: LibraryManager
 
     let title: String
     let onAppear: () -> Void
@@ -903,7 +903,7 @@ private struct PhoneCollectionTabView: View {
     var body: some View {
         FolderContentView()
             .environment(folderStore)
-            .environmentObject(libraryManager)
+            .environment(libraryManager)
             .navigationTitle(title)
             .onAppear(perform: onAppear)
     }
@@ -911,7 +911,7 @@ private struct PhoneCollectionTabView: View {
 
 private struct PhoneVideoNavigationStack<Root: View>: View {
     @Environment(FolderNavigationStore.self) private var folderStore
-    @EnvironmentObject private var libraryManager: LibraryManager
+    @Environment(LibraryManager.self) private var libraryManager: LibraryManager
     @EnvironmentObject private var transcriptionService: SpeechTranscriptionService
 
     let isActive: Bool
@@ -975,7 +975,7 @@ private struct PhoneVideoNavigationStack<Root: View>: View {
                 floatingVideoState: floatingVideoState
             )
             .environment(folderStore)
-            .environmentObject(libraryManager)
+            .environment(libraryManager)
             .environmentObject(transcriptionService)
         } else {
             ContentUnavailableView(

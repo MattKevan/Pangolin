@@ -11,7 +11,7 @@ enum VideoDetailLayout {
 
 struct DetailView: View {
     @Environment(FolderNavigationStore.self) private var store
-    @EnvironmentObject private var libraryManager: LibraryManager
+    @Environment(LibraryManager.self) private var libraryManager: LibraryManager
     @EnvironmentObject private var transcriptionService: SpeechTranscriptionService
 
     let video: Video?
@@ -87,7 +87,7 @@ struct DetailView: View {
             if let selectedVideo = effectiveSelectedVideo {
                 NavigationStack {
                     ProcessingControlsInspectorView(tab: .transcript, video: selectedVideo)
-                        .environmentObject(libraryManager)
+                        .environment(libraryManager)
                         .environmentObject(transcriptionService)
                         .navigationTitle("Transcript settings")
                         .navigationBarTitleDisplayMode(.inline)
@@ -107,7 +107,7 @@ struct DetailView: View {
             if let selectedVideo = effectiveSelectedVideo,
                selectedInspectorTab.supportsRightControlsInspector {
                 ProcessingControlsInspectorView(tab: selectedInspectorTab, video: selectedVideo)
-                    .environmentObject(libraryManager)
+                    .environment(libraryManager)
                     .environmentObject(transcriptionService)
             }
         }
@@ -290,10 +290,10 @@ struct DetailView: View {
                     )
                 }
             )
-            .environmentObject(libraryManager)
+            .environment(libraryManager)
         case .summary:
             SummaryView(video: selectedVideo)
-                .environmentObject(libraryManager)
+                .environment(libraryManager)
                 .environmentObject(transcriptionService)
         }
     }
