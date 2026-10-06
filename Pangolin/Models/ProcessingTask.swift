@@ -112,7 +112,7 @@ class ProcessingTask: ObservableObject, Identifiable, @preconcurrency Codable {
     let id: UUID
     let videoID: UUID?
     let sourceURLPath: String?
-    let sourceBookmark: Data?
+    var sourceBookmark: Data?
     let remoteURLString: String?
     let remoteProviderRawValue: String?
     let originalRemoteURLString: String?

@@ -139,7 +139,7 @@ extension ProcessingQueueManager {
 
         let resolvedSource = try resolveImportSourceURL(for: task)
         let fileURL = resolvedSource.url
-        var bookmarkAccessing = resolvedSource.isAccessingBookmark
+        let bookmarkAccessing = resolvedSource.isAccessingBookmark
 
         #if os(macOS)
         defer {
@@ -220,15 +220,28 @@ extension ProcessingQueueManager {
         #if os(macOS)
         if let bookmark = task.sourceBookmark {
             var isStale = false
-            if let resolved = try? URL(resolvingBookmarkData: bookmark, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale) {
+            do {
+                let resolved = try URL(
+                    resolvingBookmarkData: bookmark,
+                    options: .withSecurityScope,
+                    relativeTo: nil,
+                    bookmarkDataIsStale: &isStale
+                )
                 let accessing = resolved.startAccessingSecurityScopedResource()
+                if !accessing {
+                    Logger.queue.warning("QUEUE: Security-scoped access was not granted for \(resolved.lastPathComponent); relying on existing access")
+                }
+                if isStale {
+                    refreshStaleBookmark(for: task, resolvedURL: resolved)
+                }
                 Logger.queue.info("QUEUE: Resolved bookmark, accessing=\(accessing) for \(resolved.lastPathComponent)")
                 return (resolved, accessing)
-            } else if let sourcePath = task.sourceURLPath {
-                Logger.queue.warning("QUEUE: Bookmark resolution failed, falling back to plain path")
+            } catch {
+                Logger.queue.warning("QUEUE: Bookmark resolution failed (\(error.localizedDescription)); falling back to plain path")
+                guard let sourcePath = task.sourceURLPath else {
+                    throw FileSystemError.importFailed("The source file can no longer be found. It may have been moved or deleted.")
+                }
                 return (URL(fileURLWithPath: sourcePath), false)
-            } else {
-                throw FileSystemError.importFailed("Missing source path.")
             }
         } else if let sourcePath = task.sourceURLPath {
             Logger.queue.warning("QUEUE: No bookmark, using plain path")
@@ -243,6 +256,18 @@ extension ProcessingQueueManager {
         return (URL(fileURLWithPath: sourcePath), false)
         #endif
     }
+
+    #if os(macOS)
+    /// A stale bookmark still resolved this time but will stop working; replace it while access is open.
+    private func refreshStaleBookmark(for task: ProcessingTask, resolvedURL: URL) {
+        do {
+            task.sourceBookmark = try resolvedURL.bookmarkData(options: .withSecurityScope)
+            Logger.queue.info("QUEUE: Refreshed stale bookmark for \(resolvedURL.lastPathComponent)")
+        } catch {
+            Logger.queue.warning("QUEUE: Could not refresh stale bookmark for \(resolvedURL.lastPathComponent): \(error.localizedDescription)")
+        }
+    }
+    #endif
 
     func executeEnsureLocalAvailability(_ task: ProcessingTask) async throws {
         guard let video = fetchVideo(for: task) else {

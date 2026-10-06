@@ -8,6 +8,7 @@
 import Foundation
 import Combine
 import CoreData
+import os
 
 
 @MainActor
@@ -172,11 +173,7 @@ class VideoFileManager: ObservableObject {
             while Date() < timeout {
                 if await Self.isUbiquitousFileUploaded(at: destinationURL) {
                     if let oldURL, oldURL != destinationURL {
-                        try? await Task.detached(priority: .utility) {
-                            if FileManager.default.fileExists(atPath: oldURL.path) {
-                                try FileManager.default.removeItem(at: oldURL)
-                            }
-                        }.value
+                        await Self.removeIfExists(at: oldURL)
                     }
                     return
                 }
@@ -185,8 +182,23 @@ class VideoFileManager: ObservableObject {
             throw VideoFileError.uploadFailed("Timed out waiting for the optimised replacement to upload.")
         } catch {
             video.cloudRelativePath = oldRelativePath
+            // Drop the abandoned replacement, but only while the old version is still there to fall back on.
+            if let oldURL, oldURL != destinationURL, FileManager.default.fileExists(atPath: oldURL.path) {
+                await Self.removeIfExists(at: destinationURL)
+            }
             throw error
         }
+    }
+
+    private nonisolated static func removeIfExists(at url: URL) async {
+        await Task.detached(priority: .utility) {
+            guard FileManager.default.fileExists(atPath: url.path) else { return }
+            do {
+                try FileManager.default.removeItem(at: url)
+            } catch {
+                Logger.files.warning("FILES: Could not remove \(url.lastPathComponent): \(error.localizedDescription)")
+            }
+        }.value
     }
 
     /// Performs potentially blocking iCloud filesystem work away from the UI actor.
