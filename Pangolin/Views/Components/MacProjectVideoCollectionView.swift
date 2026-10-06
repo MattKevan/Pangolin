@@ -105,10 +105,21 @@ struct MacProjectVideoCollectionView: NSViewRepresentable {
         var parent: MacProjectVideoCollectionView
         weak var collectionView: NSCollectionView?
         private var isSynchronizingSelection = false
-        private var contentSignature = [String]()
+        private struct SectionSignature: Equatable {
+            let title: String
+            let videoIDs: [NSManagedObjectID]
+        }
+
+        private var contentSignature = [SectionSignature]()
         private var presentationSignature = [String]()
 
         init(_ parent: MacProjectVideoCollectionView) { self.parent = parent }
+
+        /// Items keep this handler for as long as they live, so it must read the current parent each
+        /// time rather than capture the closure from whichever update configured the item.
+        private var openHandler: (Video) -> Void {
+            { [weak self] video in self?.parent.onOpen(video) }
+        }
 
         func numberOfSections(in collectionView: NSCollectionView) -> Int { parent.sections.count }
 
@@ -121,7 +132,7 @@ struct MacProjectVideoCollectionView: NSViewRepresentable {
             let video = parent.sections[indexPath.section].videos[indexPath.item]
             item.configure(
                 video: video,
-                onOpen: parent.onOpen,
+                onOpen: openHandler,
                 onSelect: { [weak self] in self?.toggleAccessibilitySelection(for: video) }
             )
             return item
@@ -231,10 +242,7 @@ struct MacProjectVideoCollectionView: NSViewRepresentable {
             guard let collectionView else { return }
 
             let nextSignature = parent.sections.map { section in
-                let videoSignature = section.videos
-                    .map { $0.objectID.uriRepresentation().absoluteString }
-                    .joined(separator: ",")
-                return "\(section.title)|\(videoSignature)"
+                SectionSignature(title: section.title, videoIDs: section.videos.map(\.objectID))
             }
             let nextPresentationSignature = parent.sections.flatMap(\.videos).map(cardPresentationSignature)
 
@@ -251,8 +259,54 @@ struct MacProjectVideoCollectionView: NSViewRepresentable {
                 refreshVisibleItems()
             }
 
+            refreshHeaderAndFooter(in: collectionView)
             synchronizeSelection()
         }
+
+        /// Pushes the current hero and footer into the views already on screen and re-measures them.
+        /// Their content can change (title, description, counts) without the video list changing,
+        /// and a stale measurement clips the hero or leaves a gap.
+        private func refreshHeaderAndFooter(in collectionView: NSCollectionView) {
+            let width = collectionView.bounds.width
+            var needsLayout = false
+
+            if let header = parent.header, !parent.sections.isEmpty {
+                let heroView = collectionView.supplementaryView(
+                    forElementKind: NSCollectionView.elementKindSectionHeader,
+                    at: IndexPath(item: 0, section: 0)
+                ) as? MacProjectVideoHeroHeader
+                heroView?.configure(rootView: header)
+
+                heroSizedWidth = 0
+                let height = heroHeaderSize(for: width).height
+                if height != lastHeroHeight {
+                    lastHeroHeight = height
+                    needsLayout = true
+                }
+            }
+
+            if let footer = parent.footer, !parent.sections.isEmpty {
+                let footerView = collectionView.supplementaryView(
+                    forElementKind: NSCollectionView.elementKindSectionFooter,
+                    at: IndexPath(item: 0, section: parent.sections.count - 1)
+                ) as? MacProjectVideoFooter
+                footerView?.configure(rootView: footer)
+
+                footerSizedWidth = 0
+                let height = footerSize(for: width).height
+                if height != lastFooterHeight {
+                    lastFooterHeight = height
+                    needsLayout = true
+                }
+            }
+
+            if needsLayout {
+                collectionView.collectionViewLayout?.invalidateLayout()
+            }
+        }
+
+        private var lastHeroHeight: CGFloat = -1
+        private var lastFooterHeight: CGFloat = -1
 
         private func synchronizeSelection() {
             guard let collectionView else { return }
@@ -272,7 +326,7 @@ struct MacProjectVideoCollectionView: NSViewRepresentable {
                 let video = video(at: indexPath)
                 item.configure(
                     video: video,
-                    onOpen: parent.onOpen,
+                    onOpen: openHandler,
                     onSelect: { [weak self] in self?.toggleAccessibilitySelection(for: video) }
                 )
             }
