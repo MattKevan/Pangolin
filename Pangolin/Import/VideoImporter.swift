@@ -112,7 +112,7 @@ class VideoImporter: ObservableObject {
                 // Roll back the imported record: persisting a Video whose staging
                 // file is gone would leave an orphaned, unplayable library entry.
                 context.delete(video)
-                try? FileManager.default.removeItem(at: localStagingURL)
+                restoreSource(fromStaging: localStagingURL, to: fileURL, wasCopied: copyFile)
                 throw error
             }
             ProcessingQueueManager.shared.enqueueThumbnails(for: [video])
@@ -121,6 +121,27 @@ class VideoImporter: ObservableObject {
         return video
     }
     
+    /// Undoes a failed import's file step. A copied file is disposable, but when the import
+    /// moved the user's file into the library the staging file is the only copy, so it goes
+    /// back where it came from and is never deleted.
+    func restoreSource(fromStaging stagingURL: URL, to sourceURL: URL, wasCopied: Bool) {
+        let fileManager = FileManager.default
+        if wasCopied {
+            do {
+                try fileManager.removeItem(at: stagingURL)
+            } catch {
+                Logger.importProcess.warning("IMPORT: Could not remove staging copy \(stagingURL.lastPathComponent): \(error)")
+            }
+            return
+        }
+
+        do {
+            try fileManager.moveItem(at: stagingURL, to: sourceURL)
+        } catch {
+            Logger.importProcess.error("IMPORT: Could not move \(stagingURL.lastPathComponent) back to \(sourceURL.path); keeping it at \(stagingURL.path): \(error)")
+        }
+    }
+
     func resetImportState() {
         skippedFolders.removeAll()
     }

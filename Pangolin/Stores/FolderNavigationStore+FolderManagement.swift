@@ -394,7 +394,6 @@ extension FolderNavigationStore {
                 allVideosToDelete.append(contentsOf: directlySelectedVideos)
                 allVideosToDelete = Array(Set(allVideosToDelete))
 
-                await deleteVideoFiles(allVideosToDelete, library: library)
                 videosDeletedFromLibrary = allVideosToDelete
 
             case .keepVideosInLibrary:
@@ -408,11 +407,11 @@ extension FolderNavigationStore {
                     video.folder = nil
                 }
 
-                if !directlySelectedVideos.isEmpty {
-                    await deleteVideoFiles(directlySelectedVideos, library: library)
-                }
             }
-            
+
+            // Read the file locations now; the objects are gone once the save lands.
+            let fileURLs = fileURLsToDelete(for: videosDeletedFromLibrary)
+
             // Delete from Core Data (this will cascade to child folders and videos)
             for folder in foldersToDelete {
                 context.delete(folder)
@@ -422,10 +421,14 @@ extension FolderNavigationStore {
                 context.delete(video)
             }
             
-            // Save changes
+            // Save first and delete files after: if the save fails the records come back
+            // by rollback, and their media must still be on disk.
             if context.hasChanges {
                 try context.save()
                 Logger.navigation.info("DELETION: Successfully deleted \(itemIDs.count) items")
+                if let libraryURL = library.url {
+                    await Self.removeFiles(fileURLs, libraryURL: libraryURL)
+                }
                 
                 // Update selected video if it was deleted
                 let deletedVideoIDs = Set(videosDeletedFromLibrary.compactMap(\.id))
@@ -461,126 +464,50 @@ extension FolderNavigationStore {
         return videos
     }
     
-    private func deleteVideoFiles(_ videos: [Video], library: Library) async {
-        guard let libraryURL = library.url else { return }
-        
-        for video in videos {
-            // Delete video file
-            if let videoURL = video.fileURL {
-                do {
-                    try FileManager.default.removeItem(at: videoURL)
-                    Logger.navigation.info("DELETION: Deleted video file: \(videoURL.lastPathComponent)")
-                } catch {
-                    Logger.navigation.warning("DELETION: Failed to delete video file \(videoURL.lastPathComponent): \(error)")
-                }
-            }
-            
-            // Delete subtitles
-            if let subtitles = video.subtitles as? Set<Subtitle> {
-                for subtitle in subtitles {
-                    if let subtitleURL = subtitle.fileURL {
-                        do {
-                            try FileManager.default.removeItem(at: subtitleURL)
-                            Logger.navigation.info("DELETION: Deleted subtitle: \(subtitleURL.lastPathComponent)")
-                        } catch {
-                            Logger.navigation.warning("DELETION: Failed to delete subtitle \(subtitleURL.lastPathComponent): \(error)")
-                        }
-                    }
-                }
-            }
-
-            // Delete transcript artifacts
-            if let transcriptURL = libraryManager.textArtifacts.transcriptURL(for: video) {
-                do {
-                    if FileManager.default.fileExists(atPath: transcriptURL.path) {
-                        try FileManager.default.removeItem(at: transcriptURL)
-                        Logger.navigation.info("DELETION: Deleted transcript: \(transcriptURL.lastPathComponent)")
-                    }
-                } catch {
-                    Logger.navigation.warning("DELETION: Failed to delete transcript \(transcriptURL.lastPathComponent): \(error)")
-                }
-            }
-
-            if let timedTranscriptURL = libraryManager.textArtifacts.timedTranscriptURL(for: video) {
-                do {
-                    if FileManager.default.fileExists(atPath: timedTranscriptURL.path) {
-                        try FileManager.default.removeItem(at: timedTranscriptURL)
-                        Logger.navigation.info("DELETION: Deleted timed transcript: \(timedTranscriptURL.lastPathComponent)")
-                    }
-                } catch {
-                    Logger.navigation.warning("DELETION: Failed to delete timed transcript \(timedTranscriptURL.lastPathComponent): \(error)")
-                }
-            }
-
-            if let summaryURL = libraryManager.textArtifacts.summaryURL(for: video) {
-                do {
-                    if FileManager.default.fileExists(atPath: summaryURL.path) {
-                        try FileManager.default.removeItem(at: summaryURL)
-                        Logger.navigation.info("DELETION: Deleted summary: \(summaryURL.lastPathComponent)")
-                    }
-                } catch {
-                    Logger.navigation.warning("DELETION: Failed to delete summary \(summaryURL.lastPathComponent): \(error)")
-                }
-            }
-
-            if let flashcardsURL = libraryManager.textArtifacts.flashcardsURL(for: video) {
-                do {
-                    if FileManager.default.fileExists(atPath: flashcardsURL.path) {
-                        try FileManager.default.removeItem(at: flashcardsURL)
-                        Logger.navigation.info("DELETION: Deleted flashcards: \(flashcardsURL.lastPathComponent)")
-                    }
-                } catch {
-                    Logger.navigation.warning("DELETION: Failed to delete flashcards \(flashcardsURL.lastPathComponent): \(error)")
-                }
-            }
-
-            for translationURL in libraryManager.textArtifacts.translationURLs(for: video) {
-                do {
-                    if FileManager.default.fileExists(atPath: translationURL.path) {
-                        try FileManager.default.removeItem(at: translationURL)
-                        Logger.navigation.info("DELETION: Deleted translation: \(translationURL.lastPathComponent)")
-                    }
-                } catch {
-                    Logger.navigation.warning("DELETION: Failed to delete translation \(translationURL.lastPathComponent): \(error)")
-                }
-            }
-        }
-        
-        // Clean up empty directories
-        await cleanupEmptyDirectories(in: libraryURL)
-    }
-    
-    private func cleanupEmptyDirectories(in libraryURL: URL) async {
-        let directories = [
-            libraryURL.appendingPathComponent("Videos"),
-            libraryURL.appendingPathComponent("Subtitles")
-        ]
-        
-        for directory in directories {
-            await cleanupEmptyDirectoriesRecursively(at: directory)
+    /// Every file that belongs to the videos: media, subtitles and generated text.
+    private func fileURLsToDelete(for videos: [Video]) -> [URL] {
+        let artifacts = libraryManager.textArtifacts
+        return videos.flatMap { video -> [URL] in
+            var urls: [URL?] = [video.fileURL]
+            urls += (video.subtitles as? Set<Subtitle> ?? []).map(\.fileURL)
+            urls += [
+                artifacts.transcriptURL(for: video),
+                artifacts.timedTranscriptURL(for: video),
+                artifacts.summaryURL(for: video),
+                artifacts.flashcardsURL(for: video)
+            ]
+            return urls.compactMap { $0 } + artifacts.translationURLs(for: video)
         }
     }
-    
-    private func cleanupEmptyDirectoriesRecursively(at url: URL) async {
-        do {
-            let contents = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
-            
-            // First, recursively clean subdirectories
-            for item in contents {
-                var isDirectory: ObjCBool = false
-                if FileManager.default.fileExists(atPath: item.path, isDirectory: &isDirectory), isDirectory.boolValue {
-                    await cleanupEmptyDirectoriesRecursively(at: item)
+
+    /// Removes the files off the main actor, then any directories left empty.
+    nonisolated private static func removeFiles(_ urls: [URL], libraryURL: URL) async {
+        await Task.detached(priority: .utility) {
+            let fileManager = FileManager.default
+            for url in urls where fileManager.fileExists(atPath: url.path) {
+                do {
+                    try fileManager.removeItem(at: url)
+                    Logger.navigation.info("DELETION: Deleted \(url.lastPathComponent)")
+                } catch {
+                    Logger.navigation.warning("DELETION: Failed to delete \(url.lastPathComponent): \(error)")
                 }
             }
-            
-            // Check if directory is now empty and remove it
-            let updatedContents = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
-            if updatedContents.isEmpty {
-                try FileManager.default.removeItem(at: url)
-                Logger.navigation.info("DELETION: Cleaned up empty directory: \(url.lastPathComponent)")
+            for name in ["Videos", "Subtitles"] {
+                removeEmptyDirectories(at: libraryURL.appendingPathComponent(name))
             }
-        } catch {
-            // Directory doesn't exist or can't be read - that's fine
+        }.value
+    }
+
+    nonisolated private static func removeEmptyDirectories(at url: URL) {
+        let fileManager = FileManager.default
+        guard let contents = try? fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey]) else { return }
+
+        for item in contents where (try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+            removeEmptyDirectories(at: item)
+        }
+
+        if (try? fileManager.contentsOfDirectory(atPath: url.path))?.isEmpty == true {
+            try? fileManager.removeItem(at: url)
         }
     }
 }
