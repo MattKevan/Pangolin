@@ -15,7 +15,7 @@ enum SearchVideoSelectionResetPolicy {
 }
 
 struct SearchResultsView: View {
-    @EnvironmentObject private var searchManager: SearchManager
+    @Environment(SearchManager.self) private var searchManager: SearchManager
     @Environment(FolderNavigationStore.self) private var folderStore
     @State private var selectedItems = Set<UUID>()
 
@@ -134,7 +134,7 @@ private struct NoResultsStateView: View {
 private struct SearchResultsTableView: View {
     let rows: [SearchResultRowModel]
     @Binding var selectedItems: Set<UUID>
-    @ObservedObject var searchManager: SearchManager
+    @Bindable var searchManager: SearchManager
     let folderStore: FolderNavigationStore
     let isSearching: Bool
 
@@ -276,7 +276,7 @@ private struct SearchResultTitleCell: View {
 private struct SearchResultSnippetCell: View {
     let row: SearchResultRowModel
     let query: String
-    let searchManager: SearchManager
+    @Bindable var searchManager: SearchManager
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -289,7 +289,7 @@ private struct SearchResultSnippetCell: View {
 
 #Preview {
     SearchResultsView()
-        .environmentObject(SearchManager())
+        .environment(SearchManager())
         .environment(FolderNavigationStore(libraryManager: LibraryManager.shared))
-        .environmentObject(VideoFileManager.shared)
+        .environment(VideoFileManager.shared)
 }

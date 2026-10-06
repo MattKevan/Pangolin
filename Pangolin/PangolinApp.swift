@@ -15,8 +15,8 @@ struct PangolinApp: App {
     @State private var libraryManager = LibraryManager.shared
     // Created once with the app; building it in MainView.init would allocate a new store on every re-render.
     @State private var folderStore = FolderNavigationStore(libraryManager: LibraryManager.shared)
-    @StateObject private var videoFileManager = VideoFileManager.shared
-    @StateObject private var storagePolicyManager = StoragePolicyManager.shared
+    @State private var videoFileManager = VideoFileManager.shared
+    @State private var storagePolicyManager = StoragePolicyManager.shared
     @State private var hasAttemptedStartup = false
 
     var body: some Scene {
@@ -31,7 +31,7 @@ struct PangolinApp: App {
                 resetAction: resetCorruptedLibrary
             )
             .environment(libraryManager)
-            .environmentObject(videoFileManager)
+            .environment(videoFileManager)
             .onAppear {
                 if !hasAttemptedStartup {
                     startLibraryStartup()
@@ -98,8 +98,8 @@ struct PangolinApp: App {
         Settings {
             SettingsView()
                 .environment(libraryManager)
-                .environmentObject(storagePolicyManager)
-                .environmentObject(videoFileManager)
+                .environment(storagePolicyManager)
+                .environment(videoFileManager)
         }
         #endif
     }

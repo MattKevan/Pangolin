@@ -9,8 +9,8 @@ struct VideoPresentationHost: View {
     let selectedVideo: Video?
     let isVideoDetailActive: Bool
     let playerViewModel: VideoPlayerViewModel
-    @ObservedObject var floatingState: FloatingVideoState
-    @ObservedObject var frameController: VideoPresentationFrameController
+    let floatingState: FloatingVideoState
+    let frameController: VideoPresentationFrameController
 
     var body: some View {
         GeometryReader { geometry in

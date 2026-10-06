@@ -107,7 +107,7 @@ struct MergedTranscriptView: View {
 
     @ObservedObject var video: Video
     let playerViewModel: VideoPlayerViewModel
-    @ObservedObject var searchModel: VideoPageSearchModel
+    let searchModel: VideoPageSearchModel
     let preferredTranslationLocaleIdentifier: String?
     let onRequestScrollToParagraph: (String) -> Void
     let onActiveParagraphChange: (String?) -> Void

@@ -3,12 +3,13 @@ import Foundation
 import CoreData
 
 @MainActor
-final class VideoLibraryOptimizationManager: ObservableObject {
+@Observable
+final class VideoLibraryOptimizationManager {
     static let shared = VideoLibraryOptimizationManager()
 
-    @Published private(set) var isOptimizing = false
-    @Published private(set) var processedCount = 0
-    @Published private(set) var totalCount = 0
+    private(set) var isOptimizing = false
+    private(set) var processedCount = 0
+    private(set) var totalCount = 0
 
     private let optimizer = VideoUploadOptimizer.shared
     private let videoFileManager = VideoFileManager.shared

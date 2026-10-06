@@ -7,7 +7,7 @@ enum ActivityPopoverPolicy {
 struct ProcessingPopoverView: View {
     let processingManager: ProcessingQueueManager
     @Environment(LibraryManager.self) private var libraryManager: LibraryManager
-    @ObservedObject private var videoFileManager = VideoFileManager.shared
+    private let videoFileManager = VideoFileManager.shared
 
     let onViewAllTapped: () -> Void
 

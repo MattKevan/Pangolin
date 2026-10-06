@@ -7,9 +7,9 @@ import SwiftUI
 
 struct StorageSettingsPane: View {
     @Environment(LibraryManager.self) private var libraryManager: LibraryManager
-    @EnvironmentObject private var storagePolicyManager: StoragePolicyManager
-    @EnvironmentObject private var videoFileManager: VideoFileManager
-    @StateObject private var libraryOptimizationManager = VideoLibraryOptimizationManager.shared
+    @Environment(StoragePolicyManager.self) private var storagePolicyManager: StoragePolicyManager
+    @Environment(VideoFileManager.self) private var videoFileManager: VideoFileManager
+    private let libraryOptimizationManager = VideoLibraryOptimizationManager.shared
 
     @State private var selectedPreference: LibraryStoragePreference = .optimizeStorage
     @State private var selectedUploadOptimization: VideoUploadOptimizationPreset = .original
@@ -314,6 +314,6 @@ struct StorageSettingsPane: View {
 #Preview {
     StorageSettingsPane()
         .environment(LibraryManager.shared)
-        .environmentObject(StoragePolicyManager.shared)
-        .environmentObject(VideoFileManager.shared)
+        .environment(StoragePolicyManager.shared)
+        .environment(VideoFileManager.shared)
 }

@@ -12,19 +12,30 @@ import SwiftUI
 import Combine
 
 @MainActor
-class SearchManager: ObservableObject {
-    @Published var searchText = ""
-    @Published var isSearchActive = false
-    @Published var searchResults: [Video] = []
-    @Published var presentedResults: [SearchResultRowModel] = []
-    @Published var answerPanel: SearchAnswerPanelModel?
-    @Published var searchScope: SearchScope = .all
-    @Published var isSearching = false
-    @Published var hasSearched = false // Track if search has been performed
+@Observable
+class SearchManager {
+    var searchText = "" {
+        didSet {
+            guard searchText != oldValue else { return }
+            scheduleSearch(query: searchText)
+        }
+    }
+    var isSearchActive = false
+    var searchResults: [Video] = []
+    var presentedResults: [SearchResultRowModel] = []
+    var answerPanel: SearchAnswerPanelModel?
+    var searchScope: SearchScope = .all {
+        didSet {
+            guard searchScope != oldValue else { return }
+            scheduleSearch(query: searchText)
+        }
+    }
+    var isSearching = false
+    var hasSearched = false // Track if search has been performed
 
     // Improved search configuration
-    private var searchTask: Task<Void, Never>?
-    private var searchRequestID: UInt64 = 0
+    @ObservationIgnored private var searchTask: Task<Void, Never>?
+    @ObservationIgnored private var searchRequestID: UInt64 = 0
     private let debounceDelay: TimeInterval = 0.5  // Increased for better performance
     private let minimumQueryLength = 2  // Don't search until 2+ characters
     
@@ -48,27 +59,6 @@ class SearchManager: ObservableObject {
         }
     }
     
-    init() {
-        // Apple-recommended approach: immediate response with proper task-based debouncing
-        $searchText
-            .removeDuplicates()
-            .sink { [weak self] newText in
-                self?.scheduleSearch(query: newText)
-            }
-            .store(in: &cancellables)
-
-        $searchScope
-            .removeDuplicates()
-            .dropFirst()
-            .sink { [weak self] _ in
-                guard let self else { return }
-                self.scheduleSearch(query: self.searchText)
-            }
-            .store(in: &cancellables)
-    }
-    
-    private var cancellables = Set<AnyCancellable>()
-
     private func resetSearchState(results: [Video] = [], isSearching: Bool = false, hasSearched: Bool = false) {
         if results.isEmpty {
             if !self.searchResults.isEmpty {

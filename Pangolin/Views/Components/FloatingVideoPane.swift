@@ -32,8 +32,8 @@ enum VideoFloatingMovement {
 struct FloatingVideoPane: View {
     let video: Video
     let playerViewModel: VideoPlayerViewModel
-    @ObservedObject var floatingState: FloatingVideoState
-    @ObservedObject var frameController: VideoPresentationFrameController
+    let floatingState: FloatingVideoState
+    let frameController: VideoPresentationFrameController
     let dockedFrame: CGRect
     let availableBounds: CGRect
 

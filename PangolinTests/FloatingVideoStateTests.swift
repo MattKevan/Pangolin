@@ -1,6 +1,5 @@
 import Testing
 import Foundation
-import Combine
 import SwiftUI
 import AVFoundation
 @testable import Pangolin
@@ -60,6 +59,45 @@ struct VideoAspectRatioSelectionTests {
 }
 
 
+/// Counts observable changes to a `FloatingVideoState`. Observation fires once per arming, so the
+/// count is of changes since the last `consumeChanges()` call, which re-arms it.
+@MainActor
+private final class StateChangeObserver {
+    private let state: FloatingVideoState
+    private var pendingChanges = 0
+    private var isArmed = false
+
+    init(_ state: FloatingVideoState) {
+        self.state = state
+        arm()
+    }
+
+    private func arm() {
+        isArmed = true
+        withObservationTracking {
+            _ = state.isFloating
+            _ = state.frame
+            _ = state.videoID
+            _ = state.inlineWidth
+            _ = state.inlineFrame
+            _ = state.presentationViewportFrame
+        } onChange: { [weak self] in
+            MainActor.assumeIsolated {
+                self?.pendingChanges += 1
+                self?.isArmed = false
+            }
+        }
+    }
+
+    func consumeChanges() -> Int {
+        defer {
+            pendingChanges = 0
+            if !isArmed { arm() }
+        }
+        return pendingChanges
+    }
+}
+
 @Suite("Floating video state")
 @MainActor
 struct FloatingVideoStateTests {
@@ -100,25 +138,20 @@ struct FloatingVideoStateTests {
             aspectRatio: aspectRatio
         )
 
-        var changeCount = 0
-        let observation = state.objectWillChange.sink {
-            changeCount += 1
-        }
+        let observer = StateChangeObserver(state)
 
         state.updateInlineWidth(760)
-        #expect(changeCount == 0)
+        #expect(observer.consumeChanges() == 0)
 
         state.updateInlineWidth(760)
         state.updateVisibleFraction(0.80)
-        #expect(changeCount == 0)
+        #expect(observer.consumeChanges() == 0)
 
         state.updateVisibleFraction(0.20)
-        #expect(changeCount == 1)
+        #expect(observer.consumeChanges() == 1)
 
         state.updateVisibleFraction(0.10)
-        #expect(changeCount == 1)
-
-        withExtendedLifetime(observation) {}
+        #expect(observer.consumeChanges() == 0)
     }
 
     @Test("Inline width records valid measurements and resets with video presentation")
@@ -398,18 +431,14 @@ struct FloatingVideoStateTests {
             aspectRatio: aspectRatio
         )
 
-        var changeCount = 0
-        let observation = state.objectWillChange.sink {
-            changeCount += 1
-        }
+        let observer = StateChangeObserver(state)
 
         state.prepareFloatingDestination(
             in: bounds,
             aspectRatio: aspectRatio
         )
 
-        #expect(changeCount == 0)
-        withExtendedLifetime(observation) {}
+        #expect(observer.consumeChanges() == 0)
     }
 
     @Test("Invalid viewport clears a previous measurement for host fallback")

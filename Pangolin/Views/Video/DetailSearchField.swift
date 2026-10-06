@@ -5,7 +5,7 @@ import AVFoundation
 // MARK: - Video page search
 
 struct VideoPageSearchField: View {
-    @ObservedObject var searchModel: VideoPageSearchModel
+    @Bindable var searchModel: VideoPageSearchModel
     var onClear: (() -> Void)? = nil
 
     var body: some View {
@@ -49,17 +49,18 @@ struct VideoPageSearchField: View {
 }
 
 @MainActor
-final class VideoPageSearchModel: ObservableObject {
+@Observable
+final class VideoPageSearchModel {
     enum Direction {
         case previous
         case next
     }
 
-    @Published var query = ""
-    @Published private(set) var totalMatches = 0
-    @Published private(set) var currentMatchIndex: Int?
-    @Published private(set) var navigationRequestID = 0
-    private(set) var direction: Direction = .next
+    var query = ""
+    private(set) var totalMatches = 0
+    private(set) var currentMatchIndex: Int?
+    private(set) var navigationRequestID = 0
+    @ObservationIgnored private(set) var direction: Direction = .next
 
     var matchPositionLabel: String {
         guard let currentMatchIndex, totalMatches > 0 else { return "0/0" }

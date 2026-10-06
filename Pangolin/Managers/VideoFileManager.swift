@@ -12,26 +12,27 @@ import os
 
 
 @MainActor
-class VideoFileManager: ObservableObject {
+@Observable
+class VideoFileManager {
     static let shared = VideoFileManager()
 
-    @Published var downloadingVideos: Set<UUID> = []
-    @Published var downloadProgress: [UUID: Double] = [:]
-    @Published private(set) var transferSnapshots: [UUID: VideoCloudTransferSnapshot] = [:]
+    var downloadingVideos: Set<UUID> = []
+    var downloadProgress: [UUID: Double] = [:]
+    private(set) var transferSnapshots: [UUID: VideoCloudTransferSnapshot] = [:]
 
     /// Monotonic per-video generation counter that lets `cancelDownload(for:)`
     /// invalidate any in-flight polling loop so it stops instead of re-publishing
     /// progress or timing out after the user cancelled.
-    private var downloadGenerations: [UUID: UInt] = [:]
+    @ObservationIgnored private var downloadGenerations: [UUID: UInt] = [:]
 
     private let fileManager = FileManager.default
     let cloudContainerIdentifier = PangolinCloudContainer.identifier
     private let retryDelays: [TimeInterval] = [5, 15, 45]
 
-    private var transferFailures: [UUID: TransferFailureRecord] = [:]
-    private var retryTasks: [UUID: Task<Void, Never>] = [:]
-    private var trackedVideoObjectIDs: [UUID: NSManagedObjectID] = [:]
-    private var trackingPollTask: Task<Void, Never>?
+    @ObservationIgnored private var transferFailures: [UUID: TransferFailureRecord] = [:]
+    @ObservationIgnored private var retryTasks: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var trackedVideoObjectIDs: [UUID: NSManagedObjectID] = [:]
+    @ObservationIgnored private var trackingPollTask: Task<Void, Never>?
 
     private init() {}
 

@@ -8,24 +8,25 @@ import Translation
 import FoundationModels
 
 
-class SpeechTranscriptionService: ObservableObject {
-    @Published var isTranscribing = false
-    @Published var isSummarizing = false
-    @Published var progress: Double = 0.0
-    @Published var statusMessage = ""
-    @Published var errorMessage: String?
+@Observable
+class SpeechTranscriptionService {
+    var isTranscribing = false
+    var isSummarizing = false
+    var progress: Double = 0.0
+    var statusMessage = ""
+    var errorMessage: String?
     
-    var speechAnalyzer: SpeechAnalyzer?
-    var activeFlow: TranscriptionFlowKind?
+    @ObservationIgnored var speechAnalyzer: SpeechAnalyzer?
+    @ObservationIgnored var activeFlow: TranscriptionFlowKind?
     
     let minAnalysisTimeoutSeconds: TimeInterval = 60
     let analysisTimeoutMultiplier: Double = 3.0
     let maxAnalysisTimeoutSeconds: TimeInterval = 600
-    private var shouldPreferAssetPipelineTranscode = true
+    @ObservationIgnored private var shouldPreferAssetPipelineTranscode = true
     private let transcodePreferenceLock = NSLock()
 
     // Session cache: locales we’ve verified/installed during this app run
-    private var preparedLocales = Set<String>()
+    @ObservationIgnored private var preparedLocales = Set<String>()
     private let preparedLocalesLock = NSLock()
 
     // MARK: - Public API

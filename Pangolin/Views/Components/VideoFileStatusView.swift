@@ -10,7 +10,7 @@ import SwiftUI
 struct VideoFileStatusView: View {
     let video: Video
 
-    @EnvironmentObject var videoFileManager: VideoFileManager
+    @Environment(VideoFileManager.self) var videoFileManager: VideoFileManager
     @State private var snapshot: VideoCloudTransferSnapshot?
 
     var body: some View {

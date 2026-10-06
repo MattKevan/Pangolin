@@ -18,7 +18,8 @@ enum StoragePolicyWorkPolicy {
 }
 
 @MainActor
-final class StoragePolicyManager: ObservableObject {
+@Observable
+final class StoragePolicyManager {
     struct StorageStatistics: Sendable {
         let localUsageBytes: Int64
         let cloudOnlyCount: Int
@@ -32,15 +33,15 @@ final class StoragePolicyManager: ObservableObject {
 
     static let shared = StoragePolicyManager()
 
-    @Published private(set) var isApplyingPolicy = false
-    @Published private(set) var lastErrorMessage: String?
-    @Published private(set) var lastPolicySummary: StoragePolicySummary?
+    private(set) var isApplyingPolicy = false
+    private(set) var lastErrorMessage: String?
+    private(set) var lastPolicySummary: StoragePolicySummary?
 
     private let fileManager = FileManager.default
     private let videoFileManager = VideoFileManager.shared
 
-    private var protectedSelectedVideoID: UUID?
-    private var deferredPolicyTasks: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var protectedSelectedVideoID: UUID?
+    @ObservationIgnored private var deferredPolicyTasks: [UUID: Task<Void, Never>] = [:]
 
     private init() {}
 

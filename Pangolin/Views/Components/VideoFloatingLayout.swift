@@ -579,14 +579,15 @@ enum VideoFloatingLayout {
 }
 
 @MainActor
-final class FloatingVideoState: ObservableObject {
-    @Published private(set) var isFloating = false
-    @Published private(set) var frame = CGRect.zero
-    @Published private(set) var videoID: UUID?
-    @Published private(set) var inlineWidth: CGFloat = 0
-    @Published private(set) var inlineFrame = CGRect.zero
-    @Published private(set) var presentationViewportFrame = CGRect.zero
-    private var latestVisibleFraction: Double?
+@Observable
+final class FloatingVideoState {
+    private(set) var isFloating = false
+    private(set) var frame = CGRect.zero
+    private(set) var videoID: UUID?
+    private(set) var inlineWidth: CGFloat = 0
+    private(set) var inlineFrame = CGRect.zero
+    private(set) var presentationViewportFrame = CGRect.zero
+    @ObservationIgnored private var latestVisibleFraction: Double?
 
     func reset(for videoID: UUID?) {
         guard self.videoID != videoID else {

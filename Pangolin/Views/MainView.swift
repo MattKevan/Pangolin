@@ -26,13 +26,13 @@ struct MainView: View {
     #endif
 
     @Environment(LibraryManager.self) var libraryManager: LibraryManager
-    @EnvironmentObject var videoFileManager: VideoFileManager
+    @Environment(VideoFileManager.self) var videoFileManager: VideoFileManager
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let folderStore: FolderNavigationStore
-    @StateObject private var searchManager = SearchManager()
+    @State private var searchManager = SearchManager()
     @State private var playerViewModel = VideoPlayerViewModel()
-    @StateObject private var floatingVideoState = FloatingVideoState()
-    @StateObject private var videoPresentationFrameController = VideoPresentationFrameController()
+    @State private var floatingVideoState = FloatingVideoState()
+    @State private var videoPresentationFrameController = VideoPresentationFrameController()
     private let processingQueueManager = ProcessingQueueManager.shared
     
     let isStartingUp: Bool
@@ -210,7 +210,7 @@ struct MainView: View {
             .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 350)
             .environment(folderStore)
             .environment(libraryManager)
-            .environmentObject(searchManager)
+            .environment(searchManager)
             .applyManagedObjectContext(libraryManager.viewContext)
     }
 
@@ -377,9 +377,9 @@ struct MainView: View {
                 floatingVideoState: floatingVideoState
             )
                 .environment(folderStore)
-                .environmentObject(searchManager)
+                .environment(searchManager)
                 .environment(libraryManager)
-                .environmentObject(transcriptionService)
+                .environment(transcriptionService)
                 .navigationSplitViewColumnWidth(min: 420, ideal: 760)
             .onChange(of: folderStore.isSearchMode) { _, isSearchMode in
                 isSearchFieldPresented = isSearchMode
@@ -455,7 +455,7 @@ struct MainView: View {
                                 )
                                     .environment(folderStore)
                                     .environment(libraryManager)
-                                    .environmentObject(transcriptionService)
+                                    .environment(transcriptionService)
                             } else {
                                 ContentUnavailableView(
                                     "Video unavailable",
@@ -500,7 +500,7 @@ struct MainView: View {
                 }
                 .environment(folderStore)
                 .environment(libraryManager)
-                .environmentObject(transcriptionService)
+                .environment(transcriptionService)
             }
 
             Tab("Favourites", systemImage: "heart", value: .favourites) {
@@ -517,7 +517,7 @@ struct MainView: View {
                 }
                 .environment(folderStore)
                 .environment(libraryManager)
-                .environmentObject(transcriptionService)
+                .environment(transcriptionService)
             }
 
             Tab("Search", systemImage: "magnifyingglass", value: .search) {
@@ -528,12 +528,12 @@ struct MainView: View {
                     floatingVideoState: floatingVideoState
                 ) {
                     SearchResultsView()
-                        .environmentObject(searchManager)
+                        .environment(searchManager)
                         .navigationTitle("Search")
                 }
                 .environment(folderStore)
                 .environment(libraryManager)
-                .environmentObject(transcriptionService)
+                .environment(transcriptionService)
                 .searchable(
                     text: $searchManager.searchText,
                     placement: .automatic,
@@ -710,7 +710,7 @@ struct MainView: View {
 private struct RootContainerView<Content: View>: View {
     let content: Content
     let folderStore: FolderNavigationStore
-    @ObservedObject var searchManager: SearchManager
+    let searchManager: SearchManager
     let libraryManager: LibraryManager
     @Binding var showingImportPicker: Bool
     @Binding var showingURLImportSheet: Bool
@@ -763,7 +763,7 @@ private struct RootImportModifier: ViewModifier {
 
 private struct RootEventsModifier: ViewModifier {
     let folderStore: FolderNavigationStore
-    @ObservedObject var searchManager: SearchManager
+    let searchManager: SearchManager
     let libraryManager: LibraryManager
     @Binding var showingImportPicker: Bool
     @Binding var showingURLImportSheet: Bool
@@ -833,18 +833,18 @@ private struct RootAlertModifier: ViewModifier {
 // MARK: - Detail Column View
 private struct DetailColumnView: View {
     @Environment(FolderNavigationStore.self) private var folderStore
-    @EnvironmentObject private var searchManager: SearchManager
+    @Environment(SearchManager.self) private var searchManager: SearchManager
     @Environment(LibraryManager.self) private var libraryManager: LibraryManager
-    @EnvironmentObject private var transcriptionService: SpeechTranscriptionService
+    @Environment(SpeechTranscriptionService.self) private var transcriptionService: SpeechTranscriptionService
     let playerViewModel: VideoPlayerViewModel
-    @ObservedObject var floatingVideoState: FloatingVideoState
+    let floatingVideoState: FloatingVideoState
 
     var body: some View {
         Group {
             switch folderStore.currentDetailSurface {
             case .searchResults:
                 SearchResultsView()
-                    .environmentObject(searchManager)
+                    .environment(searchManager)
                     .environment(folderStore)
                     .environment(libraryManager)
             case .projectsGrid:
@@ -874,7 +874,7 @@ private struct DetailColumnView: View {
                     )
                         .environment(folderStore)
                         .environment(libraryManager)
-                        .environmentObject(transcriptionService)
+                        .environment(transcriptionService)
                 } else {
                     ContentUnavailableView(
                         "No video selected",
@@ -913,12 +913,12 @@ private struct PhoneCollectionTabView: View {
 private struct PhoneVideoNavigationStack<Root: View>: View {
     @Environment(FolderNavigationStore.self) private var folderStore
     @Environment(LibraryManager.self) private var libraryManager: LibraryManager
-    @EnvironmentObject private var transcriptionService: SpeechTranscriptionService
+    @Environment(SpeechTranscriptionService.self) private var transcriptionService: SpeechTranscriptionService
 
     let isActive: Bool
     let isSwitchingTabs: Bool
     let playerViewModel: VideoPlayerViewModel
-    @ObservedObject var floatingVideoState: FloatingVideoState
+    let floatingVideoState: FloatingVideoState
     let root: Root
 
     @State private var path: [MainView.PhoneVideoRoute] = []
@@ -977,7 +977,7 @@ private struct PhoneVideoNavigationStack<Root: View>: View {
             )
             .environment(folderStore)
             .environment(libraryManager)
-            .environmentObject(transcriptionService)
+            .environment(transcriptionService)
         } else {
             ContentUnavailableView(
                 "Video unavailable",

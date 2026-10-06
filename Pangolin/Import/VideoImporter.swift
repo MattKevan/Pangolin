@@ -13,8 +13,8 @@ import AVFoundation
 import CoreData
 
 @MainActor
-class VideoImporter: ObservableObject {
-    @Published var skippedFolders: [String] = []
+class VideoImporter {
+    var skippedFolders: [String] = []
     
     private let fileSystemManager = FileSystemManager.shared
     private let videoFileManager = VideoFileManager.shared

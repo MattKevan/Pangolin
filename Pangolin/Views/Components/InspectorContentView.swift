@@ -35,7 +35,7 @@ enum InspectorTab: CaseIterable, Hashable {
 
 struct InspectorContentView: View {
     @Environment(LibraryManager.self) private var libraryManager: LibraryManager
-    @EnvironmentObject private var transcriptionService: SpeechTranscriptionService
+    @Environment(SpeechTranscriptionService.self) private var transcriptionService: SpeechTranscriptionService
     let video: Video?
     let playerViewModel: VideoPlayerViewModel
     @Binding var selectedTab: InspectorTab
@@ -74,12 +74,12 @@ struct InspectorContentView: View {
             case .transcript:
                 TranscriptionView(video: selected, playerViewModel: playerViewModel)
                     .environment(libraryManager)
-                    .environmentObject(transcriptionService)
+                    .environment(transcriptionService)
                     .background(.clear)
             case .summary:
                 SummaryView(video: selected)
                     .environment(libraryManager)
-                    .environmentObject(transcriptionService)
+                    .environment(transcriptionService)
                     .background(.clear)
             }
         } else {

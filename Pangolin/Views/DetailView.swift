@@ -12,13 +12,13 @@ enum VideoDetailLayout {
 struct DetailView: View {
     @Environment(FolderNavigationStore.self) private var store
     @Environment(LibraryManager.self) private var libraryManager: LibraryManager
-    @EnvironmentObject private var transcriptionService: SpeechTranscriptionService
+    @Environment(SpeechTranscriptionService.self) private var transcriptionService: SpeechTranscriptionService
 
     let video: Video?
 
     private let playerViewModel: VideoPlayerViewModel
-    @ObservedObject private var floatingVideoState: FloatingVideoState
-    @StateObject private var searchModel = VideoPageSearchModel()
+    private let floatingVideoState: FloatingVideoState
+    @State private var searchModel = VideoPageSearchModel()
     @State private var selectedInspectorTab: InspectorTab = .transcript
     @State private var isControlsInspectorPresented = false
     @State private var isSearchVisibleOnPhone = false
@@ -38,7 +38,7 @@ struct DetailView: View {
     ) {
         self.video = video
         self.playerViewModel = playerViewModel
-        self._floatingVideoState = ObservedObject(wrappedValue: floatingVideoState)
+        self.floatingVideoState = floatingVideoState
     }
 
     private var effectiveSelectedVideo: Video? {
@@ -88,7 +88,7 @@ struct DetailView: View {
                 NavigationStack {
                     ProcessingControlsInspectorView(tab: .transcript, video: selectedVideo)
                         .environment(libraryManager)
-                        .environmentObject(transcriptionService)
+                        .environment(transcriptionService)
                         .navigationTitle("Transcript settings")
                         .navigationBarTitleDisplayMode(.inline)
                         .toolbar {
@@ -108,7 +108,7 @@ struct DetailView: View {
                selectedInspectorTab.supportsRightControlsInspector {
                 ProcessingControlsInspectorView(tab: selectedInspectorTab, video: selectedVideo)
                     .environment(libraryManager)
-                    .environmentObject(transcriptionService)
+                    .environment(transcriptionService)
             }
         }
         #endif
@@ -294,7 +294,7 @@ struct DetailView: View {
         case .summary:
             SummaryView(video: selectedVideo)
                 .environment(libraryManager)
-                .environmentObject(transcriptionService)
+                .environment(transcriptionService)
         }
     }
 

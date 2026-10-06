@@ -20,6 +20,6 @@ struct SettingsView: View {
 #Preview {
     SettingsView()
         .environment(LibraryManager.shared)
-        .environmentObject(StoragePolicyManager.shared)
-        .environmentObject(VideoFileManager.shared)
+        .environment(StoragePolicyManager.shared)
+        .environment(VideoFileManager.shared)
 }

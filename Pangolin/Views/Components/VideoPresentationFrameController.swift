@@ -29,17 +29,18 @@ enum VideoPresentationFrameUpdatePolicy {
 }
 
 @MainActor
-final class VideoPresentationFrameController: ObservableObject {
+@Observable
+final class VideoPresentationFrameController {
     static let transitionDuration = 0.25
 
     typealias TransitionSleep = @MainActor (TimeInterval) async throws -> Void
 
-    @Published private(set) var frame: CGRect?
-    @Published private(set) var mode: VideoPresentationMode?
-    @Published private(set) var isTransitioning = false
+    private(set) var frame: CGRect?
+    private(set) var mode: VideoPresentationMode?
+    private(set) var isTransitioning = false
 
     private let sleep: TransitionSleep
-    private var transitionTask: Task<Void, Never>?
+    @ObservationIgnored private var transitionTask: Task<Void, Never>?
 
     init(sleep: @escaping TransitionSleep = { duration in
         try await Task.sleep(for: .seconds(duration))
