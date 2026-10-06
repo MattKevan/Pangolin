@@ -28,7 +28,7 @@ struct MainView: View {
     @Environment(LibraryManager.self) var libraryManager: LibraryManager
     @EnvironmentObject var videoFileManager: VideoFileManager
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @State private var folderStore: FolderNavigationStore
+    let folderStore: FolderNavigationStore
     @StateObject private var searchManager = SearchManager()
     @State private var playerViewModel = VideoPlayerViewModel()
     @StateObject private var floatingVideoState = FloatingVideoState()
@@ -58,13 +58,14 @@ struct MainView: View {
     
     init(
         libraryManager: LibraryManager,
+        folderStore: FolderNavigationStore,
         isStartingUp: Bool = false,
         startupError: LibraryError? = nil,
         startupLoadingProgress: Double = 0,
         retryAction: @escaping () -> Void = {},
         resetAction: @escaping () -> Void = {}
     ) {
-        self._folderStore = State(initialValue: FolderNavigationStore(libraryManager: libraryManager))
+        self.folderStore = folderStore
         self.isStartingUp = isStartingUp
         self.startupError = startupError
         self.startupLoadingProgress = startupLoadingProgress

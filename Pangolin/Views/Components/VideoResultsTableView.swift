@@ -31,6 +31,13 @@ enum VideoTableInteractionPolicy {
     }
 }
 
+#if os(macOS)
+private typealias VideoDescriptorMap = [UUID: VideoFileExportDescriptor]
+#else
+/// File-promise drags are macOS only; elsewhere the map stays empty.
+private typealias VideoDescriptorMap = [UUID: Never]
+#endif
+
 struct VideoResultsTableView: View {
     @Environment(FolderNavigationStore.self) private var store
     @Environment(LibraryManager.self) private var libraryManager: LibraryManager
@@ -41,6 +48,7 @@ struct VideoResultsTableView: View {
     let acceptsExternalVideoImports: Bool
 
     @State private var sortOrder: [KeyPathComparator<Row>] = []
+    @State private var rowCache = RowCache()
     @State private var editingVideo: Video?
     @State private var videoPendingDeletion: Video?
     @State private var showingVideoDeletionConfirmation = false
@@ -58,13 +66,12 @@ struct VideoResultsTableView: View {
     }
 
     var body: some View {
+        let content = rowCache.content(for: contentKey, sortOrder: sortOrder) { buildRows() }
         #if os(macOS)
-        let videoDescriptors = VideoTablePresentationPolicy.descriptorMap(
-            videos.compactMap(VideoFileExportDescriptor.init)
-        )
+        let videoDescriptors = content.descriptors
         #endif
 
-        Table(sortedRows, selection: $selectedVideoIDs, sortOrder: $sortOrder) {
+        Table(content.sortedRows, selection: $selectedVideoIDs, sortOrder: $sortOrder) {
             TableColumn("Title", value: \.titleSort) { row in
                 #if os(macOS)
                 titleCell(for: row, videoDescriptors: videoDescriptors)
@@ -139,8 +146,58 @@ struct VideoResultsTableView: View {
         }
     }
 
-    private var rows: [Row] {
-        videos.compactMap { video in
+    /// What the table is built from. Rows are rebuilt only when this changes.
+    private struct ContentKey: Equatable {
+        let revision: Int
+        let videoIDs: [NSManagedObjectID]
+    }
+
+    private var contentKey: ContentKey {
+        ContentKey(revision: store.contentRevision, videoIDs: videos.map(\.objectID))
+    }
+
+    private struct TableContent {
+        let rows: [Row]
+        let descriptors: VideoDescriptorMap
+    }
+
+    /// Holds the built rows, their sorted order and the drag descriptors between renders, so
+    /// building and sorting happen once per change instead of once per body pass.
+    private final class RowCache {
+        struct Content {
+            let sortedRows: [Row]
+            let descriptors: VideoDescriptorMap
+        }
+
+        private var key: ContentKey?
+        private var built: TableContent?
+        private var sortOrder: [KeyPathComparator<Row>] = []
+        private var content: Content?
+
+        func content(
+            for key: ContentKey,
+            sortOrder: [KeyPathComparator<Row>],
+            build: () -> TableContent
+        ) -> Content {
+            if self.key != key || built == nil {
+                self.key = key
+                built = build()
+                content = nil
+            }
+            if let content, self.sortOrder == sortOrder {
+                return content
+            }
+            guard let built else { return Content(sortedRows: [], descriptors: [:]) }
+            let sortedRows = sortOrder.isEmpty ? built.rows : built.rows.sorted(using: sortOrder)
+            let newContent = Content(sortedRows: sortedRows, descriptors: built.descriptors)
+            self.sortOrder = sortOrder
+            content = newContent
+            return newContent
+        }
+    }
+
+    private func buildRows() -> TableContent {
+        let rows: [Row] = videos.compactMap { video in
             guard let id = video.id else { return nil }
             let projectTitle = projectTitle(for: video)
             return Row(
@@ -155,13 +212,12 @@ struct VideoResultsTableView: View {
                 projectSort: projectTitle.localizedLowercase
             )
         }
-    }
-
-    private var sortedRows: [Row] {
-        if sortOrder.isEmpty {
-            return rows
-        }
-        return rows.sorted(using: sortOrder)
+        #if os(macOS)
+        let descriptors = VideoTablePresentationPolicy.descriptorMap(videos.compactMap(VideoFileExportDescriptor.init))
+        #else
+        let descriptors = VideoDescriptorMap()
+        #endif
+        return TableContent(rows: rows, descriptors: descriptors)
     }
 
     private func selectedVideo(from selection: Set<UUID>) -> Video? {

@@ -1242,6 +1242,36 @@ struct ProjectsStoreTests {
         await manager.closeCurrentLibrary()
     }
 
+    @Test("Project sections are reused until content changes, then rebuilt")
+    @MainActor
+    func projectSectionsAreMemoisedUntilContentChanges() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
+        _ = try makeVideo(title: "First", thumbnailData: nil, in: context, folder: project, library: library)
+        try context.save()
+
+        let store = FolderNavigationStore(libraryManager: manager)
+        let first = store.projectSections(for: project)
+        let second = store.projectSections(for: project)
+        #expect(first.map(\.id) == second.map(\.id))
+        #expect(first.flatMap(\.videos).count == 1)
+
+        // A different query is a different cache entry.
+        #expect(store.projectSections(for: project, matching: "nothing matches").isEmpty)
+        #expect(store.projectSections(for: project).flatMap(\.videos).count == 1)
+
+        _ = try makeVideo(title: "Second", thumbnailData: nil, in: context, folder: project, library: library)
+        try context.save()
+        store.refreshContent()
+
+        #expect(store.projectSections(for: project).flatMap(\.videos).count == 2)
+
+        await manager.closeCurrentLibrary()
+    }
+
     @Test("Project search filters only inside the active project")
     @MainActor
     func projectSearchFiltersOnlyActiveProject() async throws {

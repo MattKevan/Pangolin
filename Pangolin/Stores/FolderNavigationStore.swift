@@ -127,6 +127,8 @@ class FolderNavigationStore {
     
     // MARK: - Dependencies
     let libraryManager: LibraryManager
+    @ObservationIgnored private var projectSectionCache: [ProjectSectionCacheKey: [ProjectSectionSnapshot]] = [:]
+    @ObservationIgnored private var projectSectionCacheRevision = -1
     @ObservationIgnored nonisolated(unsafe) private var libraryObservationTask: Task<Void, Never>?
     var contextSaveCancellable: AnyCancellable?
     private var isRevealingVideoLocation = false
@@ -426,10 +428,34 @@ class FolderNavigationStore {
         return try? context.fetch(request).first
     }
 
+    private struct ProjectSectionCacheKey: Hashable {
+        let projectID: NSManagedObjectID
+        let query: String?
+    }
+
+    /// Sections for a project, memoised until the library content next changes. Views call this
+    /// from body, and walking and sorting a project's videos is too much to repeat per render.
     func projectSections(for project: Folder, matching query: String? = nil) -> [ProjectSectionSnapshot] {
         let trimmedQuery = (query ?? projectSearchQuery).trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedQuery = trimmedQuery.isEmpty ? nil : trimmedQuery.localizedLowercase
 
+        let revision = contentRevision
+        if projectSectionCacheRevision != revision {
+            projectSectionCache.removeAll()
+            projectSectionCacheRevision = revision
+        }
+
+        let key = ProjectSectionCacheKey(projectID: project.objectID, query: normalizedQuery)
+        if let cached = projectSectionCache[key] {
+            return cached
+        }
+
+        let sections = buildProjectSections(for: project, normalizedQuery: normalizedQuery)
+        projectSectionCache[key] = sections
+        return sections
+    }
+
+    private func buildProjectSections(for project: Folder, normalizedQuery: String?) -> [ProjectSectionSnapshot] {
         var sections: [ProjectSectionSnapshot] = []
 
         for section in project.sectionsArray {

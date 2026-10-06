@@ -13,6 +13,8 @@ enum FileCommandPolicy {
 @main
 struct PangolinApp: App {
     @State private var libraryManager = LibraryManager.shared
+    // Created once with the app; building it in MainView.init would allocate a new store on every re-render.
+    @State private var folderStore = FolderNavigationStore(libraryManager: LibraryManager.shared)
     @StateObject private var videoFileManager = VideoFileManager.shared
     @StateObject private var storagePolicyManager = StoragePolicyManager.shared
     @State private var hasAttemptedStartup = false
@@ -21,6 +23,7 @@ struct PangolinApp: App {
         WindowGroup {
             MainView(
                 libraryManager: libraryManager,
+                folderStore: folderStore,
                 isStartingUp: libraryManager.currentLibrary == nil && hasAttemptedStartup,
                 startupError: libraryManager.error,
                 startupLoadingProgress: libraryManager.loadingProgress,
