@@ -171,7 +171,7 @@ class SpeechTranscriptionService: ObservableObject {
                 return try libraryManager.textArtifacts.readTimedTranscript(from: timedTranscriptURL)
             }
 
-            let computationResult = try await Task.detached(priority: .userInitiated) { [weak self] in
+            let computationResult = try await runDetached(priority: .userInitiated) { [weak self] in
                 guard let self else {
                     throw TranscriptionError.translationFailed("Translation service unavailable.")
                 }
@@ -181,7 +181,7 @@ class SpeechTranscriptionService: ObservableObject {
                     transcriptLanguageIdentifier: initialState.transcriptLanguage,
                     targetLanguage: targetLanguage
                 )
-            }.value
+            }
 
             if computationResult.translationSkipped {
                 await setStatus("Source already matches target language.")
@@ -265,7 +265,7 @@ class SpeechTranscriptionService: ObservableObject {
         await setStatus("Preparing Apple Intelligence...")
         
         do {
-            let finalSummary = try await Task.detached(priority: .userInitiated) { [weak self] in
+            let finalSummary = try await runDetached(priority: .userInitiated) { [weak self] in
                 guard let self else {
                     throw TranscriptionError.summarizationFailed("Summarization service unavailable.")
                 }
@@ -303,7 +303,7 @@ class SpeechTranscriptionService: ObservableObject {
                 await setStatus("Combining summaries...")
                 await setProgress(0.8)
                 return try await self.reduceSummaries(chunkSummaries, customPrompt: customPrompt)
-            }.value
+            }
 
             await setStatus("Saving summary...")
             await setProgress(0.95)

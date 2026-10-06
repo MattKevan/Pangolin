@@ -57,13 +57,13 @@ class VideoImporter: ObservableObject {
         guard let libraryURL = library.url else { throw FileSystemError.invalidLibraryPath }
         let manager = fileSystemManager
         let copyFile = library.copyFilesOnImport
-        let preparedImport = try await Task.detached(priority: .utility) {
+        let preparedImport = try await runDetached(priority: .utility) {
             try await manager.prepareVideoImport(
                 from: fileURL,
                 libraryURL: libraryURL,
                 copyFile: copyFile
             )
-        }.value
+        }
         let video = try manager.makeVideo(from: preparedImport, library: library, context: context)
         if let originalSourceURL {
             video.sourcePath = ImportDuplicatePolicy.canonicalSourcePath(originalSourceURL)
