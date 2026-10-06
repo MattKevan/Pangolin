@@ -30,7 +30,7 @@ enum VideoTablePresentationPolicy {
     static func descriptorMap(
         _ descriptors: [VideoFileExportDescriptor]
     ) -> [UUID: VideoFileExportDescriptor] {
-        Dictionary(uniqueKeysWithValues: descriptors.map { ($0.id, $0) })
+        Dictionary(descriptors.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 }
 

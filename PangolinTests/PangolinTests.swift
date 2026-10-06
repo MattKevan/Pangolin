@@ -169,6 +169,20 @@ struct PangolinTests {
         #expect(indexed[second]?.fileName == "two.mov")
     }
 
+    @Test("Duplicate video IDs keep the first descriptor instead of trapping")
+    func videoTableDragMetadataToleratesDuplicateIDs() {
+        let id = UUID()
+        let descriptors = [
+            VideoFileExportDescriptor(id: id, fileName: "first.mp4", fileTypeIdentifier: "public.mpeg-4"),
+            VideoFileExportDescriptor(id: id, fileName: "second.mp4", fileTypeIdentifier: "public.mpeg-4")
+        ]
+
+        let indexed = VideoTablePresentationPolicy.descriptorMap(descriptors)
+
+        #expect(indexed.count == 1)
+        #expect(indexed[id]?.fileName == "first.mp4")
+    }
+
     @Test("Project sidebar drops require videos and a project destination")
     func projectSidebarDropRequiresVideoIDsAndProject() {
         #expect(ProjectSidebarDropPolicy.canMove(videoIDs: [UUID()], isProject: true))

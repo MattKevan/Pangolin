@@ -86,6 +86,18 @@ actor ThumbnailImageCache {
         return await resolvedImage(for: requestKey, decode: decode)
     }
 
+    /// Empties the cache when the system reports memory pressure. Call once at launch.
+    /// Switching apps is not memory pressure, so it no longer flushes thumbnails.
+    @MainActor
+    static func startObservingMemoryPressure() {
+        guard memoryPressureObserver == nil else { return }
+        memoryPressureObserver = MemoryPressureObserver {
+            Task { await ThumbnailImageCache.shared.removeAll() }
+        }
+    }
+
+    @MainActor private static var memoryPressureObserver: MemoryPressureObserver?
+
     func removeAll() {
         epoch &+= 1
         cache.removeAllObjects()
@@ -204,6 +216,7 @@ private struct ObservedSyncedThumbnailImage<Placeholder: View>: View {
     let placeholder: Placeholder
 
     @State private var platformImage: PlatformImage?
+    @State private var loadedVideoID: UUID?
     @State private var thumbnailDataChangeRevision: UInt64 = 0
 
     private var cacheKey: ThumbnailCacheKey? {
@@ -234,34 +247,54 @@ private struct ObservedSyncedThumbnailImage<Placeholder: View>: View {
             }
         }
         .task(id: taskKey) {
-            platformImage = nil
+            // Keep the current image while a refreshed one loads; only a different video clears it.
+            if loadedVideoID != cacheKey?.videoID {
+                platformImage = nil
+            }
             guard let cacheKey, let data = video.thumbnailData else { return }
-            let loadedImage = await ThumbnailImageCache.shared.image(for: cacheKey, data: data)
+            var loadedImage = await ThumbnailImageCache.shared.image(for: cacheKey, data: data)
+            if loadedImage == nil, !Task.isCancelled {
+                // A cache purge hands nil to decodes already in flight; ask once more.
+                loadedImage = await ThumbnailImageCache.shared.image(for: cacheKey, data: data)
+            }
             guard !Task.isCancelled else { return }
             platformImage = loadedImage
+            loadedVideoID = cacheKey.videoID
         }
         .onReceive(video.publisher(for: \Video.thumbnailData, options: [.new])) { _ in
             thumbnailDataChangeRevision &+= 1
         }
-        .purgesThumbnailCacheOnPlatformPressure()
     }
 }
 
-private extension View {
-    @ViewBuilder
-    func purgesThumbnailCacheOnPlatformPressure() -> some View {
-        #if os(iOS)
-        onReceive(NotificationCenter.default.publisher(
-            for: UIApplication.didReceiveMemoryWarningNotification
-        )) { _ in
-            Task { await ThumbnailImageCache.shared.removeAll() }
-        }
-        #elseif os(macOS)
-        onReceive(NotificationCenter.default.publisher(
-            for: NSApplication.didResignActiveNotification
-        )) { _ in
-            Task { await ThumbnailImageCache.shared.removeAll() }
-        }
-        #endif
+private final class MemoryPressureObserver {
+    #if os(macOS)
+    private let source: DispatchSourceMemoryPressure
+
+    init(onPressure: @escaping @Sendable () -> Void) {
+        source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
+        source.setEventHandler(handler: onPressure)
+        source.resume()
     }
+
+    deinit {
+        source.cancel()
+    }
+    #else
+    private var token: NSObjectProtocol?
+
+    init(onPressure: @escaping @Sendable () -> Void) {
+        token = NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil,
+            queue: .main
+        ) { _ in onPressure() }
+    }
+
+    deinit {
+        if let token {
+            NotificationCenter.default.removeObserver(token)
+        }
+    }
+    #endif
 }

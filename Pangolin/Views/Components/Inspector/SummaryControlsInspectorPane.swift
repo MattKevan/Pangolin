@@ -53,33 +53,36 @@ struct LineSpacedTextEditor: NSViewRepresentable {
     var lineSpacing: CGFloat
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
+        let scrollView = NSTextView.scrollableTextView()
+        guard let textView = scrollView.documentView as? NSTextView else { return scrollView }
 
-        let textView = NSTextView()
         textView.delegate = context.coordinator
         textView.isRichText = false
         textView.drawsBackground = false
         textView.font = NSFont.preferredFont(forTextStyle: .body, options: [:])
+        textView.textColor = .labelColor
         textView.textContainerInset = NSSize(width: 8, height: 6)
-        textView.isVerticallyResizable = true
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-
-        scrollView.documentView = textView
+        textView.string = text
+        context.coordinator.applyLineSpacing(lineSpacing, to: textView)
         return scrollView
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let textView = nsView.documentView as? NSTextView else { return }
-        let style = NSMutableParagraphStyle()
-        style.lineSpacing = lineSpacing
-        let attributes: [NSAttributedString.Key: Any] = [
-            .paragraphStyle: style,
-            .font: NSFont.preferredFont(forTextStyle: .body, options: [:]),
-            .foregroundColor: NSColor.labelColor
-        ]
-        textView.textStorage?.setAttributedString(NSAttributedString(string: text, attributes: attributes))
+        context.coordinator.parent = self
+        context.coordinator.applyLineSpacing(lineSpacing, to: textView)
+
+        // Typing already updated the binding, so only outside changes reach here. Replacing
+        // the text on every update would move the caret and discard undo history.
+        guard textView.string != text else { return }
+        let selection = textView.selectedRanges
+        textView.string = text
+        let length = (text as NSString).length
+        textView.selectedRanges = selection.map { value in
+            let range = value.rangeValue
+            let location = min(range.location, length)
+            return NSValue(range: NSRange(location: location, length: min(range.length, length - location)))
+        }
     }
 
     func makeCoordinator() -> Coordinator {
@@ -88,9 +91,23 @@ struct LineSpacedTextEditor: NSViewRepresentable {
 
     class Coordinator: NSObject, NSTextViewDelegate {
         var parent: LineSpacedTextEditor
+        private var appliedLineSpacing: CGFloat?
 
         init(_ parent: LineSpacedTextEditor) {
             self.parent = parent
+        }
+
+        func applyLineSpacing(_ lineSpacing: CGFloat, to textView: NSTextView) {
+            guard appliedLineSpacing != lineSpacing else { return }
+            appliedLineSpacing = lineSpacing
+
+            let style = NSMutableParagraphStyle()
+            style.lineSpacing = lineSpacing
+            textView.defaultParagraphStyle = style
+            textView.typingAttributes[.paragraphStyle] = style
+            if let storage = textView.textStorage, storage.length > 0 {
+                storage.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: storage.length))
+            }
         }
 
         func textDidChange(_ notification: Notification) {

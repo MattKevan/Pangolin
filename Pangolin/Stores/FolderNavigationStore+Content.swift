@@ -8,6 +8,7 @@ import Observation
 extension FolderNavigationStore {
     // MARK: - Content Fetching
     func refreshContent() {
+        backfillProjectMetadataIfNeeded()
         contentRevision &+= 1
         if currentDestination == nil && currentFolderID == nil {
             ensureInitialSelectionIfNeeded()
@@ -154,8 +155,13 @@ extension FolderNavigationStore {
         applyFolderSelection(folder, clearSelectedVideo: clearSelectedVideo)
     }
 
-    private func backfillProjectMetadataIfNeeded(for projects: [Folder], in context: NSManagedObjectContext) {
-        guard !context.hasChanges else { return }
+    /// Fills in missing project titles and keeps each project's thumbnail video id current.
+    /// Runs from `refreshContent()`, never from a view body: it saves the context, and saving
+    /// triggers another refresh. That settles after one pass because the backfill is idempotent.
+    private func backfillProjectMetadataIfNeeded() {
+        guard let context = libraryManager.viewContext,
+              !context.hasChanges,
+              let projects = try? context.fetch(projectsFetchRequest()) else { return }
 
         var didChange = false
 
@@ -183,19 +189,26 @@ extension FolderNavigationStore {
         }
     }
 
-    func projects() -> [Folder] {
-        guard let context = libraryManager.viewContext, let library = libraryManager.currentLibrary else { return [] }
+    private func projectsFetchRequest() -> NSFetchRequest<Folder> {
         let request = Folder.fetchRequest()
-        request.predicate = NSPredicate(format: "library == %@ AND isTopLevel == YES AND isSmartFolder == NO", library)
+        if let library = libraryManager.currentLibrary {
+            request.predicate = NSPredicate(format: "library == %@ AND isTopLevel == YES AND isSmartFolder == NO", library)
+        } else {
+            request.predicate = NSPredicate(value: false)
+        }
         request.sortDescriptors = [NSSortDescriptor(keyPath: \Folder.name, ascending: true)]
+        return request
+    }
+
+    /// A plain read, safe to call from a view body.
+    func projects() -> [Folder] {
+        guard let context = libraryManager.viewContext else { return [] }
         do {
-            let folders = try context.fetch(request)
-            backfillProjectMetadataIfNeeded(for: folders, in: context)
-            return folders.sorted {
+            return try context.fetch(projectsFetchRequest()).sorted {
                 $0.resolvedProjectTitle.localizedCaseInsensitiveCompare($1.resolvedProjectTitle) == .orderedAscending
             }
         } catch {
-            errorMessage = "Failed to load projects: \(error.localizedDescription)"
+            Logger.navigation.error("STORE: Failed to load projects: \(error.localizedDescription)")
             return []
         }
     }

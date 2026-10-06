@@ -405,7 +405,7 @@ class SpeechTranscriptionService: ObservableObject {
                 throw TranscriptionError.flashcardsGenerationFailed("No flashcards were generated from the available content.")
             }
 
-            let sourceLookup = Dictionary(uniqueKeysWithValues: resolvedSource.entries.map { ($0.id, $0) })
+            let sourceLookup = Dictionary(resolvedSource.entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             let cards: [Flashcard] = generatedCards.compactMap { candidate in
                 guard let source = sourceLookup[candidate.sourceChunkID] else { return nil }
                 return Flashcard(

@@ -111,6 +111,7 @@ struct PangolinApp: App {
         }
 
         hasAttemptedStartup = true
+        ThumbnailImageCache.startObservingMemoryPressure()
 
         Task {
             do {
