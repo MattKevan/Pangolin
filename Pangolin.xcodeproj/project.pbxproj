@@ -44,6 +44,7 @@
 		46237ED21822039047789928 /* ProcessingQueueManager+Enqueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5DB27920A4CA5874C960F09 /* ProcessingQueueManager+Enqueue.swift */; };
 		474F2E4930D48C018DB0EF60 /* ProjectVideoGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = C94555EDCBAF7CE2C94C371A /* ProjectVideoGrid.swift */; };
 		479BB67D62B6E74B8241F339 /* SpeechTranscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A086969CAA09848469601A /* SpeechTranscriptionService.swift */; };
+		496B2868835E12171D9F95D0 /* TranscriptContentLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F799F98BE4527C740E358AC0 /* TranscriptContentLoader.swift */; };
 		4AB94E061F34B472BC2CBBA8 /* RemediationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2FEE876C0C2B4C24C1D791C /* RemediationTests.swift */; };
 		4B46AD9E945D539AC9A21379 /* ThumbnailModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97BCAF698EB3460169543E9B /* ThumbnailModelTests.swift */; };
 		4D4D7B161BF23E1643421A28 /* SummaryControlsInspectorPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6291936AFC754AA338AA3C48 /* SummaryControlsInspectorPane.swift */; };
@@ -121,6 +122,7 @@
 		E24022C3423E6DAAB5B8BD83 /* AllVideosImportDropModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F9329B526137D7325808278 /* AllVideosImportDropModifier.swift */; };
 		E2465CF14F2CD35EFF827240 /* ProjectGridPolicies.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B4624CAFBC734D7A367EA26 /* ProjectGridPolicies.swift */; };
 		E3BC7975B559D92CD79B62DF /* FloatingVideoPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52B973BCCBE605973B892F4C /* FloatingVideoPane.swift */; };
+		E62F8C4CD491D9560584BA54 /* TranscriptContentLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7587372B71C9FB52B34F6433 /* TranscriptContentLoaderTests.swift */; };
 		E72D0163211BE06DF347B1D7 /* StorageSettingsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9AF4F7D6AB775BE65B16281 /* StorageSettingsPane.swift */; };
 		E7AB29FBCB06351C82C3985F /* DetailSearchField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6038E516CA263F144CD01F56 /* DetailSearchField.swift */; };
 		EB485127D639337042F4F6CA /* VideoModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0494EEFBA9CEA95212F8DA3 /* VideoModel.swift */; };
@@ -206,6 +208,7 @@
 		70D9560C4480F524DCDFBD18 /* DetailPageChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailPageChrome.swift; sourceTree = "<group>"; };
 		7160DB97F1F9C256A9B53DA2 /* FileSystemManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSystemManager.swift; sourceTree = "<group>"; };
 		750434AF20EE1CD1F4E0DB94 /* VideoPresentationFrameUpdateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPresentationFrameUpdateTests.swift; sourceTree = "<group>"; };
+		7587372B71C9FB52B34F6433 /* TranscriptContentLoaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptContentLoaderTests.swift; sourceTree = "<group>"; };
 		75E24246155926F87F9ACD93 /* SearchManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchManager.swift; sourceTree = "<group>"; };
 		78B3F445583D16F809991AED /* ProjectsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectsView.swift; sourceTree = "<group>"; };
 		7B24B035147F0F00E66A73A8 /* VideoPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerView.swift; sourceTree = "<group>"; };
@@ -281,6 +284,7 @@
 		F2A086969CAA09848469601A /* SpeechTranscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechTranscriptionService.swift; sourceTree = "<group>"; };
 		F2D9F2D0F5A0A6478889ACE4 /* FolderContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderContentView.swift; sourceTree = "<group>"; };
 		F3E4A751293FBFC19C3D3964 /* FolderNavigationStore+Types.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FolderNavigationStore+Types.swift"; sourceTree = "<group>"; };
+		F799F98BE4527C740E358AC0 /* TranscriptContentLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptContentLoader.swift; sourceTree = "<group>"; };
 		F9C281329ED37A88C6FB0607 /* ThumbnailImageCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailImageCacheTests.swift; sourceTree = "<group>"; };
 		FD5A94DE51C30112B9E9813C /* TranslationControlsInspectorPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranslationControlsInspectorPane.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -314,6 +318,7 @@
 				70D9560C4480F524DCDFBD18 /* DetailPageChrome.swift */,
 				6038E516CA263F144CD01F56 /* DetailSearchField.swift */,
 				6C92E78AC867647D053B2520 /* DetailTranscriptView.swift */,
+				F799F98BE4527C740E358AC0 /* TranscriptContentLoader.swift */,
 			);
 			path = Video;
 			sourceTree = "<group>";
@@ -483,6 +488,7 @@
 				97BCAF698EB3460169543E9B /* ThumbnailModelTests.swift */,
 				C89494E75B3F5670DC22BCE5 /* TimedTranscriptTests.swift */,
 				33232B10DCFE883C5127E91F /* TimedTranslationTests.swift */,
+				7587372B71C9FB52B34F6433 /* TranscriptContentLoaderTests.swift */,
 				368387BBC11C59679055085E /* VideoFloatingLayoutTests.swift */,
 				68D47EFB24520196DD13F8B6 /* VideoImporterRollbackTests.swift */,
 				AFC0CBAA98FE82676CD1C334 /* VideoNavigationSequenceTests.swift */,
@@ -786,6 +792,7 @@
 				4B46AD9E945D539AC9A21379 /* ThumbnailModelTests.swift in Sources */,
 				0AA75B388DBB5E7239A80752 /* TimedTranscriptTests.swift in Sources */,
 				1022F2DF842A83309743E04B /* TimedTranslationTests.swift in Sources */,
+				E62F8C4CD491D9560584BA54 /* TranscriptContentLoaderTests.swift in Sources */,
 				5AE09C21DFE8F5D507B16776 /* VideoFloatingLayoutTests.swift in Sources */,
 				8F049CBBE74DF95E68601713 /* VideoImporterRollbackTests.swift in Sources */,
 				DE3E09AF392352200A7C168A /* VideoNavigationSequenceTests.swift in Sources */,
@@ -875,6 +882,7 @@
 				A5A239C99E6B28B73E0EFE28 /* ThumbnailGenerator.swift in Sources */,
 				1921EE75648C8527AD2F6A3C /* TimedTranscript.swift in Sources */,
 				C50D5400D8E2727DAEF77FC0 /* TimedTranslation.swift in Sources */,
+				496B2868835E12171D9F95D0 /* TranscriptContentLoader.swift in Sources */,
 				3922661902D5C0EE3DDA696E /* TranscriptWordWrapLayout.swift in Sources */,
 				81DB7AB699030A33F4E52764 /* TranscriptionControlsInspectorPane.swift in Sources */,
 				A8BD0147D2629F298FCCA376 /* TranscriptionView.swift in Sources */,

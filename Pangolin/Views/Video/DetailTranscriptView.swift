@@ -118,32 +118,28 @@ struct MergedTranscriptView: View {
     @State private var loadError: String?
     @State private var sourceLabel = "Transcript"
     @State private var currentMatchID: String?
+    @State private var matchingIDs: [String] = []
+    @State private var matchingIDSet: Set<String> = []
+    @State private var isLoading = true
 
-    private struct TimedParagraph: Identifiable {
-        let id: String
-        let entryIDs: [String]
-        let startSeconds: TimeInterval
-        let text: String
+    /// Everything that should trigger a reload of the transcript content.
+    private struct LoadKey: Equatable {
+        let videoID: UUID?
+        let transcriptDate: Date?
+        let translationDate: Date?
+        let translatedLanguage: String?
+        let preferredLocale: String?
     }
 
-    private struct PlainParagraph: Identifiable {
-        let id: String
-        let text: String
+    private var loadKey: LoadKey {
+        LoadKey(
+            videoID: video.id,
+            transcriptDate: video.transcriptDateGenerated,
+            translationDate: video.translationDateGenerated,
+            translatedLanguage: video.translatedLanguage,
+            preferredLocale: preferredTranslationLocaleIdentifier
+        )
     }
-
-    private enum ResolvedSource {
-        case timedTranscript(TimedTranscript.ChunkIndex)
-        case timedTranslation(TimedTranslation.ChunkIndex)
-        case plainTranscript(String)
-        case plainTranslation(String)
-        case empty
-    }
-
-    private static let paragraphSoftWordTarget = 36
-    private static let paragraphHardWordLimit = 56
-    private static let paragraphMaxChunks = 6
-    private static let paragraphMaxSentences = 2
-    private static let sentenceTerminators: Set<Character> = [".", "?", "!", ";", ":"]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -155,12 +151,16 @@ struct MergedTranscriptView: View {
                 )
                 .frame(maxWidth: .infinity, minHeight: 240)
             } else if timedParagraphs.isEmpty && plainParagraphs.isEmpty {
+                if isLoading {
+                    Color.clear.frame(maxWidth: .infinity, minHeight: 240)
+                } else {
                 ContentUnavailableView(
                     "No transcript yet",
                     systemImage: "doc.text",
                     description: Text("Transcript has not been generated for this video.")
                 )
                 .frame(maxWidth: .infinity, minHeight: 240)
+                }
             } else {
                 Text(sourceLabel)
                     .font(.caption)
@@ -220,34 +220,21 @@ struct MergedTranscriptView: View {
         .frame(maxWidth: VideoDetailLayout.contentMaxWidth, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, VideoDetailLayout.horizontalPadding)
-        .onAppear {
-            loadContent()
-            updateActiveParagraph(for: playerViewModel.currentTime)
-            refreshSearchState(scrollToMatch: false)
+        .task(id: loadKey) {
+            await loadContent()
+        }
+        .task {
+            // Observed here, not read in body, so playback ticks don't re-render the whole transcript.
+            let times = Observations { playerViewModel.currentTime }
+            for await time in times {
+                updateActiveParagraph(for: time)
+            }
         }
         .onChange(of: video.id) { _, _ in
             setActiveParagraphID(nil)
-            loadContent()
-            refreshSearchState(scrollToMatch: false)
-        }
-        .onChange(of: video.transcriptDateGenerated) { _, _ in
-            loadContent()
-            refreshSearchState(scrollToMatch: false)
-        }
-        .onChange(of: video.translationDateGenerated) { _, _ in
-            loadContent()
-            refreshSearchState(scrollToMatch: false)
-        }
-        .onChange(of: video.translatedLanguage) { _, _ in
-            loadContent()
-            refreshSearchState(scrollToMatch: false)
-        }
-        .onChange(of: preferredTranslationLocaleIdentifier) { _, _ in
-            loadContent()
-            refreshSearchState(scrollToMatch: false)
-        }
-        .onChange(of: playerViewModel.currentTime) { _, newTime in
-            updateActiveParagraph(for: newTime)
+            timedParagraphs = []
+            plainParagraphs = []
+            isLoading = true
         }
         .onChange(of: searchModel.query) { _, _ in
             refreshSearchState(scrollToMatch: true)
@@ -261,7 +248,7 @@ struct MergedTranscriptView: View {
         if paragraphID == currentMatchID {
             return Color.yellow.opacity(0.35)
         }
-        if matchingParagraphIDs.contains(paragraphID) {
+        if matchingIDSet.contains(paragraphID) {
             return Color.yellow.opacity(0.18)
         }
         if active {
@@ -270,24 +257,19 @@ struct MergedTranscriptView: View {
         return .clear
     }
 
-    private var matchingParagraphIDs: [String] {
+    /// Paragraphs matching the search query, in reading order.
+    private func computeMatchingParagraphIDs() -> [String] {
         let query = searchModel.query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return [] }
-        let normalizedQuery = query.localizedLowercase
 
         if !timedParagraphs.isEmpty {
-            return timedParagraphs
-                .filter { $0.text.localizedLowercase.contains(normalizedQuery) }
-                .map(\.id)
+            return timedParagraphs.filter { $0.text.localizedStandardContains(query) }.map(\.id)
         }
-
-        return plainParagraphs
-            .filter { $0.text.localizedLowercase.contains(normalizedQuery) }
-            .map(\.id)
+        return plainParagraphs.filter { $0.text.localizedStandardContains(query) }.map(\.id)
     }
 
     private func moveAcrossSearchResults() {
-        let matches = matchingParagraphIDs
+        let matches = matchingIDs
         guard !matches.isEmpty else {
             currentMatchID = nil
             searchModel.setSearchState(totalMatches: 0, currentMatchIndex: nil)
@@ -309,7 +291,9 @@ struct MergedTranscriptView: View {
     }
 
     private func refreshSearchState(scrollToMatch: Bool) {
-        let matches = matchingParagraphIDs
+        let matches = computeMatchingParagraphIDs()
+        matchingIDs = matches
+        matchingIDSet = Set(matches)
         guard !matches.isEmpty else {
             currentMatchID = nil
             searchModel.setSearchState(totalMatches: 0, currentMatchIndex: nil)
@@ -333,73 +317,51 @@ struct MergedTranscriptView: View {
         }
     }
 
-    private func loadContent() {
-        let source = resolvedSource()
-        switch source {
-        case .timedTranscript(let index):
-            sourceLabel = "Transcript"
-            timedParagraphs = makeTimedParagraphs(
-                entries: index.allEntries.map {
-                    (id: $0.id.uuidString, text: $0.text, startSeconds: $0.startSeconds, endSeconds: $0.endSeconds)
-                }
-            )
+    private func loadContent() async {
+        isLoading = true
+        let sources = transcriptSources()
+        let artifacts = libraryManager.textArtifacts
+        let content = await Task.detached(priority: .userInitiated) {
+            TranscriptContentLoader.load(sources, artifacts: artifacts)
+        }.value
+        guard !Task.isCancelled else { return }
+
+        sourceLabel = content.label
+        loadError = content.failure
+        switch content.paragraphs {
+        case .timed(let paragraphs):
+            timedParagraphs = paragraphs
             plainParagraphs = []
-            loadError = nil
-        case .timedTranslation(let index):
-            sourceLabel = "Translation"
-            timedParagraphs = makeTimedParagraphs(
-                entries: index.allEntries.map {
-                    (id: $0.id, text: $0.text, startSeconds: $0.startSeconds, endSeconds: $0.endSeconds)
-                }
-            )
-            plainParagraphs = []
-            loadError = nil
-        case .plainTranscript(let text):
-            sourceLabel = "Transcript"
+        case .plain(let paragraphs):
             timedParagraphs = []
-            plainParagraphs = makePlainParagraphs(from: text)
-            loadError = nil
-        case .plainTranslation(let text):
-            sourceLabel = "Translation"
-            timedParagraphs = []
-            plainParagraphs = makePlainParagraphs(from: text)
-            loadError = nil
-        case .empty:
-            sourceLabel = "Transcript"
+            plainParagraphs = paragraphs
+        case .none:
             timedParagraphs = []
             plainParagraphs = []
-            loadError = nil
         }
+        isLoading = false
 
         updateActiveParagraph(for: playerViewModel.currentTime)
+        refreshSearchState(scrollToMatch: false)
     }
 
-    private func resolvedSource() -> ResolvedSource {
-        if shouldPreferTranslation,
-           let translatedLanguage = video.translatedLanguage,
-           let timedURL = libraryManager.textArtifacts.existingTimedTranslationURL(for: video, languageCode: translatedLanguage),
-           FileManager.default.fileExists(atPath: timedURL.path),
-           let translation = try? libraryManager.textArtifacts.readTimedTranslation(from: timedURL) {
-            return .timedTranslation(translation.makeChunkIndex())
-        }
+    /// Captures what is needed to load the transcript while still on the main actor.
+    private func transcriptSources() -> TranscriptSources {
+        let artifacts = libraryManager.textArtifacts
+        var sources = TranscriptSources()
 
-        if shouldPreferTranslation,
-           let translatedText = video.translatedText?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !translatedText.isEmpty {
-            return .plainTranslation(translatedText)
+        if shouldPreferTranslation, let translatedLanguage = video.translatedLanguage {
+            sources.timedTranslationURL = artifacts.existingTimedTranslationURL(for: video, languageCode: translatedLanguage)
+            sources.plainTranslation = nonEmpty(video.translatedText)
         }
+        sources.timedTranscriptURL = artifacts.existingTimedTranscriptURL(for: video)
+        sources.plainTranscript = nonEmpty(video.transcriptText)
+        return sources
+    }
 
-        if let timedURL = libraryManager.textArtifacts.existingTimedTranscriptURL(for: video),
-           let transcript = try? libraryManager.textArtifacts.readTimedTranscriptIfAvailable(from: timedURL) {
-            return .timedTranscript(transcript.makeChunkIndex())
-        }
-
-        if let transcriptText = video.transcriptText?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !transcriptText.isEmpty {
-            return .plainTranscript(transcriptText)
-        }
-
-        return .empty
+    private func nonEmpty(_ text: String?) -> String? {
+        guard let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
+        return trimmed
     }
 
     private var shouldPreferTranslation: Bool {
@@ -440,75 +402,5 @@ struct MergedTranscriptView: View {
         guard activeParagraphID != paragraphID else { return }
         activeParagraphID = paragraphID
         onActiveParagraphChange(paragraphID)
-    }
-
-    private func makePlainParagraphs(from text: String) -> [PlainParagraph] {
-        text
-            .components(separatedBy: CharacterSet.newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .enumerated()
-            .map { index, text in
-                PlainParagraph(id: "plain-\(index)", text: text)
-            }
-    }
-
-    private func makeTimedParagraphs(
-        entries: [(id: String, text: String, startSeconds: TimeInterval, endSeconds: TimeInterval)]
-    ) -> [TimedParagraph] {
-        var paragraphs: [TimedParagraph] = []
-        var currentEntries: [(id: String, text: String, startSeconds: TimeInterval, endSeconds: TimeInterval)] = []
-        var currentWordCount = 0
-        var currentSentenceCount = 0
-
-        func flush() {
-            guard let first = currentEntries.first else { return }
-            let paragraphText = currentEntries
-                .map(\.text)
-                .joined(separator: " ")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !paragraphText.isEmpty else {
-                currentEntries.removeAll(keepingCapacity: true)
-                currentWordCount = 0
-                currentSentenceCount = 0
-                return
-            }
-
-            paragraphs.append(
-                TimedParagraph(
-                    id: first.id,
-                    entryIDs: currentEntries.map(\.id),
-                    startSeconds: first.startSeconds,
-                    text: paragraphText
-                )
-            )
-            currentEntries.removeAll(keepingCapacity: true)
-            currentWordCount = 0
-            currentSentenceCount = 0
-        }
-
-        for entry in entries {
-            currentEntries.append(entry)
-            currentWordCount += entry.text.split(whereSeparator: \.isWhitespace).count
-
-            if let last = entry.text.last,
-               Self.sentenceTerminators.contains(last) {
-                currentSentenceCount += 1
-            }
-
-            let reachedSoftTarget = currentWordCount >= Self.paragraphSoftWordTarget
-            let reachedHardLimit = currentWordCount >= Self.paragraphHardWordLimit
-            let reachedChunkLimit = currentEntries.count >= Self.paragraphMaxChunks
-            let reachedSentenceLimit = currentSentenceCount >= Self.paragraphMaxSentences
-
-            if reachedHardLimit
-                || reachedChunkLimit
-                || (reachedSoftTarget && reachedSentenceLimit) {
-                flush()
-            }
-        }
-
-        flush()
-        return paragraphs
     }
 }
