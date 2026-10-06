@@ -478,7 +478,7 @@ extension ProcessingQueueManager {
             videoIDs,
             libraryID as CVarArg
         )
-        let videos = (try? context.fetch(request)) ?? []
+        let videos = fetchOrLog(request, in: context)
         for video in videos {
             guard let videoID = video.id else { continue }
             enqueueValidatedThumbnailTask(
@@ -535,7 +535,7 @@ extension ProcessingQueueManager {
         let request = Video.fetchRequest()
         request.predicate = NSPredicate(format: "library == %@", library)
 
-        return ((try? context.fetch(request)) ?? []).map { video in
+        return fetchOrLog(request, in: context).map { video in
             ImportedVideoRecord(
                 sourcePath: video.sourcePath,
                 fileName: video.fileName,
@@ -571,7 +571,7 @@ extension ProcessingQueueManager {
         let request = Library.fetchRequest()
         request.predicate = NSPredicate(format: "id == %@", libraryID as CVarArg)
         request.fetchLimit = 1
-        return try? context.fetch(request).first
+        return fetchOrLog(request, in: context).first
     }
 
     func makeEnsureLocalAvailabilityProgressMonitor(task: ProcessingTask, videoID: UUID?) -> Task<Void, Never>? {
@@ -678,7 +678,7 @@ extension ProcessingQueueManager {
         let request = Video.fetchRequest()
         request.predicate = NSPredicate(format: "id == %@", videoID as CVarArg)
         request.fetchLimit = 1
-        return (try? context.fetch(request))?.first
+        return fetchOrLog(request, in: context).first
     }
 
     func shouldSkip(_ task: ProcessingTask) -> Bool {
@@ -709,7 +709,7 @@ extension ProcessingQueueManager {
         let request = Video.fetchRequest()
         request.predicate = NSPredicate(format: "id == %@", videoID as CVarArg)
         request.fetchLimit = 1
-        guard let video = (try? context.fetch(request))?.first else { return false }
+        guard let video = fetchOrLog(request, in: context).first else { return false }
 
         switch type {
         case .downloadRemoteVideo:
@@ -853,5 +853,18 @@ extension ProcessingQueueManager {
         }
 
         return .autoupdatingCurrent
+    }
+
+    /// Fetches, logging a failure instead of treating it as "no results".
+    private func fetchOrLog<Result: NSFetchRequestResult>(
+        _ request: NSFetchRequest<Result>,
+        in context: NSManagedObjectContext
+    ) -> [Result] {
+        do {
+            return try context.fetch(request)
+        } catch {
+            Logger.queue.error("QUEUE: Fetch failed for \(request.entityName ?? "unknown entity"): \(error.localizedDescription)")
+            return []
+        }
     }
 }
