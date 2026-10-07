@@ -101,7 +101,7 @@ class FolderNavigationStore {
                 return .projectDetail
             }
 
-            return .projectsGrid
+            return .projectsList
         }
 
         if let kind = currentSmartCollection {

@@ -69,7 +69,7 @@ enum LibraryHome: Equatable {
 
 enum LibraryDetailSurface: Equatable {
     case searchResults
-    case projectsGrid
+    case projectsList
     case projectDetail
     case smartCollectionTable(SmartCollectionKind)
     case videoDetail

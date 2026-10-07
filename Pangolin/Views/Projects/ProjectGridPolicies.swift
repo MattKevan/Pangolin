@@ -304,72 +304,7 @@ enum ProjectRenamePolicy {
     }
 }
 
-enum ProjectGridLayout {
+/// Spacing for a project's page.
+enum ProjectPageLayout {
     static let contentPadding: CGFloat = 28
-    static let spacing: CGFloat = 28
-    static let minimumRegularCardWidth: CGFloat = 220
-    static let compactColumnCount = 2
-    static let minimumRegularColumnCount = 2
-    static let cardAspectRatio: CGFloat = 5.0 / 3.0
-
-    static func columnCount(availableWidth: CGFloat, isCompact: Bool) -> Int {
-        guard !isCompact else { return compactColumnCount }
-
-        let fittedColumnCount = Int(
-            (availableWidth + spacing) / (minimumRegularCardWidth + spacing)
-        )
-        return max(minimumRegularColumnCount, fittedColumnCount)
-    }
 }
-
-/// Pure arrow-key navigation math for the projects grid: index movement with
-/// clamping at the grid edges and the partial last row.
-enum ProjectGridFocusPolicy {
-    enum Direction: Equatable {
-        case up
-        case down
-        case left
-        case right
-    }
-
-    static func nextIndex(
-        from currentIndex: Int,
-        columnCount: Int,
-        itemCount: Int,
-        direction: Direction
-    ) -> Int? {
-        guard itemCount > 0 else { return nil }
-        guard currentIndex >= 0, currentIndex < itemCount else { return nil }
-
-        let columns = max(1, columnCount)
-        switch direction {
-        case .left:
-            return max(0, currentIndex - 1)
-        case .right:
-            return min(itemCount - 1, currentIndex + 1)
-        case .up:
-            return max(0, currentIndex - columns)
-        case .down:
-            return min(itemCount - 1, currentIndex + columns)
-        }
-    }
-}
-
-#if os(macOS)
-extension ProjectGridFocusPolicy.Direction {
-    init(_ direction: MoveCommandDirection) {
-        switch direction {
-        case .up:
-            self = .up
-        case .down:
-            self = .down
-        case .left:
-            self = .left
-        case .right:
-            self = .right
-        @unknown default:
-            self = .right
-        }
-    }
-}
-#endif

@@ -193,7 +193,7 @@ struct VideoNavigationSequenceTests {
         store.navigateBackFromDetail()
 
         #expect(store.currentDestination == .projects)
-        #expect(store.currentDetailSurface == .projectsGrid)
+        #expect(store.currentDetailSurface == .projectsList)
         #expect(store.selectedVideo == nil)
 
         await manager.closeCurrentLibrary()
@@ -251,7 +251,7 @@ struct VideoNavigationSequenceTests {
         store.navigateBackFromDetail()
 
         #expect(store.currentDestination == .projects)
-        #expect(store.currentDetailSurface == .projectsGrid)
+        #expect(store.currentDetailSurface == .projectsList)
 
         await manager.closeCurrentLibrary()
     }

@@ -5,270 +5,6 @@ import AppKit
 #endif
 
 
-struct ProjectsGridView: View {
-    @Environment(FolderNavigationStore.self) private var store
-    @Environment(LibraryManager.self) private var libraryManager: LibraryManager
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    #endif
-
-    @State private var renamingProjectID: UUID?
-    @State private var editedProjectTitle = ""
-    @FocusState private var focusedProjectID: UUID?
-    /// The selected card (macOS). Declared unconditionally so the card
-    /// highlight comparison compiles on iOS, where it stays nil.
-    @State private var selectedProjectID: UUID?
-    #if os(macOS)
-    @FocusState private var isGridKeyboardFocused: Bool
-    /// Last single-click target, for manual double-click detection. A tap
-    /// gesture on the card would defer the first click's action while macOS
-    /// disambiguates single vs double click, which delays selection.
-    @State private var lastClickProjectID: UUID?
-    @State private var lastClickTime = Date.distantPast
-    #endif
-    @State private var projectPendingDeletion: Folder?
-    @State private var showingDeletionConfirmation = false
-
-    private let projectSelectionAction: ((Folder) -> Void)?
-
-    private var projects: [Folder] {
-        _ = store.contentRevision
-        return store.projects()
-    }
-
-    private var usesCompactGrid: Bool {
-        #if os(iOS)
-        horizontalSizeClass == .compact
-        #else
-        false
-        #endif
-    }
-
-    init(projectSelectionAction: ((Folder) -> Void)? = nil) {
-        self.projectSelectionAction = projectSelectionAction
-    }
-
-    var body: some View {
-        GeometryReader { geometry in
-            ScrollView {
-                VStack(alignment: .leading, spacing: ProjectGridLayout.spacing) {
-
-                    if projects.isEmpty {
-                        ContentUnavailableView(
-                            "No projects yet",
-                            systemImage: "square.grid.2x2",
-                            description: Text("Create a project to organize sections and videos.")
-                        )
-                        .frame(maxWidth: .infinity, minHeight: 320)
-                    } else {
-                        LazyVGrid(
-                            columns: columns(for: geometry.size.width),
-                            alignment: .leading,
-                            spacing: ProjectGridLayout.spacing
-                        ) {
-                            ForEach(projects, id: \.objectID) { project in
-                                ProjectCard(
-                                    project: project,
-                                    action: {
-                                        #if os(macOS)
-                                        handleProjectClick(project)
-                                        #else
-                                        openProject(project)
-                                        #endif
-                                    },
-                                    isRenaming: renamingProjectID == project.id,
-                                    isSelected: selectedProjectID == project.id,
-                                    editedTitle: $editedProjectTitle,
-                                    focusedProjectID: $focusedProjectID,
-                                    onRename: { beginRenaming(project) },
-                                    onCommitRename: { Task { await commitRename(for: project) } },
-                                    onCancelRename: cancelRenaming,
-                                    onDelete: { promptDeletion(of: project) }
-                                )
-                                .accessibilityIdentifier("project-card-\(project.id?.uuidString ?? project.objectID.uriRepresentation().absoluteString)")
-                            }
-                        }
-                    }
-                }
-                .padding(ProjectGridLayout.contentPadding)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            #if os(macOS)
-            // Interaction model: click selects, double-click opens, arrow keys
-            // move the selection, Return opens it. Single click never navigates.
-            // Selection is only set by explicit click/arrow-key/onAppear — never
-            // by focus changes, because mouse-down focuses the grid before the
-            // click action fires, which would flash the first card's border.
-            .focusable()
-            .focusEffectDisabled()
-            .focused($isGridKeyboardFocused)
-            .onMoveCommand { direction in
-                moveKeyboardFocus(direction, columnCount: columns(for: geometry.size.width).count)
-            }
-            .onKeyPress { press in
-                guard press.key == .return else { return .ignored }
-                openKeyboardFocusedProject()
-                return .handled
-            }
-            .onAppear {
-                // The grid is recreated after opening a project, which clears
-                // @State. Re-select the last selected project from the store.
-                selectedProjectID = store.lastSelectedProjectID
-            }
-            #endif
-        }
-        .navigationTitle("Projects")
-        .projectFolderDrop(
-            isEnabled: libraryManager.currentLibrary != nil,
-            libraryManager: libraryManager
-        )
-        .alert("Delete Project?", isPresented: $showingDeletionConfirmation) {
-            Button("Cancel", role: .cancel) {
-                cancelDeletion()
-            }
-            Button("Delete", role: .destructive) {
-                Task { await confirmDeletion() }
-            }
-        } message: {
-            Text("This project and all its contents will be permanently deleted from your library and removed from disk. This action cannot be undone.")
-        }
-    }
-
-    private func columns(for containerWidth: CGFloat) -> [GridItem] {
-        let availableWidth = max(
-            0,
-            containerWidth - (ProjectGridLayout.contentPadding * 2)
-        )
-        let count = ProjectGridLayout.columnCount(
-            availableWidth: availableWidth,
-            isCompact: usesCompactGrid
-        )
-        return Array(
-            repeating: GridItem(
-                .flexible(minimum: 0, maximum: .infinity),
-                spacing: ProjectGridLayout.spacing,
-                alignment: .top
-            ),
-            count: count
-        )
-    }
-
-    private func beginRenaming(_ project: Folder) {
-        guard let projectID = project.id else { return }
-
-        renamingProjectID = projectID
-        editedProjectTitle = project.resolvedProjectTitle
-        Task { @MainActor in
-            await Task.yield()
-            guard renamingProjectID == projectID else { return }
-            focusedProjectID = projectID
-        }
-    }
-
-    private func commitRename(for project: Folder) async {
-        guard let projectID = project.id,
-              renamingProjectID == projectID else {
-            return
-        }
-
-        let title = ProjectRenamePolicy.savedTitle(
-            draft: editedProjectTitle,
-            current: project.resolvedProjectTitle
-        )
-        cancelRenaming()
-
-        if let title {
-            await store.renameItem(id: projectID, to: title)
-        }
-    }
-
-    private func cancelRenaming() {
-        renamingProjectID = nil
-        focusedProjectID = nil
-        editedProjectTitle = ""
-    }
-
-    private func openProject(_ project: Folder) {
-        store.lastSelectedProjectID = project.id
-        if let projectSelectionAction {
-            projectSelectionAction(project)
-        } else {
-            store.openProject(project)
-        }
-    }
-
-    private func selectProject(_ project: Folder) {
-        selectedProjectID = project.id
-        store.lastSelectedProjectID = project.id
-    }
-
-    #if os(macOS)
-    private func moveKeyboardFocus(_ direction: MoveCommandDirection, columnCount: Int) {
-        guard !projects.isEmpty else { return }
-        let currentIndex = selectedProjectID
-            .flatMap { id in projects.firstIndex(where: { $0.id == id }) }
-            ?? 0
-        guard let nextIndex = ProjectGridFocusPolicy.nextIndex(
-            from: currentIndex,
-            columnCount: columnCount,
-            itemCount: projects.count,
-            direction: ProjectGridFocusPolicy.Direction(direction)
-        ) else { return }
-        selectedProjectID = projects[nextIndex].id
-    }
-
-    private func openKeyboardFocusedProject() {
-        guard let id = selectedProjectID,
-              let project = projects.first(where: { $0.id == id }) else { return }
-        openProject(project)
-    }
-
-    /// Every click selects immediately; a second click on the same card within
-    /// the system double-click interval also opens it. Manual detection keeps
-    /// selection instant (a count-2 tap gesture defers the first click).
-    private func handleProjectClick(_ project: Folder) {
-        selectProject(project)
-        let isDoubleClick = project.id == lastClickProjectID
-            && Date.now.timeIntervalSince(lastClickTime) <= NSEvent.doubleClickInterval
-        if isDoubleClick {
-            lastClickProjectID = nil
-            openProject(project)
-        } else {
-            lastClickProjectID = project.id
-            lastClickTime = Date.now
-        }
-    }
-    #endif
-
-    private func promptDeletion(of project: Folder) {
-        projectPendingDeletion = project
-        showingDeletionConfirmation = true
-    }
-
-    private func cancelDeletion() {
-        projectPendingDeletion = nil
-        showingDeletionConfirmation = false
-    }
-
-    private func confirmDeletion() async {
-        guard let projectID = projectPendingDeletion?.id else {
-            cancelDeletion()
-            return
-        }
-
-        let deleted = await store.deleteItems([projectID])
-        if deleted {
-            if store.lastSelectedProjectID == projectID {
-                store.lastSelectedProjectID = nil
-            }
-            if renamingProjectID == projectID {
-                cancelRenaming()
-            }
-            cancelDeletion()
-        }
-    }
-}
-
 struct ProjectDetailView: View {
     @Environment(FolderNavigationStore.self) private var store
 
@@ -390,14 +126,14 @@ struct ProjectDetailView: View {
                 ScrollView {
                     VStack(spacing: 0) {
                         macAlbumHero
-                            .padding(.horizontal, ProjectGridLayout.contentPadding)
-                            .padding(.top, ProjectGridLayout.contentPadding)
+                            .padding(.horizontal, ProjectPageLayout.contentPadding)
+                            .padding(.top, ProjectPageLayout.contentPadding)
                             .padding(.bottom, 28)
 
                         projectEmptyState
                             .frame(maxWidth: .infinity, minHeight: 320)
-                            .padding(.horizontal, ProjectGridLayout.contentPadding)
-                            .padding(.bottom, ProjectGridLayout.contentPadding)
+                            .padding(.horizontal, ProjectPageLayout.contentPadding)
+                            .padding(.bottom, ProjectPageLayout.contentPadding)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -411,7 +147,7 @@ struct ProjectDetailView: View {
                     onToggleFavorite: toggleFavorite
                 ) {
                     macAlbumHero
-                        .padding(ProjectGridLayout.contentPadding)
+                        .padding(ProjectPageLayout.contentPadding)
                         .background(.quaternary.opacity(0.4))
                 }
                 .accessibilityIdentifier("project-video-collection")
@@ -477,14 +213,14 @@ struct ProjectDetailView: View {
                 ScrollView {
                     VStack(spacing: 0) {
                         heroContent(isCompact: isCompact)
-                            .padding(.horizontal, ProjectGridLayout.contentPadding)
-                            .padding(.top, ProjectGridLayout.contentPadding)
+                            .padding(.horizontal, ProjectPageLayout.contentPadding)
+                            .padding(.top, ProjectPageLayout.contentPadding)
                             .padding(.bottom, 28)
 
                         projectEmptyState
                             .frame(maxWidth: .infinity, minHeight: 320)
-                            .padding(.horizontal, ProjectGridLayout.contentPadding)
-                            .padding(.bottom, ProjectGridLayout.contentPadding)
+                            .padding(.horizontal, ProjectPageLayout.contentPadding)
+                            .padding(.bottom, ProjectPageLayout.contentPadding)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -498,7 +234,7 @@ struct ProjectDetailView: View {
                     onToggleFavorite: toggleFavorite
                 ) {
                     heroContent(isCompact: isCompact)
-                        .padding(ProjectGridLayout.contentPadding)
+                        .padding(ProjectPageLayout.contentPadding)
                         .background(.quaternary.opacity(0.4))
                 }
                 .accessibilityIdentifier("project-video-collection")
@@ -559,7 +295,7 @@ struct ProjectDetailView: View {
     }
 
     private var heroStatsText: String {
-        "\(totalVideoCount) \(totalVideoCount == 1 ? "video" : "videos") • \(formattedProjectDuration(totalDuration))"
+        ProjectSummary.stats(videoCount: totalVideoCount, duration: totalDuration)
     }
 
     @ViewBuilder
@@ -719,21 +455,6 @@ struct ProjectDetailView: View {
         }
     }
 
-    private func formattedProjectDuration(_ duration: TimeInterval) -> String {
-        guard duration > 0 else { return "0 min" }
-
-        let hours = Int(duration) / 3600
-        let minutes = (Int(duration) % 3600) / 60
-
-        if hours > 0 {
-            if minutes == 0 {
-                return "\(hours) hr"
-            }
-            return "\(hours) hr \(minutes) min"
-        }
-
-        return "\(max(minutes, 1)) min"
-    }
 }
 
 

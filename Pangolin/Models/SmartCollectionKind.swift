@@ -35,7 +35,7 @@ enum SmartCollectionKind: String, CaseIterable, Identifiable, Hashable {
     var sidebarIcon: String {
         switch self {
         case .allVideos:
-            return "video"
+            return "list.bullet"
         case .recent:
             return "clock"
         case .favorites:

@@ -122,7 +122,7 @@ struct ProjectsStoreTests {
         let store = FolderNavigationStore(libraryManager: manager, home: .projectsList)
 
         #expect(store.selectedSidebarItem == .projects)
-        #expect(store.currentDetailSurface == .projectsGrid)
+        #expect(store.currentDetailSurface == .projectsList)
 
         await manager.closeCurrentLibrary()
     }
@@ -1054,7 +1054,7 @@ struct ProjectsStoreTests {
         let store = FolderNavigationStore(libraryManager: manager)
 
         store.selectProjects()
-        #expect(store.currentDetailSurface == .projectsGrid)
+        #expect(store.currentDetailSurface == .projectsList)
 
         store.openProject(project)
         #expect(store.selectedSidebarItem == .projects)
