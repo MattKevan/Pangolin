@@ -5,27 +5,8 @@ import SwiftUI
 import CoreData
 
 struct MainView: View {
-    #if os(iOS)
-    private enum PhoneTab: Hashable {
-        case projects
-        case allVideos
-        case favourites
-        case search
-    }
-
-    fileprivate enum PhoneVideoRoute: Hashable {
-        case video(UUID)
-
-        var videoID: UUID {
-            switch self {
-            case .video(let videoID):
-                videoID
-            }
-        }
-    }
-    #endif
-
     @Environment(LibraryManager.self) var libraryManager: LibraryManager
+    @Environment(LibraryActions.self) private var libraryActions: LibraryActions
     @Environment(VideoFileManager.self) var videoFileManager: VideoFileManager
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let folderStore: FolderNavigationStore
@@ -49,12 +30,6 @@ struct MainView: View {
     @State private var showTaskPopover = false
     @State private var isSearchFieldPresented = false
     @FocusState private var isSearchFieldFocused: Bool
-    #if os(iOS)
-    @State private var phoneSelectedTab: PhoneTab = .projects
-    @State private var phoneProjectsPath: [PhoneProjectsRoute] = []
-    @State private var isUnwindingPhoneProjectVideo = false
-    @State private var isSwitchingPhoneTabs = false
-    #endif
     
     init(
         libraryManager: LibraryManager,
@@ -75,6 +50,7 @@ struct MainView: View {
     
     var body: some View {
         rootView
+            .confirmsOptimizeAll(libraryActions)
             .onAppear {
                 synchronizeVideoSelection()
             }
@@ -284,57 +260,33 @@ struct MainView: View {
         }
 
         ToolbarItemGroup(placement: .primaryAction) {
-            if !isStartingUp && (backgroundActivityCount > 0 || processingQueueManager.failedTasks > 0 || videoFileManager.failedTransferCount > 0) {
-                Button {
-                    showTaskPopover.toggle()
-                } label: {
-                    let hasActiveTasks = backgroundActivityCount > 0
-                    let failedProcessingCount = processingQueueManager.failedTasks
-                    let transferIssueCount = videoFileManager.failedTransferCount
-                    let nonActiveIssueCount = transferIssueCount + failedProcessingCount
-                    let badgeCount = nonActiveIssueCount > 0 ? nonActiveIssueCount : max(0, backgroundActivityCount - 1)
-
-                    ZStack(alignment: .topTrailing) {
-                        if let activityProgress {
-                            ProgressView(value: activityProgress)
-                                .progressViewStyle(.circular)
-                                .frame(width: 16, height: 16)
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 3)
-                        } else if hasActiveTasks {
-                            ProgressView()
-                                .controlSize(.small)
-                                .frame(width: 16, height: 16)
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 3)
-                        } else {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 3)
-                        }
-
-                        if badgeCount > 0 {
-                            Text("\(min(badgeCount, 99))")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundStyle(.white)
-                                .frame(width: 12, height: 12)
-                                .background(Color.red)
-                                .clipShape(Circle())
-                                .offset(x: 4, y: -2)
-                        }
-                    }
-                    .frame(minWidth: 24, minHeight: 22, alignment: .center)
-                    .contentShape(Rectangle())
-                    .accessibilityLabel("Background tasks")
-                    .accessibilityValue("\(backgroundActivityCount) active tasks or transfers, \(processingQueueManager.failedTasks) failed tasks, \(videoFileManager.failedTransferCount) transfer issues")
-                }
-                .buttonStyle(.plain)
-                .popover(isPresented: $showTaskPopover, arrowEdge: .top) {
-                    ProcessingPopoverView(processingManager: processingQueueManager)
-                }
+            if !isStartingUp {
+                activityWidget
             }
         }
+    }
+
+    /// The background-activity button, shown only while work is running or has failed.
+    @ViewBuilder
+    private var activityWidget: some View {
+        if let presentation = activityPresentation {
+            ActivityToolbarButton(
+                presentation: presentation,
+                accessibilityValue: "\(backgroundActivityCount) active tasks or transfers, \(processingQueueManager.failedTasks) failed tasks, \(videoFileManager.failedTransferCount) transfer issues",
+                isPresented: $showTaskPopover
+            ) {
+                ProcessingPopoverView(processingManager: processingQueueManager)
+            }
+        }
+    }
+
+    private var activityPresentation: ActivityIndicatorPolicy.Presentation? {
+        ActivityIndicatorPolicy.presentation(
+            activeCount: backgroundActivityCount,
+            failedTaskCount: processingQueueManager.failedTasks,
+            transferIssueCount: videoFileManager.failedTransferCount,
+            progress: activityProgress
+        )
     }
 
     private var backgroundActivityCount: Int {
@@ -423,139 +375,20 @@ struct MainView: View {
 
     #if os(iOS)
     private var phoneRootView: some View {
-        TabView(selection: $phoneSelectedTab) {
-            Tab("Projects", systemImage: "square.grid.2x2", value: .projects) {
-                NavigationStack(path: $phoneProjectsPath) {
-                    ProjectsGridView { project in
-                        openPhoneProject(project)
-                    }
-                    .environment(folderStore)
-                    .navigationDestination(for: PhoneProjectsRoute.self) { route in
-                        switch route {
-                        case .project(let projectID):
-                            if let project = folderStore.project(with: projectID) {
-                                ProjectDetailView(
-                                    project: project,
-                                    showsPhoneToolbar: true
-                                )
-                                .environment(folderStore)
-                            } else {
-                                ContentUnavailableView(
-                                    "Project unavailable",
-                                    systemImage: "square.grid.2x2",
-                                    description: Text("The selected project could not be loaded.")
-                                )
-                            }
-                        case .video(let videoID):
-                            if let video = folderStore.video(with: videoID) {
-                                DetailView(
-                                    video: video,
-                                    playerViewModel: playerViewModel,
-                                    floatingVideoState: floatingVideoState
-                                )
-                                    .environment(folderStore)
-                                    .environment(libraryManager)
-                                    .environment(transcriptionService)
-                            } else {
-                                ContentUnavailableView(
-                                    "Video unavailable",
-                                    systemImage: "video",
-                                    description: Text("The selected video could not be loaded.")
-                                )
-                            }
-                        }
-                    }
-                    .onChange(of: folderStore.selectedVideo?.id) { _, newValue in
-                        guard phoneSelectedTab == .projects,
-                              !isUnwindingPhoneProjectVideo,
-                              !isSwitchingPhoneTabs else { return }
-                        if let videoID = newValue,
-                           folderStore.selectedProject != nil {
-                            synchronizePhoneProjectVideoRoute(to: videoID)
-                        } else if newValue == nil {
-                            reconcileDeselectedPhoneProjectVideo()
-                        }
-                    }
-                    .onChange(of: phoneProjectsPath) { oldValue, newValue in
-                        handlePhoneProjectsPathChange(from: oldValue, to: newValue)
-                    }
-                    .onChange(of: phoneSelectedTab) { _, newValue in
-                        guard newValue != .projects else { return }
-                        deactivatePhoneProjectVideoRoute()
-                    }
-                }
-            }
-
-            Tab("All videos", systemImage: "list.bullet", value: .allVideos) {
-                PhoneVideoNavigationStack(
-                    isActive: phoneSelectedTab == .allVideos,
-                    isSwitchingTabs: isSwitchingPhoneTabs,
-                    playerViewModel: playerViewModel,
-                    floatingVideoState: floatingVideoState
-                ) {
-                    PhoneCollectionTabView(
-                        title: "All videos",
-                        onAppear: { folderStore.selectedSidebarItem = .smartCollection(.allVideos) }
-                    )
-                }
-                .environment(folderStore)
-                .environment(libraryManager)
-                .environment(transcriptionService)
-            }
-
-            Tab("Favourites", systemImage: "heart", value: .favourites) {
-                PhoneVideoNavigationStack(
-                    isActive: phoneSelectedTab == .favourites,
-                    isSwitchingTabs: isSwitchingPhoneTabs,
-                    playerViewModel: playerViewModel,
-                    floatingVideoState: floatingVideoState
-                ) {
-                    PhoneCollectionTabView(
-                        title: "Favourites",
-                        onAppear: { folderStore.selectedSidebarItem = .smartCollection(.favorites) }
-                    )
-                }
-                .environment(folderStore)
-                .environment(libraryManager)
-                .environment(transcriptionService)
-            }
-
-            Tab("Search", systemImage: "magnifyingglass", value: .search) {
-                PhoneVideoNavigationStack(
-                    isActive: phoneSelectedTab == .search,
-                    isSwitchingTabs: isSwitchingPhoneTabs,
-                    playerViewModel: playerViewModel,
-                    floatingVideoState: floatingVideoState
-                ) {
-                    SearchResultsView()
-                        .environment(searchManager)
-                        .navigationTitle("Search")
-                }
-                .environment(folderStore)
-                .environment(libraryManager)
-                .environment(transcriptionService)
-                .searchable(
-                    text: $searchManager.searchText,
-                    placement: .automatic,
-                    prompt: "Search videos, transcripts, and summaries"
-                )
+        PhoneRootView(
+            searchManager: searchManager,
+            transcriptionService: transcriptionService,
+            playerViewModel: playerViewModel,
+            floatingVideoState: floatingVideoState
+        ) {
+            if !isStartingUp {
+                activityWidget
             }
         }
-        .tabBarMinimizeBehavior(.onScrollDown)
-        .onAppear {
-            syncPhoneTabSelection()
-        }
-        .onChange(of: phoneSelectedTab) { _, _ in
-            // A tab switch abandons the old detail instead of navigating Back into
-            // its origin. Tab-local stacks remove their routes independently.
-            isSwitchingPhoneTabs = true
-            folderStore.abandonVideoDetail()
-            syncPhoneTabSelection()
-            Task { @MainActor in
-                await Task.yield()
-                isSwitchingPhoneTabs = false
-            }
-        }
+        .environment(folderStore)
+        .environment(libraryManager)
+        .environment(libraryActions)
+        .environment(searchManager)
     }
     #endif
     
@@ -607,104 +440,6 @@ struct MainView: View {
         }
         try await processingQueueManager.enqueueRemoteImport(url: url, library: library, context: context)
     }
-
-    #if os(iOS)
-    private func openPhoneProject(_ project: Folder) {
-        folderStore.openProject(project)
-        guard let projectID = project.id else { return }
-        if phoneProjectsPath.last != .project(projectID) {
-            phoneProjectsPath.append(.project(projectID))
-        }
-    }
-
-    private func handlePhoneProjectsPathChange(
-        from oldValue: [PhoneProjectsRoute],
-        to newValue: [PhoneProjectsRoute]
-    ) {
-        guard !isUnwindingPhoneProjectVideo else { return }
-        let shouldNavigateBack = PhoneVideoRoutePopPolicy.shouldNavigateBack(
-            oldVideoRouteIDs: oldValue.compactMap(\.videoID),
-            newVideoRouteIDs: newValue.compactMap(\.videoID),
-            selectedVideoID: folderStore.selectedVideo?.id,
-            isVideoDetailActive: phoneSelectedTab == .projects
-                && folderStore.currentDetailSurface == .videoDetail
-        )
-        guard shouldNavigateBack else { return }
-
-        isUnwindingPhoneProjectVideo = true
-        folderStore.navigateBackFromDetail()
-        Task { @MainActor in
-            await Task.yield()
-            isUnwindingPhoneProjectVideo = false
-        }
-    }
-
-    private func synchronizePhoneProjectVideoRoute(to videoID: UUID) {
-        switch PhoneVideoRouteSyncPolicy.action(
-            existingVideoRouteIDs: phoneProjectsPath.compactMap(\.videoID),
-            selectedVideoID: videoID
-        ) {
-        case .none:
-            return
-        case .append:
-            phoneProjectsPath.append(.video(videoID))
-        case .replace:
-            phoneProjectsPath = PhoneProjectsPathPolicy.removingVideoRoutes(
-                from: phoneProjectsPath
-            ) + [.video(videoID)]
-        }
-    }
-
-    private func deactivatePhoneProjectVideoRoute() {
-        switch PhoneVideoRouteDeactivationPolicy.action(
-            existingVideoRouteIDs: phoneProjectsPath.compactMap(\.videoID)
-        ) {
-        case .none:
-            return
-        case .removeVideoRoutes:
-            isUnwindingPhoneProjectVideo = true
-            phoneProjectsPath = PhoneProjectsPathPolicy.removingVideoRoutes(
-                from: phoneProjectsPath
-            )
-            Task { @MainActor in
-                await Task.yield()
-                isUnwindingPhoneProjectVideo = false
-            }
-        }
-    }
-
-    private func reconcileDeselectedPhoneProjectVideo() {
-        let action = PhoneVideoRouteSelectionReconciliationPolicy.action(
-            existingVideoRouteIDs: phoneProjectsPath.compactMap(\.videoID),
-            selectedVideoID: folderStore.selectedVideo?.id,
-            isSwitchingTabs: isSwitchingPhoneTabs
-        )
-        guard action == .removeVideoRoutes else { return }
-
-        isUnwindingPhoneProjectVideo = true
-        folderStore.restoreVideoNavigationOriginAfterSelectionCleared()
-        phoneProjectsPath = PhoneProjectsPathPolicy.removingVideoRoutes(
-            from: phoneProjectsPath
-        )
-        Task { @MainActor in
-            await Task.yield()
-            isUnwindingPhoneProjectVideo = false
-        }
-    }
-
-    private func syncPhoneTabSelection() {
-        switch phoneSelectedTab {
-        case .projects:
-            folderStore.selectProjects()
-        case .allVideos:
-            folderStore.selectAllVideos()
-        case .favourites:
-            folderStore.selectedSidebarItem = .smartCollection(.favorites)
-        case .search:
-            folderStore.activateSearch()
-        }
-    }
-    #endif
 }
 
 private struct RootContainerView<Content: View>: View {
@@ -847,9 +582,10 @@ private struct DetailColumnView: View {
                     .environment(searchManager)
                     .environment(folderStore)
                     .environment(libraryManager)
-            case .projectsGrid:
-                ProjectsGridView()
+            case .projectsList:
+                ProjectsListView { folderStore.openProject($0) }
                     .environment(folderStore)
+                    .environment(libraryManager)
             case .projectDetail:
                 if let selectedProject = folderStore.selectedProject {
                     ProjectDetailView(project: selectedProject)
@@ -893,169 +629,6 @@ private struct DetailColumnView: View {
     }
 }
 
-#if os(iOS)
-private struct PhoneCollectionTabView: View {
-    @Environment(FolderNavigationStore.self) private var folderStore
-    @Environment(LibraryManager.self) private var libraryManager: LibraryManager
-
-    let title: String
-    let onAppear: () -> Void
-
-    var body: some View {
-        FolderContentView()
-            .environment(folderStore)
-            .environment(libraryManager)
-            .navigationTitle(title)
-            .onAppear(perform: onAppear)
-    }
-}
-
-private struct PhoneVideoNavigationStack<Root: View>: View {
-    @Environment(FolderNavigationStore.self) private var folderStore
-    @Environment(LibraryManager.self) private var libraryManager: LibraryManager
-    @Environment(SpeechTranscriptionService.self) private var transcriptionService: SpeechTranscriptionService
-
-    let isActive: Bool
-    let isSwitchingTabs: Bool
-    let playerViewModel: VideoPlayerViewModel
-    let floatingVideoState: FloatingVideoState
-    let root: Root
-
-    @State private var path: [MainView.PhoneVideoRoute] = []
-    @State private var isUnwindingVideo = false
-
-    init(
-        isActive: Bool,
-        isSwitchingTabs: Bool,
-        playerViewModel: VideoPlayerViewModel,
-        floatingVideoState: FloatingVideoState,
-        @ViewBuilder root: () -> Root
-    ) {
-        self.isActive = isActive
-        self.isSwitchingTabs = isSwitchingTabs
-        self.playerViewModel = playerViewModel
-        self.floatingVideoState = floatingVideoState
-        self.root = root()
-    }
-
-    var body: some View {
-        NavigationStack(path: $path) {
-            root
-                .navigationDestination(for: MainView.PhoneVideoRoute.self) { route in
-                    switch route {
-                    case .video(let videoID):
-                        videoDestination(videoID: videoID)
-                    }
-                }
-        }
-        .onChange(of: folderStore.selectedVideo?.id) { _, newValue in
-            guard isActive,
-                  !isUnwindingVideo,
-                  !isSwitchingTabs else { return }
-            if let videoID = newValue {
-                synchronizeVideoRoute(to: videoID)
-            } else {
-                reconcileDeselectedVideo()
-            }
-        }
-        .onChange(of: path) { oldValue, newValue in
-            handlePathChange(from: oldValue, to: newValue)
-        }
-        .onChange(of: isActive) { _, newValue in
-            guard !newValue else { return }
-            deactivateVideoRoute()
-        }
-    }
-
-    @ViewBuilder
-    private func videoDestination(videoID: UUID) -> some View {
-        if let video = folderStore.video(with: videoID) {
-            DetailView(
-                video: video,
-                playerViewModel: playerViewModel,
-                floatingVideoState: floatingVideoState
-            )
-            .environment(folderStore)
-            .environment(libraryManager)
-            .environment(transcriptionService)
-        } else {
-            ContentUnavailableView(
-                "Video unavailable",
-                systemImage: "video",
-                description: Text("The selected video could not be loaded.")
-            )
-        }
-    }
-
-    private func synchronizeVideoRoute(to videoID: UUID) {
-        switch PhoneVideoRouteSyncPolicy.action(
-            existingVideoRouteIDs: path.map(\.videoID),
-            selectedVideoID: videoID
-        ) {
-        case .none:
-            return
-        case .append:
-            path.append(.video(videoID))
-        case .replace:
-            path = [.video(videoID)]
-        }
-    }
-
-    private func handlePathChange(
-        from oldValue: [MainView.PhoneVideoRoute],
-        to newValue: [MainView.PhoneVideoRoute]
-    ) {
-        guard !isUnwindingVideo else { return }
-        let shouldNavigateBack = PhoneVideoRoutePopPolicy.shouldNavigateBack(
-            oldVideoRouteIDs: oldValue.map(\.videoID),
-            newVideoRouteIDs: newValue.map(\.videoID),
-            selectedVideoID: folderStore.selectedVideo?.id,
-            isVideoDetailActive: isActive
-        )
-        guard shouldNavigateBack else { return }
-
-        isUnwindingVideo = true
-        folderStore.navigateBackFromDetail()
-        Task { @MainActor in
-            await Task.yield()
-            isUnwindingVideo = false
-        }
-    }
-
-    private func deactivateVideoRoute() {
-        switch PhoneVideoRouteDeactivationPolicy.action(
-            existingVideoRouteIDs: path.map(\.videoID)
-        ) {
-        case .none:
-            return
-        case .removeVideoRoutes:
-            isUnwindingVideo = true
-            path.removeAll()
-            Task { @MainActor in
-                await Task.yield()
-                isUnwindingVideo = false
-            }
-        }
-    }
-
-    private func reconcileDeselectedVideo() {
-        let action = PhoneVideoRouteSelectionReconciliationPolicy.action(
-            existingVideoRouteIDs: path.map(\.videoID),
-            selectedVideoID: folderStore.selectedVideo?.id,
-            isSwitchingTabs: isSwitchingTabs
-        )
-        guard action == .removeVideoRoutes else { return }
-
-        isUnwindingVideo = true
-        folderStore.restoreVideoNavigationOriginAfterSelectionCleared()
-        path.removeAll()
-        Task { @MainActor in
-            await Task.yield()
-            isUnwindingVideo = false
-        }
-    }
-}
-#endif
 
 // MARK: - View Modifier helper to conditionally inject context
 

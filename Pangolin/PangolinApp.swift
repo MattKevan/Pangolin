@@ -15,6 +15,7 @@ struct PangolinApp: App {
     @State private var libraryManager = LibraryManager.shared
     // Created once with the app; building it in MainView.init would allocate a new store on every re-render.
     @State private var folderStore = FolderNavigationStore(libraryManager: LibraryManager.shared)
+    @State private var libraryActions = LibraryActions.shared
     @State private var videoFileManager = VideoFileManager.shared
     @State private var storagePolicyManager = StoragePolicyManager.shared
     @State private var hasAttemptedStartup = false
@@ -31,6 +32,7 @@ struct PangolinApp: App {
         )
         .environment(libraryManager)
         .environment(videoFileManager)
+        .environment(libraryActions)
         .onAppear {
             if !hasAttemptedStartup {
                 startLibraryStartup()
@@ -95,6 +97,16 @@ struct PangolinApp: App {
         }
 
         #if os(macOS)
+        CommandMenu("Library") {
+            LibraryActionsMenuContent(actions: libraryActions)
+
+            Divider()
+
+            SettingsLink {
+                Text("Storage Settings…")
+            }
+        }
+
         CommandGroup(after: .undoRedo) {
             Button("Search") {
                 triggerSearch()

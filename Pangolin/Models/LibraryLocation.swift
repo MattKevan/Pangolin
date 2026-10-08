@@ -18,23 +18,3 @@ enum LibraryLocation {
         set { storage.withLock { $0 = newValue } }
     }
 }
-
-/// The local video cache limit, a per-device preference kept in `UserDefaults` for the same
-/// reason: a phone and a Mac need different limits, and a synced value would make them fight.
-enum LocalVideoCachePreferences {
-    private static let keyPrefix = "maxLocalVideoCacheBytes."
-
-    static func maxBytes(for libraryID: UUID?) -> Int64 {
-        guard let libraryID,
-              let stored = UserDefaults.standard.object(forKey: keyPrefix + libraryID.uuidString) as? Int64,
-              stored > 0 else {
-            return Library.defaultMaxLocalVideoCacheBytes
-        }
-        return stored
-    }
-
-    static func setMaxBytes(_ bytes: Int64, for libraryID: UUID?) {
-        guard let libraryID else { return }
-        UserDefaults.standard.set(bytes, forKey: keyPrefix + libraryID.uuidString)
-    }
-}

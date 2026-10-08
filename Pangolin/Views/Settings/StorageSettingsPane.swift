@@ -23,7 +23,6 @@ struct StorageSettingsPane: View {
     @State private var isRefreshingStats = false
     @State private var isApplyingChanges = false
     @State private var isRetryingTransfers = false
-    @State private var showingOptimizeAllConfirmation = false
 
     private var currentLibrary: Library? {
         libraryManager.currentLibrary
@@ -32,7 +31,7 @@ struct StorageSettingsPane: View {
     var body: some View {
         Form {
             if let library = currentLibrary {
-                Section("Video Storage") {
+                Section("Video Storage on This Device") {
                     Picker("Storage Mode", selection: $selectedPreference) {
                         ForEach(LibraryStoragePreference.allCases) { mode in
                             Text(mode.title).tag(mode)
@@ -63,11 +62,6 @@ struct StorageSettingsPane: View {
                     Text(selectedUploadOptimization.subtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-
-                    Button("Optimise All Videos") {
-                        showingOptimizeAllConfirmation = true
-                    }
-                    .disabled(!selectedUploadOptimization.isEnabled || libraryOptimizationManager.isOptimizing)
 
                     if libraryOptimizationManager.isOptimizing {
                         ProgressView(
@@ -153,20 +147,6 @@ struct StorageSettingsPane: View {
                         }
                     }
                     .disabled(isRetryingTransfers || transferIssueCounts.total == 0)
-
-                    Button("Apply Storage Policy Now") {
-                        Task {
-                            await applyPolicyNow()
-                        }
-                    }
-                    .disabled(isApplyingChanges || storagePolicyManager.isApplyingPolicy)
-
-                    Button("Apply Settings") {
-                        Task {
-                            await persistAndApply()
-                        }
-                    }
-                    .disabled(isApplyingChanges || storagePolicyManager.isApplyingPolicy)
                 }
             } else {
                 ContentUnavailableView(
@@ -215,23 +195,6 @@ struct StorageSettingsPane: View {
                 await refreshStats()
             }
         }
-        .confirmationDialog(
-            "Optimise All Videos?",
-            isPresented: $showingOptimizeAllConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Optimise All Videos") {
-                guard let library = currentLibrary else { return }
-                Task {
-                    await libraryOptimizationManager.optimizeAllVideos(
-                        in: library,
-                        preset: selectedUploadOptimization
-                    )
-                }
-            }
-        } message: {
-            Text("Videos larger than the selected target will download, be re-encoded, and replace their iCloud copies. This cannot restore the original quality.")
-        }
     }
 
     private func syncFormFromCurrentLibrary() {
@@ -252,18 +215,6 @@ struct StorageSettingsPane: View {
 
         library.storagePreference = selectedPreference
         library.maxLocalCacheGB = cacheLimitGB
-
-        await libraryManager.save()
-        await storagePolicyManager.applyPolicy(for: library)
-        await refreshStats()
-    }
-
-    private func applyPolicyNow() async {
-        guard let library = currentLibrary else { return }
-        guard !isApplyingChanges else { return }
-
-        isApplyingChanges = true
-        defer { isApplyingChanges = false }
 
         await storagePolicyManager.applyPolicy(for: library)
         await refreshStats()

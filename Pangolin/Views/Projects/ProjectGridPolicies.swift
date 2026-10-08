@@ -296,44 +296,6 @@ enum ProjectVideoSelectionPolicy {
     }
 }
 
-enum ProjectVideoGridLayout {
-    static let spacing: CGFloat = ProjectGridLayout.spacing
-    static let minimumRegularCardWidth: CGFloat = 180
-
-    static func columnCount(availableWidth: CGFloat, isCompact: Bool) -> Int {
-        guard !isCompact else { return 2 }
-        return max(2, Int((availableWidth + spacing) / (minimumRegularCardWidth + spacing)))
-    }
-
-    static func regularColumns(availableWidth: CGFloat) -> [GridItem] {
-        Array(
-            repeating: GridItem(.flexible(), spacing: spacing),
-            count: columnCount(availableWidth: availableWidth, isCompact: false)
-        )
-    }
-}
-
-enum IOSProjectVideoCollectionInteraction: Equatable {
-    case open(UUID)
-    case selecting(Set<UUID>)
-}
-
-enum IOSProjectVideoCollectionPolicy {
-    static func interaction(
-        for id: UUID,
-        selection: Set<UUID>,
-        isEditing: Bool
-    ) -> IOSProjectVideoCollectionInteraction {
-        guard isEditing else { return .open(id) }
-
-        var next = selection
-        if !next.insert(id).inserted {
-            next.remove(id)
-        }
-        return .selecting(next)
-    }
-}
-
 enum ProjectRenamePolicy {
     static func savedTitle(draft: String, current: String) -> String? {
         let trimmedTitle = draft.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -342,72 +304,7 @@ enum ProjectRenamePolicy {
     }
 }
 
-enum ProjectGridLayout {
+/// Spacing for a project's page.
+enum ProjectPageLayout {
     static let contentPadding: CGFloat = 28
-    static let spacing: CGFloat = 28
-    static let minimumRegularCardWidth: CGFloat = 220
-    static let compactColumnCount = 2
-    static let minimumRegularColumnCount = 2
-    static let cardAspectRatio: CGFloat = 5.0 / 3.0
-
-    static func columnCount(availableWidth: CGFloat, isCompact: Bool) -> Int {
-        guard !isCompact else { return compactColumnCount }
-
-        let fittedColumnCount = Int(
-            (availableWidth + spacing) / (minimumRegularCardWidth + spacing)
-        )
-        return max(minimumRegularColumnCount, fittedColumnCount)
-    }
 }
-
-/// Pure arrow-key navigation math for the projects grid: index movement with
-/// clamping at the grid edges and the partial last row.
-enum ProjectGridFocusPolicy {
-    enum Direction: Equatable {
-        case up
-        case down
-        case left
-        case right
-    }
-
-    static func nextIndex(
-        from currentIndex: Int,
-        columnCount: Int,
-        itemCount: Int,
-        direction: Direction
-    ) -> Int? {
-        guard itemCount > 0 else { return nil }
-        guard currentIndex >= 0, currentIndex < itemCount else { return nil }
-
-        let columns = max(1, columnCount)
-        switch direction {
-        case .left:
-            return max(0, currentIndex - 1)
-        case .right:
-            return min(itemCount - 1, currentIndex + 1)
-        case .up:
-            return max(0, currentIndex - columns)
-        case .down:
-            return min(itemCount - 1, currentIndex + columns)
-        }
-    }
-}
-
-#if os(macOS)
-extension ProjectGridFocusPolicy.Direction {
-    init(_ direction: MoveCommandDirection) {
-        switch direction {
-        case .up:
-            self = .up
-        case .down:
-            self = .down
-        case .left:
-            self = .left
-        case .right:
-            self = .right
-        @unknown default:
-            self = .right
-        }
-    }
-}
-#endif

@@ -9,14 +9,24 @@ enum SmartCollectionKind: String, CaseIterable, Identifiable, Hashable {
 
     var id: String { rawValue }
 
+    /// The collections the sidebar lists, in order. Downloads holds videos fetched from URLs,
+    /// which only the Mac can do, so iOS does not list it.
+    static var sidebarCases: [SmartCollectionKind] {
+        #if os(macOS)
+        [.allVideos, .favorites, .recent, .downloads]
+        #else
+        [.allVideos, .favorites, .recent]
+        #endif
+    }
+
     var title: String {
         switch self {
         case .allVideos:
             return "All videos"
         case .recent:
-            return "Recent"
+            return "Recents"
         case .favorites:
-            return "Favorites"
+            return "Favourites"
         case .downloads:
             return "Downloads"
         }
@@ -25,7 +35,7 @@ enum SmartCollectionKind: String, CaseIterable, Identifiable, Hashable {
     var sidebarIcon: String {
         switch self {
         case .allVideos:
-            return "video"
+            return "list.bullet"
         case .recent:
             return "clock"
         case .favorites:

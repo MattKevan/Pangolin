@@ -80,154 +80,6 @@ struct ProjectsStoreTests {
         ) == nil)
     }
 
-    @Test("Mac project collection keeps native selection and activation scoped to visible videos")
-    func macProjectVideoCollectionPolicy() {
-        let first = UUID()
-        let second = UUID()
-        let hidden = UUID()
-
-        #expect(MacProjectVideoCollectionPolicy.reconciledSelection(
-            [first, hidden],
-            visibleIDs: [first, second]
-        ) == [first])
-        #expect(MacProjectVideoCollectionPolicy.returnActivationID(
-            selection: [first],
-            visibleIDs: [first, second]
-        ) == first)
-        #expect(MacProjectVideoCollectionPolicy.returnActivationID(
-            selection: [first, second],
-            visibleIDs: [first, second]
-        ) == nil)
-        #expect(MacProjectVideoCollectionPolicy.doubleClickActivationID(
-            clickedID: second,
-            selection: [second],
-            visibleIDs: [first, second]
-        ) == second)
-        #expect(MacProjectVideoCollectionPolicy.doubleClickActivationID(
-            clickedID: second,
-            selection: [first],
-            visibleIDs: [first, second]
-        ) == nil)
-
-        #expect(MacProjectVideoCollectionPolicy.contextSelection(
-            clickedID: second,
-            selection: [first, second],
-            visibleIDs: [first, second]
-        ) == [first, second])
-        #expect(MacProjectVideoCollectionPolicy.contextSelection(
-            clickedID: second,
-            selection: [first],
-            visibleIDs: [first, second]
-        ) == [second])
-        #expect(MacProjectVideoCollectionPolicy.contextOpenID(
-            clickedID: second,
-            selection: [first, second],
-            visibleIDs: [first, second]
-        ) == nil)
-        #expect(MacProjectVideoCollectionPolicy.contextOpenID(
-            clickedID: second,
-            selection: [first],
-            visibleIDs: [first, second]
-        ) == second)
-    }
-
-    @Test("Mac collection item sizes stay positive before the document view is laid out")
-    func macProjectVideoCollectionItemSizingHandlesZeroWidth() {
-        let size = MacProjectVideoCollectionLayout.itemSize(containerWidth: 0)
-
-        #expect(size.width > 0)
-        #expect(size.height > size.width)
-    }
-
-    #if os(macOS)
-    @Test("Mac collection item keeps its layout-owned view while card content changes")
-    @MainActor
-    func macProjectVideoCollectionItemKeepsStableView() async throws {
-        let (manager, context, tempRoot) = try await makeLibraryContext()
-        defer { try? FileManager.default.removeItem(at: tempRoot) }
-
-        let library = try requireLibrary(from: manager)
-        let project = try makeFolder(named: "Stable Cell", in: context, parent: nil, library: library)
-        let video = try makeVideo(
-            title: "Lesson",
-            thumbnailData: nil,
-            in: context,
-            folder: project,
-            library: library
-        )
-        let item = MacProjectVideoCollectionItem()
-        item.loadView()
-        let layoutOwnedView = item.view
-
-        item.configure(video: video, onOpen: { _ in }, onSelect: {})
-        #expect(item.view === layoutOwnedView)
-        layoutOwnedView.frame = NSRect(x: 0, y: 0, width: 320, height: 240)
-        layoutOwnedView.layoutSubtreeIfNeeded()
-        #expect(layoutOwnedView.hitTest(NSPoint(x: 160, y: 120)) === layoutOwnedView)
-
-        let collectionView = ProjectVideoMouseRecordingCollectionView()
-        collectionView.addSubview(layoutOwnedView)
-        let event = try #require(NSEvent.mouseEvent(
-            with: .leftMouseDown,
-            location: NSPoint(x: 160, y: 120),
-            modifierFlags: [],
-            timestamp: 0,
-            windowNumber: 0,
-            context: nil,
-            eventNumber: 0,
-            clickCount: 1,
-            pressure: 1
-        ))
-        layoutOwnedView.mouseDown(with: event)
-        #expect(collectionView.mouseDownCount == 1)
-
-        item.isSelected = true
-        #expect(item.view === layoutOwnedView)
-
-        await manager.closeCurrentLibrary()
-    }
-    #endif
-
-    @Test("Shared project video grid expands with the available macOS width")
-    func projectVideoGridUsesResponsiveColumnsOnMac() {
-        #expect(ProjectVideoGridLayout.regularColumns(availableWidth: 420).count == 2)
-        #expect(ProjectVideoGridLayout.regularColumns(availableWidth: 1_300).count == 6)
-    }
-
-    @Test("Project video grid keeps two columns in compact and regular layouts")
-    func projectVideoGridColumnPolicyKeepsMinimumOfTwoColumns() {
-        #expect(ProjectVideoGridLayout.columnCount(availableWidth: 300, isCompact: true) == 2)
-        #expect(ProjectVideoGridLayout.columnCount(availableWidth: 300, isCompact: false) == 2)
-        #expect(ProjectVideoGridLayout.columnCount(availableWidth: 800, isCompact: false) > 2)
-    }
-
-    @Test("Project video grid creates explicit flexible regular columns")
-    func projectVideoGridRegularColumnsMatchLayoutPolicy() {
-        #expect(ProjectVideoGridLayout.regularColumns(availableWidth: 300).count == 2)
-        #expect(ProjectVideoGridLayout.regularColumns(availableWidth: 840).count == 4)
-    }
-
-    @Test("Native iOS project collection opens outside editing and selects while editing")
-    func nativeIOSProjectCollectionInteractionPolicy() {
-        let id = UUID()
-
-        #expect(IOSProjectVideoCollectionPolicy.interaction(
-            for: id,
-            selection: [],
-            isEditing: false
-        ) == .open(id))
-        #expect(IOSProjectVideoCollectionPolicy.interaction(
-            for: id,
-            selection: [],
-            isEditing: true
-        ) == .selecting([id]))
-        #expect(IOSProjectVideoCollectionPolicy.interaction(
-            for: id,
-            selection: [id],
-            isEditing: true
-        ) == .selecting([]))
-    }
-
     @Test("Project video activation requires one visible selection")
     func projectGridActivationRequiresExactlyOneVisibleSelection() {
         let first = UUID()
@@ -261,18 +113,87 @@ struct ProjectsStoreTests {
         #expect(ProjectVideoSelectionPolicy.backgroundSelection() == [])
     }
 
-    @Test("Projects becomes the default destination on startup")
+    @Test("On iPhone the projects list is the default destination on startup")
     @MainActor
-    func projectsIsDefaultStartupDestination() async throws {
+    func projectsListIsDefaultStartupDestinationOnPhone() async throws {
         let (manager, _, tempRoot) = try await makeLibraryContext()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
 
-        let store = FolderNavigationStore(libraryManager: manager)
+        let store = FolderNavigationStore(libraryManager: manager, home: .projectsList)
 
         #expect(store.selectedSidebarItem == .projects)
-        #expect(store.currentDetailSurface == .projectsGrid)
+        #expect(store.currentDetailSurface == .projectsList)
 
         await manager.closeCurrentLibrary()
+    }
+
+    @Test("On Mac and iPad All videos is the default destination on startup")
+    @MainActor
+    func allVideosIsDefaultStartupDestinationWithSidebar() async throws {
+        let (manager, _, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let store = FolderNavigationStore(libraryManager: manager, home: .allVideos)
+
+        #expect(store.selectedSidebarItem == .smartCollection(.allVideos))
+        #expect(store.currentDetailSurface == .smartCollectionTable(.allVideos))
+
+        await manager.closeCurrentLibrary()
+    }
+
+    @Test("With a sidebar a project page has no back button")
+    @MainActor
+    func projectPageHasNoBackButtonWithSidebar() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
+        try context.save()
+
+        let sidebarStore = FolderNavigationStore(libraryManager: manager, home: .allVideos)
+        sidebarStore.openProject(project)
+        #expect(sidebarStore.currentDetailSurface == .projectDetail)
+        #expect(!sidebarStore.showsProjectBackButton)
+
+        let phoneStore = FolderNavigationStore(libraryManager: manager, home: .projectsList)
+        phoneStore.openProject(project)
+        #expect(phoneStore.showsProjectBackButton)
+
+        await manager.closeCurrentLibrary()
+    }
+
+    @Test("Deleting the open project returns to the home destination")
+    @MainActor
+    func deletingTheOpenProjectGoesHome() async throws {
+        let (manager, context, tempRoot) = try await makeLibraryContext()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let library = try requireLibrary(from: manager)
+        let project = try makeFolder(named: "Course", in: context, parent: nil, library: library)
+        let projectID = try #require(project.id)
+        try context.save()
+
+        let sidebarStore = FolderNavigationStore(libraryManager: manager, home: .allVideos)
+        sidebarStore.openProject(project)
+        let deleted = await sidebarStore.deleteItems([projectID])
+
+        #expect(deleted)
+        #expect(sidebarStore.selectedProject == nil)
+        #expect(sidebarStore.selectedSidebarItem == .smartCollection(.allVideos))
+
+        await manager.closeCurrentLibrary()
+    }
+
+    @Test("The sidebar lists All videos, Favourites and Recents, and Downloads only on Mac")
+    func sidebarCollections() {
+        #if os(macOS)
+        #expect(SmartCollectionKind.sidebarCases == [.allVideos, .favorites, .recent, .downloads])
+        #else
+        #expect(SmartCollectionKind.sidebarCases == [.allVideos, .favorites, .recent])
+        #endif
+        #expect(SmartCollectionKind.favorites.title == "Favourites")
+        #expect(SmartCollectionKind.recent.title == "Recents")
     }
 
     @Test("Projects query only returns top-level non-smart folders")
@@ -1133,7 +1054,7 @@ struct ProjectsStoreTests {
         let store = FolderNavigationStore(libraryManager: manager)
 
         store.selectProjects()
-        #expect(store.currentDetailSurface == .projectsGrid)
+        #expect(store.currentDetailSurface == .projectsList)
 
         store.openProject(project)
         #expect(store.selectedSidebarItem == .projects)

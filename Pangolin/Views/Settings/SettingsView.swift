@@ -12,8 +12,13 @@ struct SettingsView: View {
                 .tabItem {
                     Label("Storage", systemImage: "externaldrive.badge.icloud")
                 }
+
+            TranscriptionSettingsPane()
+                .tabItem {
+                    Label("Transcription", systemImage: "text.bubble")
+                }
         }
-        .frame(minWidth: 520, minHeight: 320)
+        .frame(minWidth: 520, minHeight: 360)
     }
 }
 

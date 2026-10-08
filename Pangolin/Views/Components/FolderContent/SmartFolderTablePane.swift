@@ -11,9 +11,20 @@ struct SmartCollectionTablePane: View {
     @State private var selectedVideoIDs: Set<UUID> = []
     @State private var suppressedProgrammaticSelection: Set<UUID>?
 
+    private var showsHeader: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom != .phone
+        #else
+        true
+        #endif
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            SmartCollectionHeader(title: title)
+            // The iPhone already shows the collection's name as its large navigation title.
+            if showsHeader {
+                SmartCollectionHeader(title: title)
+            }
 
             Group {
                 if videos.isEmpty {
