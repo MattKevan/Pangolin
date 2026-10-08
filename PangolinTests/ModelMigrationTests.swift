@@ -98,9 +98,6 @@ struct ModelMigrationTests {
         #expect(library.maxLocalVideoCacheBytes == 3 * 1024 * 1024 * 1024)
         #expect(!library.changedValues().keys.contains("maxLocalVideoCacheBytes"))
 
-        if let id = library.id {
-            UserDefaults.standard.removeObject(forKey: "maxLocalVideoCacheBytes.\(id.uuidString)")
-        }
         await manager.closeCurrentLibrary()
     }
 }

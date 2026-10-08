@@ -306,7 +306,7 @@ extension ProcessingQueueManager {
             throw FileSystemError.fileNotFound
         }
         let preferredLocale: Locale? = {
-            if let id = task.preferredLocaleIdentifier {
+            if let id = task.preferredLocaleIdentifier ?? videoPagePreferences.transcriptionLocaleIdentifier {
                 return Locale(identifier: id)
             }
             return nil

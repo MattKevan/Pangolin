@@ -31,7 +31,7 @@ struct StorageSettingsPane: View {
     var body: some View {
         Form {
             if let library = currentLibrary {
-                Section("Video Storage") {
+                Section("Video Storage on This Device") {
                     Picker("Storage Mode", selection: $selectedPreference) {
                         ForEach(LibraryStoragePreference.allCases) { mode in
                             Text(mode.title).tag(mode)
@@ -147,13 +147,6 @@ struct StorageSettingsPane: View {
                         }
                     }
                     .disabled(isRetryingTransfers || transferIssueCounts.total == 0)
-
-                    Button("Apply Settings") {
-                        Task {
-                            await persistAndApply()
-                        }
-                    }
-                    .disabled(isApplyingChanges || storagePolicyManager.isApplyingPolicy)
                 }
             } else {
                 ContentUnavailableView(
@@ -223,7 +216,6 @@ struct StorageSettingsPane: View {
         library.storagePreference = selectedPreference
         library.maxLocalCacheGB = cacheLimitGB
 
-        await libraryManager.save()
         await storagePolicyManager.applyPolicy(for: library)
         await refreshStats()
     }

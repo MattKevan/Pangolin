@@ -57,6 +57,10 @@ targets:
           - Pangolin-macOS.entitlements
       - path: Pangolin.icon
         buildPhase: resources
+      - path: Settings.bundle
+        buildPhase: resources
+        destinationFilters:
+          - iOS
     dependencies:
       - package: MarkdownUI
       - sdk: CloudKit.framework

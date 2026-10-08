@@ -7,26 +7,13 @@ import UIKit
 #endif
 
 struct TranscriptionControlsInspectorPane: View {
-    private enum InputMode: String, CaseIterable, Identifiable {
-        case autoDetect
-        case manual
-
-        var id: String { rawValue }
-    }
-
     @Environment(LibraryManager.self) private var libraryManager: LibraryManager
     @ObservedObject var video: Video
     private let processingQueueManager = ProcessingQueueManager.shared
 
-    @AppStorage(VideoPagePreferences.autoTranslateEnabledKey)
-    private var autoTranslateEnabled = true
-
     @AppStorage(VideoPagePreferences.preferredTranslationLocaleIdentifierKey)
     private var preferredTranslationLocaleIdentifier = ""
 
-    @State private var inputMode: InputMode = .autoDetect
-    @State private var inputSelection: Locale? = nil
-    @State private var transcriptionLocales: [Locale] = []
     @State private var translationLocales: [Locale] = []
 
     var body: some View {
@@ -34,78 +21,20 @@ struct TranscriptionControlsInspectorPane: View {
             Text("Transcript")
                 .font(.headline)
 
-            transcriptionLanguageSection
-            autoTranslateSection
+            languageStatus
             progressSection
             actionButtons
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: video.id) {
-            await refreshControls(for: video.transcriptLanguage)
+            await refreshControls()
         }
     }
 
-    private var transcriptionLanguageSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Language")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Picker("", selection: $inputMode) {
-                Text("Auto-detect language").tag(InputMode.autoDetect)
-                Text("Select language").tag(InputMode.manual)
-            }
-            #if os(macOS)
-            .pickerStyle(.radioGroup)
-            #endif
-            .labelsHidden()
-
-            if inputMode == .manual {
-                localeMenu(
-                    title: inputSelectionLabel,
-                    locales: transcriptionLocales,
-                    selection: inputSelection
-                ) { inputSelection = $0 }
-            } else {
-                Text(autoDetectStatusLabel)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var autoTranslateSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Toggle(isOn: $autoTranslateEnabled) {
-                HStack(spacing: 6) {
-                    Text("Auto-translate")
-                    Image(systemName: "info.circle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    #if os(macOS)
-                        .help("Automatically translates newly transcribed videos when their language differs from the system language.")
-                    #endif
-                }
-            }
-
-            Divider()
-
-            HStack {
-                Text("Language")
-                    .foregroundStyle(.secondary)
-                Spacer()
-                localeMenu(
-                    title: preferredTranslationLocaleTitle,
-                    locales: translationLocales,
-                    selection: preferredTranslationLocale
-                ) { locale in
-                    preferredTranslationLocaleIdentifier = locale.identifier
-                }
-                .frame(maxWidth: 220)
-            }
-        }
-        .padding(12)
-        .pangolinGlassRoundedRect(cornerRadius: 16)
+    private var languageStatus: some View {
+        Text(autoDetectStatusLabel)
+            .font(.caption)
+            .foregroundStyle(.secondary)
     }
 
     @ViewBuilder
@@ -126,7 +55,6 @@ struct TranscriptionControlsInspectorPane: View {
             Button {
                 processingQueueManager.enqueueTranscription(
                     for: [video],
-                    preferredLocale: selectedPreferredLocale,
                     force: true
                 )
             } label: {
@@ -175,68 +103,17 @@ struct TranscriptionControlsInspectorPane: View {
         }
     }
 
-    private func localeMenu(
-        title: String,
-        locales: [Locale],
-        selection: Locale?,
-        onSelect: @escaping (Locale) -> Void
-    ) -> some View {
-        Menu {
-            ForEach(sortedLocales(locales), id: \.identifier) { locale in
-                Button {
-                    onSelect(locale)
-                } label: {
-                    HStack {
-                        Text(displayName(for: locale))
-                        Spacer()
-                        if selection?.identifier == locale.identifier {
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
-            }
-        } label: {
-            HStack {
-                Text(title)
-                Spacer()
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .pangolinGlassRoundedRect(cornerRadius: 12, interactive: true)
-        }
-        .disabled(locales.isEmpty)
-    }
-
-    private func sortedLocales(_ locales: [Locale]) -> [Locale] {
-        locales.sorted { displayName(for: $0) < displayName(for: $1) }
-    }
-
     private func displayName(for locale: Locale) -> String {
         Locale.current.localizedString(forIdentifier: locale.identifier) ?? locale.identifier
-    }
-
-    private var selectedPreferredLocale: Locale? {
-        inputMode == .manual ? inputSelection : nil
-    }
-
-    private var inputSelectionLabel: String {
-        if let inputSelection {
-            return displayName(for: inputSelection)
-        }
-        return "Choose language"
     }
 
     private var autoDetectStatusLabel: String {
         guard let detectedIdentifier = video.transcriptLanguage,
               !detectedIdentifier.isEmpty else {
-            return "Language will be detected automatically for this video."
+            return "Language not detected yet. Change the default in Settings."
         }
 
-        return "Detected for this video: \(Locale.current.localizedString(forIdentifier: detectedIdentifier) ?? detectedIdentifier)"
+        return "Language: \(Locale.current.localizedString(forIdentifier: detectedIdentifier) ?? detectedIdentifier)"
     }
 
     private var preferredTranslationLocale: Locale? {
@@ -254,11 +131,7 @@ struct TranscriptionControlsInspectorPane: View {
     }
 
     private var canStartTranscription: Bool {
-        guard !isTranscriptionActive else { return false }
-        if inputMode == .manual {
-            return inputSelection != nil && !transcriptionLocales.isEmpty
-        }
-        return true
+        !isTranscriptionActive
     }
 
     private var canStartTranslation: Bool {
@@ -336,37 +209,14 @@ struct TranscriptionControlsInspectorPane: View {
         return identifier.split(whereSeparator: { $0 == "-" || $0 == "_" }).first.map { String($0).lowercased() }
     }
 
-    private func refreshControls(for transcriptLanguageIdentifier: String?) async {
+    private func refreshControls() async {
         let locales = await Array(SpeechTranscriber.supportedLocales)
-        let resolvedSelection: Locale? = await {
-            guard let transcriptLanguageIdentifier, !transcriptLanguageIdentifier.isEmpty else {
-                return nil
-            }
-
-            if let matched = locales.first(where: { $0.identifier == transcriptLanguageIdentifier }) {
-                return matched
-            }
-
-            if let equivalent = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: transcriptLanguageIdentifier)),
-               locales.contains(where: { $0.identifier == equivalent.identifier }) {
-                return equivalent
-            }
-
-            return nil
-        }()
-
-        let resolvedTranslationLocale: Locale? = {
-            let preferences = VideoPagePreferences()
-            return preferences.resolvedPreferredTranslationLocale(from: locales, systemLocale: .current)
-        }()
+        let resolved = VideoPagePreferences().resolvedPreferredTranslationLocale(from: locales, systemLocale: .current)
 
         await MainActor.run {
-            transcriptionLocales = locales
             translationLocales = locales
-            inputMode = .autoDetect
-            inputSelection = resolvedSelection ?? locales.first
-            if let resolvedTranslationLocale {
-                preferredTranslationLocaleIdentifier = resolvedTranslationLocale.identifier
+            if let resolved {
+                preferredTranslationLocaleIdentifier = resolved.identifier
             }
         }
     }

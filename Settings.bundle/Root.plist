@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>StringsTable</key>
+	<string>Root</string>
+	<key>PreferenceSpecifiers</key>
+	<array>
+		<dict>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+			<key>Title</key>
+			<string>Video Storage on This iPhone</string>
+			<key>FooterText</key>
+			<string>Offload to iCloud keeps recent videos on this device and stores the rest in iCloud.</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSMultiValueSpecifier</string>
+			<key>Title</key>
+			<string>Storage Mode</string>
+			<key>Key</key>
+			<string>storageMode</string>
+			<key>DefaultValue</key>
+			<string>optimize_storage</string>
+			<key>Values</key>
+			<array>
+				<string>optimize_storage</string>
+				<string>keep_all_downloaded</string>
+			</array>
+			<key>Titles</key>
+			<array>
+				<string>Offload to iCloud</string>
+				<string>Keep All Downloaded</string>
+			</array>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSMultiValueSpecifier</string>
+			<key>Title</key>
+			<string>Max Local Cache</string>
+			<key>Key</key>
+			<string>cacheLimitGB</string>
+			<key>DefaultValue</key>
+			<integer>10</integer>
+			<key>Values</key>
+			<array>
+				<integer>5</integer>
+				<integer>10</integer>
+				<integer>25</integer>
+				<integer>50</integer>
+				<integer>100</integer>
+				<integer>250</integer>
+			</array>
+			<key>Titles</key>
+			<array>
+				<string>5 GB</string>
+				<string>10 GB</string>
+				<string>25 GB</string>
+				<string>50 GB</string>
+				<string>100 GB</string>
+				<string>250 GB</string>
+			</array>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+			<key>Title</key>
+			<string>Upload Optimisation</string>
+			<key>FooterText</key>
+			<string>How imported videos are re-encoded before they upload.</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSMultiValueSpecifier</string>
+			<key>Title</key>
+			<string>Before Upload</string>
+			<key>Key</key>
+			<string>uploadOptimization</string>
+			<key>DefaultValue</key>
+			<string>original</string>
+			<key>Values</key>
+			<array>
+				<string>original</string>
+				<string>small</string>
+				<string>balanced</string>
+				<string>highQuality</string>
+				<string>maximumCompatibility</string>
+			</array>
+			<key>Titles</key>
+			<array>
+				<string>Keep Originals</string>
+				<string>Small (720p)</string>
+				<string>Balanced (1080p HEVC)</string>
+				<string>High Quality (4K HEVC)</string>
+				<string>Maximum Compatibility (1080p H.264)</string>
+			</array>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+			<key>Title</key>
+			<string>Transcription</string>
+			<key>FooterText</key>
+			<string>Videos already in your language are not translated.</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Title</key>
+			<string>Translate New Transcripts</string>
+			<key>Key</key>
+			<string>videoPageAutoTranslateEnabled</string>
+			<key>DefaultValue</key>
+			<true/>
+		</dict>
+	</array>
+</dict>
+</plist>
